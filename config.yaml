@@ -1,0 +1,150 @@
+# ────────────────────────────────────────────────
+# 자동 자산 배분 시스템 설정
+# ────────────────────────────────────────────────
+
+# 레짐 감지용 시장 데이터 (yfinance)
+signal:
+  tickers: ["SPY", "^VIX", "TLT", "HYG"]
+  lookback_days: 130          # 모멘텀 6M 계산에 필요한 최소 거래일
+
+# KIS 계좌 정의
+# auth.yaml 의 acc_no 키와 매핑됨
+accounts:
+  KRW_1:
+    acc_no: "64378890-01"
+    currency: KRW
+  KRW_2:
+    acc_no: "64521213-01"
+    currency: KRW
+  USD:
+    acc_no: "64378890-01"   # KRW_1과 동일 계좌 — USD 포지션 전용
+    currency: USD
+
+# 투자 유니버스
+# exec_account: 해당 종목 주문을 실행할 계좌 (accounts 키 중 하나)
+# currency: 주문 통화
+# asset_class: 자산군 분류 (표시 목적)
+universe:
+  "379800":
+    name: "KODEX S&P500"
+    currency: KRW
+    exec_account: KRW_1
+    asset_class: equity_etf
+  "379810":
+    name: "KODEX 나스닥100"
+    currency: KRW
+    exec_account: KRW_2
+    asset_class: equity_etf
+  "069500":
+    name: "KODEX 200"
+    currency: KRW
+    exec_account: KRW_1
+    asset_class: equity_etf
+  "305080":
+    name: "TIGER 미국채10년"
+    currency: KRW
+    exec_account: KRW_2
+    asset_class: bond_long
+  "411060":
+    name: "ACE KRX금현물"
+    currency: KRW
+    exec_account: KRW_1
+    asset_class: gold
+  "469830":
+    name: "SOL 초단기채권"
+    currency: KRW
+    exec_account: KRW_2
+    asset_class: cash
+  "TSLA":
+    name: "Tesla"
+    currency: USD
+    exec_account: USD
+    asset_class: equity_individual
+  "PLTR":
+    name: "Palantir"
+    currency: USD
+    exec_account: USD
+    asset_class: equity_individual
+  "IEF":
+    name: "iShares 7-10Y Treasury"
+    currency: USD
+    exec_account: USD
+    asset_class: bond_mid
+  "SHY":
+    name: "iShares 1-3Y Treasury"
+    currency: USD
+    exec_account: USD
+    asset_class: bond_short
+  "TLT":
+    name: "iShares 20Y+ Treasury"
+    currency: USD
+    exec_account: USD
+    asset_class: bond_long
+
+# 레짐별 목표 비중 (전체 자산 기준, 합계 ~1.0)
+# 나머지는 각 계좌 현금으로 보유
+regime_weights:
+  Risk-On:
+    "379800": 0.38
+    "379810": 0.22
+    "069500": 0.10
+    "305080": 0.05
+    "411060": 0.08
+    "469830": 0.05
+    "TSLA":   0.04
+    "PLTR":   0.07
+    "IEF":    0.00
+    "SHY":    0.00
+    "TLT":    0.01
+
+  Neutral:
+    "379800": 0.28
+    "379810": 0.15
+    "069500": 0.07
+    "305080": 0.10
+    "411060": 0.10
+    "469830": 0.05
+    "TSLA":   0.04
+    "PLTR":   0.07
+    "IEF":    0.07
+    "SHY":    0.00
+    "TLT":    0.07
+
+  Risk-Off:
+    "379800": 0.20
+    "379810": 0.08
+    "069500": 0.00
+    "305080": 0.20
+    "411060": 0.18
+    "469830": 0.11
+    "TSLA":   0.04
+    "PLTR":   0.07
+    "IEF":    0.08
+    "SHY":    0.00
+    "TLT":    0.04
+
+  High-Vol:
+    "379800": 0.18
+    "379810": 0.06
+    "069500": 0.00
+    "305080": 0.20
+    "411060": 0.18
+    "469830": 0.15
+    "TSLA":   0.03
+    "PLTR":   0.05
+    "IEF":    0.08
+    "SHY":    0.07
+    "TLT":    0.00
+
+# 리밸런싱 파라미터
+rebalancing:
+  drift_threshold: 0.05     # 5%p 이탈 시 리밸런싱 트리거
+  min_order_krw: 10000      # 최소 주문 금액 (KRW 환산)
+  usd_krw_fallback: 1380.0  # 환율 API 실패 시 폴백
+
+# 리스크 제어
+risk:
+  drawdown_thresholds:
+    mild:     -0.10   # 비중 × 0.8
+    moderate: -0.20   # 비중 × 0.5
+    severe:   -0.30   # 비중 × 0.0 (전량 현금화)

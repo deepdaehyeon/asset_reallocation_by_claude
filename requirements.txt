@@ -1,0 +1,7 @@
+python-dotenv==1.0.1
+pandas==2.2.2
+numpy>=1.26
+pyyaml==6.0.2
+yfinance>=0.2.40
+python-kis==2.0.3
+slack-sdk>=3.19

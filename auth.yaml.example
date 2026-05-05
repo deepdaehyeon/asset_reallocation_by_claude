@@ -1,0 +1,12 @@
+# auth.yaml — 실제 인증 정보 (git에 커밋하지 말 것)
+# 이 파일을 auth.yaml 로 복사하고 실제 값을 채워 넣으세요.
+
+"64378890-01":
+  id: "YOUR_KIS_ID"
+  appkey: "YOUR_APP_KEY"
+  secretkey: "YOUR_SECRET_KEY"
+
+"64521213-01":
+  id: "YOUR_KIS_ID"
+  appkey: "YOUR_APP_KEY_2"
+  secretkey: "YOUR_SECRET_KEY_2"
