@@ -91,3 +91,6 @@ _최종 갱신: 2026-05-05_
 - [x] 유니버스/orphan 분리 비중 계산
 - [x] 매도 우선 주문 실행 (Phase 4 일부)
 - [x] 직전 고점 기반 드로우다운 추적 (state.json)
+- [x] **T+2 결제 지연 대응: Pre-Funding Buffer** — 469830·SHY 항상 ≥7% 유지, 버퍼로 즉시 매수 집행
+- [x] **T+2 결제 지연 대응: Synthetic Exposure** — USD 매수 지연 시 KRW 동등 자산으로 임시 노출 유지
+- [x] **SettlementTracker** — pending_sells / deferred_buys state.json 영속화

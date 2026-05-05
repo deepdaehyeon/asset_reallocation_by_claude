@@ -2,7 +2,8 @@
 자동 자산 배분 시스템 진입점.
 
 파이프라인:
-  fetch → features → regime → target_weights → risk_controls → rebalance
+  fetch → features → regime → target_weights → risk_controls
+  → settlement_check → synthetic_reallocation → rebalance → save_state
 """
 import argparse
 import sys
@@ -72,12 +73,47 @@ def main() -> None:
 
         # ④ 목표 비중 로드
         print("[4] 목표 비중 산출 중...")
-        from portfolio import get_target_weights, apply_risk_controls
+        from portfolio import (
+            get_target_weights,
+            apply_risk_controls,
+            enforce_buffer_floor,
+            apply_synthetic_reallocation,
+        )
 
         target_weights = get_target_weights(regime, config)
 
-        # ⑤ 포트폴리오 현황 조회
-        print("[5] 계좌 잔고 조회 중...")
+        # ⑤ 결제 상태 점검 (T+2 추적 + 지연 매수 대기열 확인)
+        print("[5] 결제 상태 점검 중...")
+        from executor import load_state, save_state
+        from settlement import SettlementTracker
+
+        settlement_cfg = config.get("settlement", {})
+        buffer_tickers: list = settlement_cfg.get("buffer_tickers", [])
+        buffer_min: float = settlement_cfg.get("buffer_min", 0.07)
+        synthetic_pairs: dict = settlement_cfg.get("synthetic_pairs", {})
+
+        if args.dry_run:
+            tracker = SettlementTracker({})
+            prev_deferred: list = []
+        else:
+            state = load_state()
+            tracker = SettlementTracker(state)
+            purged = tracker.purge_settled()
+            prev_deferred = tracker.get_deferred()
+            tracker.clear_deferred()
+
+            if purged:
+                print(f"    결제 완료 {purged}건 정리")
+            pending_krw = tracker.pending_krw()
+            if pending_krw > 0:
+                print(f"    미결제 매도 대금: {pending_krw:,.0f}원 (T+2 대기 중)")
+            if prev_deferred:
+                print(f"    이전 지연 매수 {len(prev_deferred)}건 → 합성 노출 반영 예정")
+                for d in prev_deferred:
+                    print(f"      {d['ticker']} {d['amount_krw']:,.0f}원 ({d['currency']})")
+
+        # ⑥ 계좌 잔고 조회
+        print("[6] 계좌 잔고 조회 중...")
         if args.dry_run:
             total_krw, current_weights, drawdown = 0.0, {}, 0.0
             print("    [dry-run] 계좌 조회 생략")
@@ -90,10 +126,20 @@ def main() -> None:
             print(f"    유니버스 기준 자산: {universe_total:,.0f} 원")
             print(f"    드로우다운        : {drawdown:+.2%}")
 
-        # ⑥ 리스크 제어 적용
-        print("[6] 리스크 제어 적용 중...")
+        # ⑦ 리스크 제어 + 버퍼 플로어 + 합성 노출 적용
+        print("[7] 리스크 제어 적용 중...")
         risk_thresholds = config["risk"]["drawdown_thresholds"]
         target_weights = apply_risk_controls(target_weights, drawdown, risk_thresholds)
+
+        if buffer_tickers:
+            target_weights = enforce_buffer_floor(target_weights, buffer_tickers, buffer_min)
+            print(f"    버퍼 플로어 적용: {'+'.join(buffer_tickers)} ≥ {buffer_min:.0%}")
+
+        if prev_deferred and synthetic_pairs and total_krw > 0:
+            print("    합성 노출 적용 중 (지연 USD 매수 → KRW 동등 자산):")
+            target_weights = apply_synthetic_reallocation(
+                target_weights, prev_deferred, synthetic_pairs, total_krw
+            )
 
         # 목표 비중 출력
         print("    목표 비중:")
@@ -104,22 +150,32 @@ def main() -> None:
                 sign = "▲" if diff > 0.005 else ("▼" if diff < -0.005 else " ")
                 print(f"      {sign} {ticker:<8} target:{w:.1%}  current:{cur:.1%}")
 
-        # ⑦ 리밸런싱 실행
-        print("[7] 리밸런싱 실행...")
+        # ⑧ 리밸런싱 실행
+        print("[8] 리밸런싱 실행...")
         if args.dry_run:
             print("    [dry-run] 주문 생략")
             return
 
-        if not args.dry_run:
-            messenger.send_start(regime, features)
+        messenger.send_start(regime, features)
 
         threshold = config["rebalancing"]["drift_threshold"]
-        order_log = rebalancer.rebalance(
+        order_log, new_deferred = rebalancer.rebalance(
             current_weights=current_weights,
             target_weights=target_weights,
             total_value_krw=total_krw,
             threshold=threshold,
+            tracker=tracker,
         )
+
+        # 지연 매수 저장 + state 갱신
+        for d in new_deferred:
+            tracker.add_deferred(d["ticker"], d["amount_krw"], d["currency"])
+        state = load_state()
+        state.update(tracker.to_dict())
+        save_state(state)
+
+        if new_deferred:
+            print(f"    지연 매수 {len(new_deferred)}건 저장 → 다음 실행 시 합성 노출 반영")
 
         messenger.send_complete(
             regime=regime,
@@ -128,6 +184,8 @@ def main() -> None:
             target_weights=target_weights,
             current_weights=current_weights,
             order_log=order_log,
+            deferred_buys=new_deferred,
+            pending_sells=tracker.pending_summary(),
         )
 
         print("━" * 50)

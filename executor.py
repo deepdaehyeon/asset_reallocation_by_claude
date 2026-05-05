@@ -10,6 +10,7 @@ import yaml
 
 from portfolio import compute_drift
 from messenger import Messenger
+from settlement import SettlementTracker
 
 # 시장 코드 → 통화 매핑 (pykis stock.market 값 기준)
 MARKET_TO_CURRENCY: Dict[str, str] = {
@@ -24,16 +25,16 @@ MARKET_TO_CURRENCY: Dict[str, str] = {
 STATE_FILE = Path(__file__).parent / "state.json"
 
 
-def _load_state() -> dict:
+def load_state() -> dict:
     if STATE_FILE.exists():
         with open(STATE_FILE) as f:
             return json.load(f)
     return {"peak_krw": 0.0}
 
 
-def _save_state(state: dict) -> None:
+def save_state(state: dict) -> None:
     with open(STATE_FILE, "w") as f:
-        json.dump(state, f)
+        json.dump(state, f, ensure_ascii=False, indent=2)
 
 
 def _adjust_tick(price: float, currency: str) -> float:
@@ -175,10 +176,10 @@ class KisRebalancer:
 
         # 드로우다운은 전체 자산(orphan 포함)으로 계산
         total_krw = sum(holdings_krw.values()) + total_cash_krw
-        state = _load_state()
-        peak = max(state["peak_krw"], total_krw)
+        state = load_state()
+        peak = max(state.get("peak_krw", 0.0), total_krw)
         state["peak_krw"] = peak
-        _save_state(state)
+        save_state(state)
         drawdown = (total_krw / peak - 1.0) if peak > 0 else 0.0
 
         # 반환값 total은 universe_total_krw — _build_orders의 주문 금액 계산 기준
@@ -194,30 +195,87 @@ class KisRebalancer:
         target_weights: Dict[str, float],
         total_value_krw: float,
         threshold: float,
-    ) -> List[str]:
+        tracker: Optional[SettlementTracker] = None,
+    ) -> Tuple[List[str], List[dict]]:
         """
         drift가 threshold를 초과할 때만 리밸런싱을 실행한다.
-        sell 먼저, buy 나중 순서로 주문한다.
-        주문 결과 문자열 리스트를 반환한다.
+
+        버퍼 잔여분 내 매수는 즉시 실행하고,
+        버퍼를 초과하는 매수는 deferred_buys로 반환한다.
+
+        Returns:
+            (order_log, deferred_buys)
+            deferred_buys: [{ticker, amount_krw, currency}, ...]
         """
         drift = compute_drift(current_weights, target_weights)
         print(f"총 drift: {drift*100:.1f}%  (임계값: {threshold*100:.0f}%)")
 
         if drift < threshold:
             print("→ 리밸런싱 불필요")
-            return []
+            return [], []
 
-        orders = self._build_orders(current_weights, target_weights, total_value_krw)
-        # 매도 우선 (amount < 0 이 앞에 오도록 정렬)
-        orders.sort(key=lambda x: x[2])
+        all_orders = self._build_orders(current_weights, target_weights, total_value_krw)
 
-        print(f"→ 주문 {len(orders)}건 실행")
+        buffer_tickers = self.config.get("settlement", {}).get("buffer_tickers", [])
+        if tracker and buffer_tickers:
+            immediate, deferred = self._split_buy_orders(
+                all_orders, current_weights, total_value_krw, buffer_tickers
+            )
+        else:
+            immediate, deferred = all_orders, []
+
+        # 매도 우선 정렬
+        immediate.sort(key=lambda x: x[2])
+
+        sell_cnt = sum(1 for _, _, a in immediate if a < 0)
+        buy_cnt = sum(1 for _, _, a in immediate if a > 0)
+        print(f"→ 즉시 실행 {len(immediate)}건 (매도 {sell_cnt}, 매수 {buy_cnt}), 지연 매수 {len(deferred)}건")
+
         order_log: List[str] = []
-        for ticker, currency, amount_diff_krw in orders:
+        for ticker, currency, amount_diff_krw in immediate:
             result = self._execute_order(ticker, currency, amount_diff_krw)
             if result:
                 order_log.append(result)
-        return order_log
+                if tracker and amount_diff_krw < 0:
+                    tracker.record_sell(ticker, abs(amount_diff_krw), currency)
+
+        return order_log, deferred
+
+    def _split_buy_orders(
+        self,
+        orders: List[Tuple[str, str, float]],
+        current_weights: Dict[str, float],
+        total_krw: float,
+        buffer_tickers: List[str],
+    ) -> Tuple[List[Tuple[str, str, float]], List[dict]]:
+        """
+        매수 주문을 버퍼 여유 내 즉시 실행과 지연 실행으로 분류한다.
+
+        현재 버퍼 자산(469830·SHY) 평가금액을 즉시 가용 예산으로 사용.
+        큰 매수부터 greedy하게 할당한다.
+        """
+        sells = [(t, c, a) for t, c, a in orders if a < 0]
+        buys = [(t, c, a) for t, c, a in orders if a > 0]
+
+        # 현재 버퍼 가용액 (KRW 환산)
+        buffer_available = sum(current_weights.get(bt, 0.0) for bt in buffer_tickers) * total_krw
+
+        immediate = list(sells)
+        deferred: List[dict] = []
+        used = 0.0
+
+        for ticker, currency, amount in sorted(buys, key=lambda x: -abs(x[2])):
+            buy_krw = abs(amount)
+            if used + buy_krw <= buffer_available:
+                immediate.append((ticker, currency, amount))
+                used += buy_krw
+            else:
+                deferred.append({"ticker": ticker, "amount_krw": buy_krw, "currency": currency})
+
+        if deferred:
+            print(f"    버퍼 가용액: {buffer_available:,.0f}원 / 전체 매수: {sum(abs(a) for _,_,a in buys):,.0f}원")
+
+        return immediate, deferred
 
     def _build_orders(
         self,

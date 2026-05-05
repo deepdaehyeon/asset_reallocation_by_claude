@@ -1,7 +1,7 @@
 """Slack 알림 모듈."""
 import os
 import traceback
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import slack_sdk
 
@@ -41,6 +41,8 @@ class Messenger:
         target_weights: Dict[str, float],
         current_weights: Dict[str, float],
         order_log: List[str],
+        deferred_buys: Optional[List[dict]] = None,
+        pending_sells: Optional[List[str]] = None,
     ) -> None:
         weight_lines = "\n".join(
             f">   {ticker:<8} {current_weights.get(ticker, 0):.1%} → {w:.1%}"
@@ -48,11 +50,27 @@ class Messenger:
             if w > 0
         )
         orders = "\n".join(f">   {line}" for line in order_log) if order_log else ">   변경 없음"
+
+        deferred_section = ""
+        if deferred_buys:
+            lines = "\n".join(
+                f">   :hourglass: {d['ticker']} {d['amount_krw']:,.0f}원 ({d['currency']}) — T+2 대기"
+                for d in deferred_buys
+            )
+            deferred_section = f"\n*지연 매수 (합성 노출로 대체):*\n{lines}"
+
+        pending_section = ""
+        if pending_sells:
+            lines = "\n".join(f">   {s}" for s in pending_sells)
+            pending_section = f"\n*미결제 매도 (결제 대기):*\n{lines}"
+
         text = (
             f":white_check_mark: *리밸런싱 완료*\n"
             f"> 레짐: `{regime}` | 자산: {total_krw:,.0f}원 | DD: {drawdown:+.1%}\n"
             f"*비중 변화:*\n{weight_lines}\n"
             f"*주문 내역:*\n{orders}"
+            f"{deferred_section}"
+            f"{pending_section}"
         )
         self._send(text, mention=True)
 

@@ -148,3 +148,21 @@ risk:
     mild:     -0.10   # 비중 × 0.8
     moderate: -0.20   # 비중 × 0.5
     severe:   -0.30   # 비중 × 0.0 (전량 현금화)
+
+# T+2 결제 지연 대응 (Pre-Funding Buffer + Synthetic Exposure)
+settlement:
+  # 실행 버퍼: 레짐에 관계없이 최소 비중을 보장하는 즉시 가용 자산
+  # 매도 전 이 자산들을 먼저 사용해 매수를 즉시 집행하고,
+  # 매도 결제(T+2) 이후 버퍼를 복구한다.
+  buffer_tickers: ["469830", "SHY"]
+  buffer_min: 0.07              # 전체 자산 대비 최소 7% 항상 유지
+
+  # 합성 노출: USD 매수가 결제 지연으로 실행되지 못할 때
+  # KRW 동등 자산을 임시로 매수해 "비어있는 시간"을 제거한다.
+  # 다음 실행에서 USD 매수가 성공하면 KRW 합성 자산은 자동으로 정리된다.
+  synthetic_pairs:
+    "IEF":  "305080"    # iShares 7-10Y Treasury → TIGER 미국채10년 (KRW)
+    "TLT":  "305080"    # iShares 20Y+ Treasury  → TIGER 미국채10년 (KRW)
+    "SHY":  "469830"    # iShares 1-3Y Treasury  → SOL 초단기채권 (KRW)
+    "TSLA": "379800"    # Tesla                  → KODEX S&P500 (KRW)
+    "PLTR": "379810"    # Palantir               → KODEX 나스닥100 (KRW)
