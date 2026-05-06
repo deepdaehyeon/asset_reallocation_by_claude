@@ -5,3 +5,5 @@ pyyaml==6.0.2
 yfinance>=0.2.40
 python-kis==2.0.3
 slack-sdk>=3.19
+fastapi>=0.111.0
+uvicorn[standard]>=0.30.0

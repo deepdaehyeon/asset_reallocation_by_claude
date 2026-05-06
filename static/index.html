@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>자산 배분 시스템</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+:root{
+  --bg:#0d0d12;--card:#16161f;--card2:#1e1e2a;--border:#252535;
+  --text:#e0e0f0;--muted:#6b6b88;--accent:#6272ea;
+  --green:#3dd68c;--red:#f07070;--yellow:#f0c060;--orange:#f09060;
+  --blue:#70a0f0;
+}
+html{background:var(--bg)}
+body{
+  background:var(--bg);color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  font-size:14px;min-height:100vh;padding-bottom:32px;
+}
+
+/* ── 헤더 ── */
+.header{
+  background:var(--card);border-bottom:1px solid var(--border);
+  padding:14px 16px;position:sticky;top:0;z-index:100;
+  display:flex;align-items:center;justify-content:space-between;
+}
+.header-left h1{font-size:15px;font-weight:700;letter-spacing:-0.3px}
+.header-left .sub{font-size:11px;color:var(--muted);margin-top:1px}
+.running-badge{
+  display:flex;align-items:center;gap:6px;
+  font-size:11px;color:var(--yellow);
+  background:rgba(240,192,96,0.1);
+  border:1px solid rgba(240,192,96,0.25);
+  padding:4px 10px;border-radius:20px;
+}
+.dot{
+  width:7px;height:7px;border-radius:50%;
+  background:var(--green);display:inline-block;
+  animation:blink 2s ease-in-out infinite;
+}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.4}}
+.spinner{
+  width:13px;height:13px;border:2px solid rgba(240,192,96,.3);
+  border-top-color:var(--yellow);border-radius:50%;
+  animation:spin .7s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── 레이아웃 ── */
+.main{max-width:500px;margin:0 auto;padding:12px;display:flex;flex-direction:column;gap:10px}
+
+/* ── 카드 ── */
+.card{
+  background:var(--card);border:1px solid var(--border);
+  border-radius:14px;padding:15px;
+}
+.card-title{
+  font-size:10px;font-weight:700;text-transform:uppercase;
+  letter-spacing:.8px;color:var(--muted);margin-bottom:12px;
+  display:flex;justify-content:space-between;align-items:center;
+}
+
+/* ── 상태 그리드 ── */
+.state-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.state-item{
+  background:var(--card2);border-radius:10px;padding:10px 8px;text-align:center;
+}
+.state-item .s-label{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+.state-item .s-value{font-size:15px;font-weight:700;margin-top:3px;font-variant-numeric:tabular-nums}
+
+/* ── 레짐 영역 ── */
+.regime-center{text-align:center;margin-bottom:10px}
+.regime-badge{
+  display:inline-flex;align-items:center;justify-content:center;
+  padding:7px 20px;border-radius:24px;font-size:15px;font-weight:800;
+  letter-spacing:.5px;
+}
+.r-riskon {background:rgba(61,214,140,.12);color:var(--green);border:1px solid rgba(61,214,140,.3)}
+.r-riskoff{background:rgba(240,144,96,.12);color:var(--orange);border:1px solid rgba(240,144,96,.3)}
+.r-highvol{background:rgba(240,112,112,.12);color:var(--red);border:1px solid rgba(240,112,112,.3)}
+.r-neutral {background:rgba(98,114,234,.12);color:var(--accent);border:1px solid rgba(98,114,234,.3)}
+
+/* ── 메트릭 그리드 ── */
+.metrics-grid{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-top:10px}
+.metric{background:var(--card2);border-radius:9px;padding:10px 11px}
+.m-label{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+.m-value{font-size:17px;font-weight:700;margin-top:3px;font-variant-numeric:tabular-nums}
+.pos{color:var(--green)}.neg{color:var(--red)}.neu{color:var(--text)}
+
+/* ── 비중 테이블 ── */
+.wtable{width:100%;border-collapse:collapse;font-size:12px;margin-top:2px}
+.wtable th{
+  text-align:left;padding:4px 6px;color:var(--muted);
+  font-size:9px;text-transform:uppercase;border-bottom:1px solid var(--border);
+}
+.wtable td{padding:6px 6px;border-bottom:1px solid rgba(37,37,53,.7)}
+.wtable tr:last-child td{border-bottom:none}
+.ticker-cell{font-family:'SF Mono','Fira Code',monospace;font-weight:700;font-size:12px}
+.name-cell{color:var(--muted);font-size:10px}
+.pct-cell{font-weight:700;font-size:13px;text-align:right}
+.bar-cell{width:64px}
+.wbar{height:4px;background:var(--accent);border-radius:2px;min-width:2px}
+
+/* ── 버튼 ── */
+.btn-group{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.btn-full{grid-column:1/-1}
+.btn{
+  padding:13px 10px;border-radius:11px;border:none;font-size:13px;
+  font-weight:700;cursor:pointer;font-family:inherit;
+  display:flex;align-items:center;justify-content:center;gap:7px;
+  transition:filter .15s, transform .1s;
+  -webkit-user-select:none;user-select:none;
+}
+.btn:active{transform:scale(.96)}
+.btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
+.btn-ghost{background:var(--card2);color:var(--text)}
+.btn-accent{background:var(--accent);color:#fff}
+.btn-danger{
+  background:rgba(240,112,112,.15);color:var(--red);
+  border:1px solid rgba(240,112,112,.3);
+}
+
+/* ── 로그 터미널 ── */
+.terminal{
+  background:#080810;border:1px solid var(--border);
+  border-radius:10px;padding:12px;
+  font-family:'SF Mono','Fira Code','Menlo',monospace;
+  font-size:11px;line-height:1.65;color:#90e890;
+  height:280px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;
+}
+.t-err{color:var(--red)}.t-done{color:var(--green);font-weight:700}
+.t-sep{color:var(--muted)}
+.clear-btn{
+  background:none;border:none;color:var(--muted);
+  font-size:11px;cursor:pointer;font-family:inherit;padding:2px;
+}
+.clear-btn:hover{color:var(--text)}
+
+/* ── 모달 ── */
+.overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,.75);
+  display:flex;align-items:center;justify-content:center;
+  z-index:200;padding:20px;
+}
+.modal{
+  background:var(--card);border:1px solid var(--border);
+  border-radius:18px;padding:24px;width:100%;max-width:360px;
+}
+.modal h3{font-size:16px;font-weight:700;margin-bottom:8px}
+.modal p{color:var(--muted);font-size:13px;line-height:1.5;margin-bottom:20px}
+.modal-btns{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.hidden{display:none!important}
+
+/* ── 플레이스홀더 ── */
+.placeholder{color:var(--muted);font-size:12px;line-height:1.6}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-left">
+    <h1><span class="dot"></span> 자산 배분 시스템</h1>
+    <div class="sub" id="last-update">로딩 중...</div>
+  </div>
+  <div id="running-indicator" class="running-badge hidden">
+    <div class="spinner"></div>실행 중
+  </div>
+</div>
+
+<div class="main">
+
+  <!-- 시스템 상태 -->
+  <div class="card">
+    <div class="card-title">시스템 상태</div>
+    <div class="state-grid">
+      <div class="state-item">
+        <div class="s-label">고점 자산</div>
+        <div class="s-value" id="peak-krw">—</div>
+      </div>
+      <div class="state-item">
+        <div class="s-label">미결제 매도</div>
+        <div class="s-value" id="pending-sells">—</div>
+      </div>
+      <div class="state-item">
+        <div class="s-label">지연 매수</div>
+        <div class="s-value" id="deferred-buys">—</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 레짐 분석 -->
+  <div class="card">
+    <div class="card-title">레짐 분석</div>
+    <div id="regime-content">
+      <div class="placeholder">
+        아래 "레짐 조회" 버튼을 눌러 현재 시장 상황을 분석합니다.<br>
+        (yfinance 데이터 수집 — 약 10초 소요)
+      </div>
+    </div>
+  </div>
+
+  <!-- 목표 비중 (레짐 조회 후 표시) -->
+  <div class="card hidden" id="weights-card">
+    <div class="card-title">목표 비중 <span id="regime-label-small" style="color:var(--accent);text-transform:none;letter-spacing:0;font-size:11px;font-weight:600"></span></div>
+    <table class="wtable">
+      <thead><tr>
+        <th>티커</th><th>종목명</th><th style="text-align:right">비중</th><th></th>
+      </tr></thead>
+      <tbody id="weights-tbody"></tbody>
+    </table>
+  </div>
+
+  <!-- 실행 버튼 -->
+  <div class="card">
+    <div class="card-title">실행 제어</div>
+    <div class="btn-group">
+      <button class="btn btn-ghost" id="btn-regime" onclick="fetchRegime()">
+        📊 레짐 조회
+      </button>
+      <button class="btn btn-ghost" id="btn-dryrun" onclick="runPipeline(true)">
+        🔍 Dry Run
+      </button>
+      <button class="btn btn-danger btn-full" id="btn-rebalance" onclick="showModal()">
+        ⚡ 리밸런싱 실행
+      </button>
+    </div>
+  </div>
+
+  <!-- 실행 로그 -->
+  <div class="card">
+    <div class="card-title">
+      실행 로그
+      <button class="clear-btn" onclick="clearLog()">지우기</button>
+    </div>
+    <div class="terminal" id="terminal">— 로그가 여기에 표시됩니다 —</div>
+  </div>
+
+</div>
+
+<!-- 리밸런싱 확인 모달 -->
+<div class="overlay hidden" id="modal" onclick="closeModal(event)">
+  <div class="modal">
+    <h3>⚡ 리밸런싱 실행</h3>
+    <p>실제 매수/매도 주문이 KIS 계좌에 실행됩니다.<br>계속하시겠습니까?</p>
+    <div class="modal-btns">
+      <button class="btn btn-ghost" onclick="hideModal()">취소</button>
+      <button class="btn btn-danger" onclick="runPipeline(false)">실행</button>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+let configData = null;
+let ws = null;
+
+// ── 초기화 ──────────────────────────────────────────────
+
+async function init() {
+  await Promise.all([loadState(), loadConfig()]);
+  setLastUpdate('페이지 로드');
+}
+
+async function loadState() {
+  try {
+    const s = await fetch('/api/state').then(r => r.json());
+    el('peak-krw').textContent  = s.peak_krw ? fmtKRW(s.peak_krw) : '—';
+    el('pending-sells').textContent = (s.pending_sells?.length ?? '—') + (s.pending_sells ? '건' : '');
+    el('deferred-buys').textContent = (s.deferred_buys?.length ?? '—') + (s.deferred_buys ? '건' : '');
+  } catch(e) { console.warn('state load:', e); }
+}
+
+async function loadConfig() {
+  try {
+    configData = await fetch('/api/config').then(r => r.json());
+  } catch(e) { console.warn('config load:', e); }
+}
+
+// ── 레짐 조회 ───────────────────────────────────────────
+
+async function fetchRegime() {
+  setBtns(false);
+  el('btn-regime').innerHTML = '<div class="spinner" style="border-color:rgba(255,255,255,.2);border-top-color:#fff"></div>조회 중…';
+  el('regime-content').innerHTML = '<div class="placeholder">시장 데이터 수집 중… (약 10초 소요)</div>';
+  el('weights-card').classList.add('hidden');
+
+  try {
+    const data = await fetch('/api/regime').then(r => {
+      if (!r.ok) return r.text().then(t => { throw new Error(t) });
+      return r.json();
+    });
+    renderRegime(data.regime, data.features);
+    renderWeights(data.regime);
+    setLastUpdate('레짐 조회');
+  } catch(e) {
+    el('regime-content').innerHTML = `<div class="placeholder" style="color:var(--red)">오류: ${e.message}</div>`;
+  } finally {
+    setBtns(true);
+    el('btn-regime').innerHTML = '📊 레짐 조회';
+  }
+}
+
+const REGIME_CLASS = {
+  'Risk-On':  'r-riskon',
+  'Risk-Off': 'r-riskoff',
+  'High-Vol': 'r-highvol',
+  'Neutral':  'r-neutral',
+};
+
+function renderRegime(regime, f) {
+  const cls = REGIME_CLASS[regime] ?? 'r-neutral';
+  el('regime-content').innerHTML = `
+    <div class="regime-center">
+      <div class="regime-badge ${cls}">${regime}</div>
+    </div>
+    <div class="metrics-grid">
+      ${metric('모멘텀 1M',     f.momentum_1m,   'pct', true)}
+      ${metric('모멘텀 3M',     f.momentum_3m,   'pct', true)}
+      ${metric('실현 변동성',   f.realized_vol,  'pct', false)}
+      ${metric('VIX',          f.vix,           'num', false)}
+      ${metric('크레딧 신호',   f.credit_signal, 'pct', true)}
+    </div>`;
+}
+
+function metric(label, val, type, signed) {
+  let txt, cls;
+  if (type === 'pct') {
+    txt = (val >= 0 ? '+' : '') + (val * 100).toFixed(2) + '%';
+    cls = signed ? (val > 0.001 ? 'pos' : val < -0.001 ? 'neg' : 'neu') : 'neu';
+  } else {
+    txt = val.toFixed(1);
+    cls = 'neu';
+  }
+  return `<div class="metric"><div class="m-label">${label}</div><div class="m-value ${cls}">${txt}</div></div>`;
+}
+
+function renderWeights(regime) {
+  if (!configData) return;
+  const weights = configData.regime_weights[regime];
+  const universe = configData.universe;
+  if (!weights) return;
+
+  const rows = Object.entries(weights)
+    .filter(([, w]) => w > 0)
+    .sort(([, a], [, b]) => b - a);
+
+  el('weights-tbody').innerHTML = rows.map(([ticker, w]) => {
+    const name = universe[ticker]?.name ?? '';
+    const pct = (w * 100).toFixed(0);
+    return `<tr>
+      <td class="ticker-cell">${ticker}</td>
+      <td class="name-cell">${name}</td>
+      <td class="pct-cell">${pct}%</td>
+      <td class="bar-cell"><div class="wbar" style="width:${pct}%"></div></td>
+    </tr>`;
+  }).join('');
+
+  el('regime-label-small').textContent = `(${regime})`;
+  el('weights-card').classList.remove('hidden');
+}
+
+// ── 파이프라인 실행 ─────────────────────────────────────
+
+function showModal() {
+  el('modal').classList.remove('hidden');
+}
+function hideModal() {
+  el('modal').classList.add('hidden');
+}
+function closeModal(e) {
+  if (e.target === el('modal')) hideModal();
+}
+
+function runPipeline(dryRun) {
+  hideModal();
+
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    appendLog('[ERROR] 이미 실행 중입니다.\n', 'err');
+    return;
+  }
+
+  el('terminal').textContent = '';
+  appendLog(`━━━ ${dryRun ? 'Dry Run' : '리밸런싱'} 시작 ━━━\n`, 'sep');
+
+  setRunning(true);
+
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  ws = new WebSocket(`${proto}//${location.host}/ws/run${dryRun ? '?dry_run=true' : ''}`);
+
+  ws.onmessage = (e) => {
+    const t = e.data;
+    if (t.startsWith('[DONE]'))  { appendLog(t, 'done'); loadState(); }
+    else if (t.startsWith('[ERROR]')) appendLog(t, 'err');
+    else                          appendLog(t);
+  };
+
+  ws.onerror = () => {
+    appendLog('[ERROR] WebSocket 연결 오류\n', 'err');
+    setRunning(false);
+  };
+
+  ws.onclose = () => {
+    setRunning(false);
+    setLastUpdate(dryRun ? 'Dry Run' : '리밸런싱');
+    ws = null;
+  };
+}
+
+function appendLog(text, type) {
+  const t = el('terminal');
+  const span = document.createElement('span');
+  if (type === 'err')  span.className = 't-err';
+  if (type === 'done') span.className = 't-done';
+  if (type === 'sep')  span.className = 't-sep';
+  span.textContent = text;
+  t.appendChild(span);
+  t.scrollTop = t.scrollHeight;
+}
+
+function clearLog() {
+  el('terminal').textContent = '— 로그가 여기에 표시됩니다 —';
+}
+
+// ── UI 상태 ─────────────────────────────────────────────
+
+const ALL_BTNS = ['btn-regime', 'btn-dryrun', 'btn-rebalance'];
+
+function setBtns(enabled) {
+  ALL_BTNS.forEach(id => el(id).disabled = !enabled);
+}
+
+function setRunning(on) {
+  el('running-indicator').classList.toggle('hidden', !on);
+  setBtns(!on);
+}
+
+function setLastUpdate(action) {
+  const t = new Date().toLocaleTimeString('ko-KR', {hour:'2-digit', minute:'2-digit'});
+  el('last-update').textContent = `마지막: ${action} — ${t}`;
+}
+
+// ── 유틸 ────────────────────────────────────────────────
+
+function el(id) { return document.getElementById(id); }
+
+function fmtKRW(n) {
+  if (n >= 1e8) return (n / 1e8).toFixed(1) + '억';
+  if (n >= 1e4) return Math.round(n / 1e4) + '만';
+  return Math.round(n).toLocaleString();
+}
+
+document.addEventListener('keydown', e => { if (e.key === 'Escape') hideModal(); });
+
+init();
+</script>
+</body>
+</html>
