@@ -2,8 +2,10 @@
 자동 자산 배분 시스템 진입점.
 
 파이프라인:
-  fetch → features → regime → target_weights → risk_controls
-  → settlement_check → synthetic_reallocation → rebalance → save_state
+  fetch → features → regime → blend_probs → blend_targets
+  → vol_targeting → class_caps → (usd_weights, krw_weights)
+  → risk_controls → settlement_check → synthetic_reallocation
+  → rebalance → save_state
 """
 import argparse
 import sys
@@ -16,24 +18,13 @@ from messenger import Messenger
 
 BASE_DIR = Path(__file__).parent
 
-# ── 실행 모드 ──────────────────────────────────────────────────────────────
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="자산 배분 자동화 시스템")
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="주문 없이 레짐/비중만 출력",
-    )
-    parser.add_argument(
-        "--config",
-        default=str(BASE_DIR / "config.yaml"),
-        help="설정 파일 경로",
-    )
+    parser.add_argument("--dry-run", action="store_true", help="주문 없이 레짐/비중만 출력")
+    parser.add_argument("--config", default=str(BASE_DIR / "config.yaml"))
     return parser.parse_args()
 
-
-# ── 메인 파이프라인 ────────────────────────────────────────────────────────
 
 def main() -> None:
     args = parse_args()
@@ -46,7 +37,7 @@ def main() -> None:
     state = load_state()
 
     try:
-        # ① 시장 데이터 수집 (HMM용 확장 lookback 포함)
+        # ① 시장 데이터 수집
         print("━" * 50)
         print("[1] 시장 데이터 수집 중...")
         from fetcher import fetch_signal_prices, fetch_fred_data
@@ -63,12 +54,11 @@ def main() -> None:
         )
         print(f"    수집 기간  : {len(prices)}일")
 
-        # FRED 데이터 조회 (API 키 있을 때만, 없으면 빈 dict)
         fred_data = fetch_fred_data()
         if fred_data:
             print(f"    FRED 조회  : {', '.join(fred_data.keys())}")
 
-        # ② 피처 계산 (현재 시점 기준, FRED 연동)
+        # ② 피처 계산
         print("[2] 피처 계산 중...")
         from features import compute_features, compute_feature_matrix
 
@@ -83,18 +73,16 @@ def main() -> None:
         if "curve_10y2y" in features:
             print(f"    10Y-2Y 커브 : {features['curve_10y2y']:+.2f}% (FRED)")
 
-        # ③ 레짐 감지 (규칙 기반 + HMM 앙상블 + 신뢰도 + 히스테리시스 필터)
+        # ③ 레짐 감지 + Continuous Exposure 확률 구성
         print("[3] 레짐 감지 중...")
         from regime import (
-            detect_regime, RegimeFilter,
+            detect_regime, RegimeFilter, REGIMES,
             HmmRegimeClassifier, ensemble_regime,
             compute_rule_confidence,
         )
 
-        # 규칙 기반
         rule_regime = detect_regime(features)
 
-        # HMM 앙상블
         hmm_min = hmm_cfg.get("min_samples", 100)
         override_thr = hmm_cfg.get("override_threshold", 0.60)
         feature_matrix = compute_feature_matrix(prices)
@@ -133,7 +121,7 @@ def main() -> None:
 
         state["last_run_confidence"] = round(combined_conf, 4)
 
-        # 신뢰도 미달 → Neutral 폴백
+        # 신뢰도 미달 → Neutral 폴백 (표시·알림 목적)
         conf_threshold = config.get("regime_filter", {}).get("confidence_threshold", 0.40)
         if raw_regime != "Neutral" and combined_conf < conf_threshold:
             print(
@@ -142,7 +130,7 @@ def main() -> None:
             )
             raw_regime = "Neutral"
 
-        # 히스테리시스 필터
+        # 히스테리시스 필터 (표시·알림·state용 confirmed_regime)
         old_confirmed = state.get("confirmed_regime")
         regime_filter = RegimeFilter(state, config)
         regime = regime_filter.update(raw_regime)
@@ -160,19 +148,82 @@ def main() -> None:
         else:
             print(f"    → 레짐: {regime}")
 
-        # ④ 목표 비중 로드
-        print("[4] 목표 비중 산출 중...")
+        # Continuous Exposure용 레짐 확률 구성
+        # HMM 확률이 있으면 직접 사용, 없으면 confirmed_regime 단일 확률
+        if hmm_probs:
+            blend_probs = dict(hmm_probs)
+        else:
+            blend_probs = {r: (1.0 if r == regime else 0.0) for r in REGIMES}
+
+        print(
+            "    연속 노출  : "
+            + " / ".join(
+                f"{r} {blend_probs.get(r, 0):.0%}"
+                for r in REGIMES
+                if blend_probs.get(r, 0) >= 0.05
+            )
+        )
+
+        # ④ 계좌 잔고 조회
+        print("[4] 계좌 잔고 조회 중...")
+        if args.dry_run:
+            total_krw = total_usd_krw = total_krw_only = 0.0
+            current_weights: dict = {}
+            drawdown = 0.0
+            print("    [dry-run] 계좌 조회 생략")
+        else:
+            from executor import KisRebalancer
+
+            rebalancer = KisRebalancer(config, messenger=messenger)
+            total_krw, total_usd_krw, total_krw_only, current_weights, drawdown = (
+                rebalancer.get_portfolio_state()
+            )
+            usd_ratio = total_usd_krw / total_krw * 100 if total_krw else 0
+            krw_ratio_pct = total_krw_only / total_krw * 100 if total_krw else 0
+            print(f"    총 자산 (유니버스): {total_krw:,.0f} 원")
+            print(f"    USD 계좌          : {total_usd_krw:,.0f} 원 ({usd_ratio:.1f}%)")
+            print(f"    KRW 계좌          : {total_krw_only:,.0f} 원 ({krw_ratio_pct:.1f}%)")
+            print(f"    드로우다운        : {drawdown:+.2%}")
+            state["last_drawdown"] = round(drawdown, 4)
+            state["last_total_krw"] = float(total_krw)
+
+        # ⑤ 목표 비중 산출
+        # Continuous Exposure: 레짐 확률 가중 평균 → vol targeting → class caps → 계좌별 비중
+        print("[5] 목표 비중 산출 중...")
         from portfolio import (
-            get_target_weights,
+            blend_regime_targets,
+            apply_vol_targeting,
+            apply_class_caps,
+            derive_account_weights,
+            merge_to_total_weights,
             apply_risk_controls,
             enforce_buffer_floor,
             apply_synthetic_reallocation,
         )
 
-        target_weights = get_target_weights(regime, config)
+        # 5-a: 레짐 확률 가중 평균 (Discrete → Continuous)
+        blended_targets = blend_regime_targets(blend_probs, config)
+        cls_str = "  ".join(
+            f"{k}:{v:.0%}" for k, v in sorted(blended_targets.items(), key=lambda x: -x[1])
+            if v >= 0.005
+        )
+        print(f"    [블렌딩] {cls_str}")
 
-        # ⑤ 결제 상태 점검 (T+2 추적 + 지연 매수 대기열 확인)
-        print("[5] 결제 상태 점검 중...")
+        # 5-b: 변동성 타겟팅 (rvol > target_vol → equity 비중 자동 축소)
+        blended_targets = apply_vol_targeting(blended_targets, features["realized_vol"], config)
+
+        # 5-c: 자산군 최대 비중 상한 (DBMF ≤10%, equity_individual ≤12% 등)
+        class_max = config.get("class_max_weight", {})
+        if class_max:
+            blended_targets = apply_class_caps(blended_targets, class_max)
+
+        # 5-d: 계좌별 종목 비중으로 변환
+        target_usd, target_krw = derive_account_weights(
+            blended_targets, config, total_usd_krw, total_krw_only
+        )
+
+        # ⑥ 결제 상태 점검
+        print("[6] 결제 상태 점검 중...")
         from settlement import SettlementTracker
 
         settlement_cfg = config.get("settlement", {})
@@ -199,45 +250,85 @@ def main() -> None:
                 for d in prev_deferred:
                     print(f"      {d['ticker']} {d['amount_krw']:,.0f}원 ({d['currency']})")
 
-        # ⑥ 계좌 잔고 조회
-        print("[6] 계좌 잔고 조회 중...")
-        if args.dry_run:
-            total_krw, current_weights, drawdown = 0.0, {}, 0.0
-            print("    [dry-run] 계좌 조회 생략")
-        else:
-            from executor import KisRebalancer
-
-            rebalancer = KisRebalancer(config, messenger=messenger)
-            universe_total, current_weights, drawdown = rebalancer.get_portfolio_state()
-            total_krw = universe_total  # orphan은 이미 경고 출력됨
-            print(f"    유니버스 기준 자산: {universe_total:,.0f} 원")
-            print(f"    드로우다운        : {drawdown:+.2%}")
-            state["last_drawdown"] = round(drawdown, 4)
-            state["last_total_krw"] = float(total_krw)
-
-        # ⑦ 리스크 제어 + 버퍼 플로어 + 합성 노출 적용
+        # ⑦ 리스크 제어 + 버퍼 플로어 + 합성 노출
         print("[7] 리스크 제어 적용 중...")
         risk_thresholds = config["risk"]["drawdown_thresholds"]
-        target_weights = apply_risk_controls(target_weights, drawdown, risk_thresholds)
+
+        # equity 종목 집합 (계좌별 분리)
+        equity_classes = set(
+            config["risk"].get(
+                "equity_asset_classes",
+                ["equity_etf", "equity_factor", "equity_individual"],
+            )
+        )
+        equity_tickers_all = {
+            t for t, meta in config["universe"].items()
+            if meta["asset_class"] in equity_classes
+        }
+        usd_equity = equity_tickers_all & set(target_usd.keys())
+        krw_equity = equity_tickers_all & set(target_krw.keys())
+
+        target_usd = apply_risk_controls(target_usd, drawdown, risk_thresholds, usd_equity)
+        target_krw = apply_risk_controls(target_krw, drawdown, risk_thresholds, krw_equity)
+
+        # 드로우다운 레벨 출력
+        if drawdown <= risk_thresholds["severe"]:
+            print(f"    ⚠ SEVERE 드로우다운 ({drawdown:.1%}): equity → 0 (채권·금 유지)")
+        elif drawdown <= risk_thresholds["moderate"]:
+            print(f"    ⚠ MODERATE 드로우다운 ({drawdown:.1%}): equity ×0.40")
+        elif drawdown <= risk_thresholds["mild"]:
+            print(f"    ⚠ MILD 드로우다운 ({drawdown:.1%}): equity ×0.75")
 
         if buffer_tickers:
-            target_weights = enforce_buffer_floor(target_weights, buffer_tickers, buffer_min)
-            print(f"    버퍼 플로어 적용: {'+'.join(buffer_tickers)} ≥ {buffer_min:.0%}")
+            target_krw = enforce_buffer_floor(target_krw, buffer_tickers, buffer_min)
+            print(f"    버퍼 플로어 적용: {'+'.join(buffer_tickers)} ≥ {buffer_min:.0%} (KRW 계좌 기준)")
 
-        if prev_deferred and synthetic_pairs and total_krw > 0:
+        if prev_deferred and synthetic_pairs and total_krw_only > 0:
             print("    합성 노출 적용 중 (지연 USD 매수 → KRW 동등 자산):")
-            target_weights = apply_synthetic_reallocation(
-                target_weights, prev_deferred, synthetic_pairs, total_krw
+            target_krw = apply_synthetic_reallocation(
+                target_krw, prev_deferred, synthetic_pairs, total_krw_only
             )
 
         # 목표 비중 출력
-        print("    목표 비중:")
-        for ticker, w in sorted(target_weights.items(), key=lambda x: -x[1]):
+        merged_target = merge_to_total_weights(
+            target_usd, target_krw, total_usd_krw, total_krw_only
+        )
+
+        usd_r = (
+            total_usd_krw / (total_usd_krw + total_krw_only)
+            if (total_usd_krw + total_krw_only) > 0 else 0.30
+        )
+        equity_frac = sum(
+            merged_target.get(t, 0)
+            for t in ("379800", "379810", "TSLA", "PLTR", "VTV", "USMV")
+        )
+        factor_frac  = sum(merged_target.get(t, 0) for t in ("VTV", "USMV"))
+        comm_frac    = merged_target.get("DBC", 0)
+        mf_frac      = merged_target.get("DBMF", 0)
+        bond_frac    = sum(merged_target.get(t, 0) for t in ("IEF", "SHY", "305080"))
+        gold_frac    = merged_target.get("411060", 0)
+        cash_frac    = merged_target.get("469830", 0)
+        print(
+            f"    [계좌비율 USD:{usd_r:.0%} KRW:{1-usd_r:.0%}]  "
+            f"EQ:{equity_frac:.0%}(팩터{factor_frac:.0%}) "
+            f"CM:{comm_frac:.0%} MF:{mf_frac:.0%} "
+            f"BD:{bond_frac:.0%} AU:{gold_frac:.0%} CS:{cash_frac:.0%}"
+        )
+
+        print("    목표 비중 [USD 계좌]:")
+        for ticker, w in sorted(target_usd.items(), key=lambda x: -x[1]):
             if w > 0:
+                total_frac = merged_target.get(ticker, 0.0)
                 cur = current_weights.get(ticker, 0.0)
-                diff = w - cur
-                sign = "▲" if diff > 0.005 else ("▼" if diff < -0.005 else " ")
-                print(f"      {sign} {ticker:<8} target:{w:.1%}  current:{cur:.1%}")
+                sign = "▲" if total_frac - cur > 0.005 else ("▼" if total_frac - cur < -0.005 else " ")
+                print(f"      {sign} {ticker:<8} USD계좌:{w:.1%}  전체:{total_frac:.1%}  현재:{cur:.1%}")
+        print("    목표 비중 [KRW 계좌]:")
+        for ticker, w in sorted(target_krw.items(), key=lambda x: -x[1]):
+            if w > 0:
+                total_frac = merged_target.get(ticker, 0.0)
+                cur = current_weights.get(ticker, 0.0)
+                sign = "▲" if total_frac - cur > 0.005 else ("▼" if total_frac - cur < -0.005 else " ")
+                print(f"      {sign} {ticker:<8} KRW계좌:{w:.1%}  전체:{total_frac:.1%}  현재:{cur:.1%}")
 
         # ⑧ 리밸런싱 실행
         print("[8] 리밸런싱 실행...")
@@ -253,13 +344,14 @@ def main() -> None:
         threshold = config["rebalancing"]["drift_threshold"]
         order_log, new_deferred = rebalancer.rebalance(
             current_weights=current_weights,
-            target_weights=target_weights,
-            total_value_krw=total_krw,
+            target_usd=target_usd,
+            target_krw=target_krw,
+            total_usd_krw=total_usd_krw,
+            total_krw_only=total_krw_only,
             threshold=threshold,
             tracker=tracker,
         )
 
-        # 지연 매수 저장 + state 갱신 (settlement + regime filter)
         for d in new_deferred:
             tracker.add_deferred(d["ticker"], d["amount_krw"], d["currency"])
         state["last_run_at"] = datetime.now().isoformat()
@@ -274,7 +366,7 @@ def main() -> None:
             regime=regime,
             total_krw=total_krw,
             drawdown=drawdown,
-            target_weights=target_weights,
+            target_weights=merged_target,
             current_weights=current_weights,
             order_log=order_log,
             deferred_buys=new_deferred,

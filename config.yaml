@@ -8,7 +8,6 @@ signal:
   lookback_days: 130          # 모멘텀 6M 계산에 필요한 최소 거래일
 
 # KIS 계좌 정의
-# auth.yaml 의 acc_no 키와 매핑됨
 accounts:
   KRW_1:
     acc_no: "64378890-01"
@@ -21,10 +20,8 @@ accounts:
     currency: USD
 
 # 투자 유니버스
-# exec_account: 해당 종목 주문을 실행할 계좌 (accounts 키 중 하나)
-# currency: 주문 통화
-# asset_class: 자산군 분류 (표시 목적)
 universe:
+  # ── Equity ETF (KRW) ─────────────────────────────────────────────────────
   "379800":
     name: "KODEX S&P500"
     currency: KRW
@@ -35,26 +32,13 @@ universe:
     currency: KRW
     exec_account: KRW_2
     asset_class: equity_etf
-  "069500":
-    name: "KODEX 200"
-    currency: KRW
-    exec_account: KRW_1
-    asset_class: equity_etf
-  "305080":
-    name: "TIGER 미국채10년"
-    currency: KRW
-    exec_account: KRW_2
-    asset_class: bond_long
-  "411060":
-    name: "ACE KRX금현물"
-    currency: KRW
-    exec_account: KRW_1
-    asset_class: gold
-  "469830":
-    name: "SOL 초단기채권"
-    currency: KRW
-    exec_account: KRW_2
-    asset_class: cash
+  # ── Equity Factor (USD) — Value 팩터 ─────────────────────────────────────
+  "VTV":
+    name: "Vanguard Value ETF"
+    currency: USD
+    exec_account: USD
+    asset_class: equity_factor
+  # ── Equity Individual (USD) — 고베타 성장주 ───────────────────────────────
   "TSLA":
     name: "Tesla"
     currency: USD
@@ -65,119 +49,202 @@ universe:
     currency: USD
     exec_account: USD
     asset_class: equity_individual
+  # ── Bond (USD) ───────────────────────────────────────────────────────────
   "IEF":
     name: "iShares 7-10Y Treasury"
     currency: USD
     exec_account: USD
-    asset_class: bond_mid
+    asset_class: bond_usd
   "SHY":
     name: "iShares 1-3Y Treasury"
     currency: USD
     exec_account: USD
-    asset_class: bond_short
-  "TLT":
-    name: "iShares 20Y+ Treasury"
+    asset_class: bond_usd
+  # ── Bond (KRW) ──────────────────────────────────────────────────────────
+  "305080":
+    name: "TIGER 미국채10년"
+    currency: KRW
+    exec_account: KRW_2
+    asset_class: bond_krw
+  # ── Gold (KRW) ──────────────────────────────────────────────────────────
+  "411060":
+    name: "ACE KRX금현물"
+    currency: KRW
+    exec_account: KRW_1
+    asset_class: gold
+  # ── Commodities (USD) ────────────────────────────────────────────────────
+  "DBC":
+    name: "Invesco DB Commodity Index"
     currency: USD
     exec_account: USD
-    asset_class: bond_long
+    asset_class: commodity
+  # ── Managed Futures (USD) ────────────────────────────────────────────────
+  "DBMF":
+    name: "iMGP DBi Managed Futures Strategy"
+    currency: USD
+    exec_account: USD
+    asset_class: managed_futures
+  # ── Cash (KRW) ──────────────────────────────────────────────────────────
+  "469830":
+    name: "SOL 초단기채권"
+    currency: KRW
+    exec_account: KRW_2
+    asset_class: cash
 
-# 레짐별 목표 비중 (전체 자산 기준, 합계 ~1.0)
-# 나머지는 각 계좌 현금으로 보유
-regime_weights:
-  Risk-On:
-    "379800": 0.38
-    "379810": 0.22
-    "069500": 0.10
-    "305080": 0.05
-    "411060": 0.08
-    "469830": 0.05
-    "TSLA":   0.04
-    "PLTR":   0.07
-    "IEF":    0.00
-    "SHY":    0.00
-    "TLT":    0.01
+# ────────────────────────────────────────────────────────────────────────────
+# 동적 자산 배분 — 레짐별 자산군 목표 비중 (합계 = 1.0)
+#
+# ※ 실제 실행 시에는 HMM 사후 확률로 가중 평균(Continuous Exposure)이 적용된다.
+#    이 값은 극단 레짐(확률 100%)일 때의 순수 배분이다.
+#
+# 자산군 설명:
+#   equity_etf        : KODEX S&P500 + 나스닥100 (KRW, 베타 분산)
+#   equity_factor     : VTV(Value) (USD, Value 팩터)
+#   equity_individual : TSLA + PLTR (USD, 고베타 성장주)
+#   commodity         : DBC (USD, 인플레 헤지 — 롤비용 주의)
+#   managed_futures   : DBMF (USD, 트렌드 팔로잉 — 횡보장 약점 있음)
+#   bond_usd          : IEF + SHY (USD 중단기채)
+#   bond_krw          : TIGER 미국채10년 (KRW)
+#   gold              : ACE KRX금현물 (KRW, 보조 헤지 — 조건부 자산)
+#   cash              : SOL 초단기채권 (KRW)
+# ────────────────────────────────────────────────────────────────────────────
 
-  Neutral:
-    "379800": 0.28
-    "379810": 0.15
-    "069500": 0.07
-    "305080": 0.10
-    "411060": 0.10
-    "469830": 0.05
-    "TSLA":   0.04
-    "PLTR":   0.07
-    "IEF":    0.07
-    "SHY":    0.00
-    "TLT":    0.07
+regime_targets:
+  Risk-On:             # equity 59% | factor 10% | commodity 10% | MF 8% | gold 8% | cash 15%
+    equity_etf:        0.38   # KODEX (KRW)
+    equity_factor:     0.10   # VTV (USD, Value 팩터)
+    equity_individual: 0.11   # TSLA+PLTR (USD, 고베타)
+    commodity:         0.10   # DBC (USD)
+    managed_futures:   0.08   # DBMF (USD)
+    bond_usd:          0.00
+    bond_krw:          0.00
+    gold:              0.08   # 보조 헤지
+    cash:              0.15
 
-  Risk-Off:
-    "379800": 0.20
-    "379810": 0.08
-    "069500": 0.00
-    "305080": 0.20
-    "411060": 0.18
-    "469830": 0.11
-    "TSLA":   0.04
-    "PLTR":   0.07
-    "IEF":    0.08
-    "SHY":    0.00
-    "TLT":    0.04
+  Neutral:             # equity 46% | commodity 9% | MF 9% | bond 9% | gold 10% | cash 17%
+    equity_etf:        0.27
+    equity_factor:     0.08
+    equity_individual: 0.11
+    commodity:         0.09
+    managed_futures:   0.09
+    bond_usd:          0.02
+    bond_krw:          0.07
+    gold:              0.10
+    cash:              0.17
 
-  High-Vol:
-    "379800": 0.18
-    "379810": 0.06
-    "069500": 0.00
-    "305080": 0.20
-    "411060": 0.18
-    "469830": 0.15
-    "TSLA":   0.03
-    "PLTR":   0.05
-    "IEF":    0.08
-    "SHY":    0.07
-    "TLT":    0.00
+  Risk-Off:            # equity 24% | commodity 7% | MF 10% | bond 22% | gold 15% | cash 22%
+    equity_etf:        0.08
+    equity_factor:     0.05   # Value는 방어적 — 소량 유지
+    equity_individual: 0.11
+    commodity:         0.07
+    managed_futures:   0.10
+    bond_usd:          0.08
+    bond_krw:          0.14
+    gold:              0.15
+    cash:              0.22
+
+  High-Vol:            # equity 11% | commodity 6% | MF 10% | bond 29% | gold 16% | cash 28%
+    equity_etf:        0.00
+    equity_factor:     0.03   # VTV 소량
+    equity_individual: 0.08
+    commodity:         0.06
+    managed_futures:   0.10
+    bond_usd:          0.11
+    bond_krw:          0.18
+    gold:              0.16
+    cash:              0.28
+
+# 자산군 → 종목 매핑 (within-class 상대 비중, 고정)
+asset_routing:
+  equity_etf:          # KRW 계좌 전용
+    "379800": 0.64
+    "379810": 0.36
+  equity_factor:       # USD 계좌 전용 — VTV 100%
+    VTV:  1.00
+  equity_individual:   # USD 계좌 전용
+    TSLA: 0.36
+    PLTR: 0.64
+  commodity:           # USD 계좌 전용
+    DBC:  1.00
+  managed_futures:     # USD 계좌 전용
+    DBMF: 1.00
+  bond_usd:            # USD 계좌 전용
+    IEF:  0.58
+    SHY:  0.42
+  bond_krw:            # KRW 계좌 전용
+    "305080": 1.00
+  gold:                # KRW 계좌 전용
+    "411060": 1.00
+  cash:                # KRW 계좌 전용
+    "469830": 1.00
+
+# dry-run 또는 계좌 조회 실패 시 사용할 KRW/USD 비율 폴백
+account_ratio_fallback:
+  usd: 0.30
+  krw: 0.70
+
+# ── 자산군별 최대 비중 상한 ──────────────────────────────────────────────────
+# 레짐 블렌딩으로 인한 과집중 방지. 초과분은 cash로 이동.
+class_max_weight:
+  managed_futures:   0.10   # DBMF — 횡보장 약점, 10% 상한
+  equity_individual: 0.12   # TSLA+PLTR — 고베타 집중 방지
+  gold:              0.18   # 보조 헤지 역할 — 과대 비중 방지
+
+# ── 변동성 타겟팅 ────────────────────────────────────────────────────────────
+# 실현 변동성이 목표를 초과하면 equity 비중을 자동 축소 → cash 이동
+# floor: 최소 equity 유지율 (1.0 - floor = 최대 축소율)
+vol_targeting:
+  enabled: true
+  target_vol:  0.10        # 연 10% 목표 포트폴리오 변동성
+  floor:       0.65        # equity 최대 35% 축소
+  equity_asset_classes:
+    - equity_etf
+    - equity_factor
+    - equity_individual
 
 # HMM 레짐 앙상블
-# enabled: false 로 비활성화 가능
 hmm:
   enabled: true
-  lookback_days: 500        # HMM 학습용 역사 데이터 기간 (거래일 기준)
-  min_samples: 100          # 최소 학습 샘플 수 (미달 시 규칙 기반만 사용)
-  override_threshold: 0.60  # HMM이 규칙 기반을 override하는 최소 사후 확률
+  lookback_days: 500
+  min_samples: 100
+  override_threshold: 0.60
 
-# 레짐 전환 히스테리시스 필터
-# 두 조건 모두 충족해야 레짐 전환 확정
+# 레짐 전환 히스테리시스 필터 (표시·알림 목적 — 실제 비중은 연속 블렌딩 적용)
 regime_filter:
-  confirmation_count: 3   # N회 연속 동일 레짐이어야 전환 확정
-  cooldown_days: 5         # 마지막 전환 후 최소 N 달력일 경과
-  confidence_threshold: 0.40  # 신뢰도 미달 시 Neutral 폴백 기준
+  confirmation_count: 3
+  cooldown_days: 5
+  confidence_threshold: 0.40
 
 # 리밸런싱 파라미터
 rebalancing:
-  drift_threshold: 0.05     # 5%p 이탈 시 리밸런싱 트리거
-  min_order_krw: 10000      # 최소 주문 금액 (KRW 환산)
-  usd_krw_fallback: 1380.0  # 환율 API 실패 시 폴백
+  drift_threshold:           0.05   # 전체 drift 합 > 5%p 시 리밸런싱 실행
+  per_ticker_drift_threshold: 0.05  # 개별 종목 목표 대비 ±5% 이탈 시만 주문 생성
+  min_order_krw: 10000
+  usd_krw_fallback: 1380.0
 
 # 리스크 제어
+# severe: equity만 0으로 (채권·금·현금 유지) — 바닥에서 전량 현금화 방지
+# moderate: equity 40% 수준으로 축소 (Risk-Off 강제 효과)
+# mild: equity 75% 유지
 risk:
   drawdown_thresholds:
-    mild:     -0.10   # 비중 × 0.8
-    moderate: -0.20   # 비중 × 0.5
-    severe:   -0.30   # 비중 × 0.0 (전량 현금화)
+    mild:     -0.10
+    moderate: -0.20
+    severe:   -0.30
+  equity_asset_classes:
+    - equity_etf
+    - equity_factor
+    - equity_individual
 
-# T+2 결제 지연 대응 (Pre-Funding Buffer + Synthetic Exposure)
+# T+2 결제 지연 대응
 settlement:
-  # 실행 버퍼: 레짐에 관계없이 최소 비중을 보장하는 즉시 가용 자산
-  # 매도 전 이 자산들을 먼저 사용해 매수를 즉시 집행하고,
-  # 매도 결제(T+2) 이후 버퍼를 복구한다.
-  buffer_tickers: ["469830", "SHY"]
-  buffer_min: 0.07              # 전체 자산 대비 최소 7% 항상 유지
-
-  # 합성 노출: USD 매수가 결제 지연으로 실행되지 못할 때
-  # KRW 동등 자산을 임시로 매수해 "비어있는 시간"을 제거한다.
-  # 다음 실행에서 USD 매수가 성공하면 KRW 합성 자산은 자동으로 정리된다.
+  buffer_tickers: ["469830"]
+  buffer_min: 0.07
   synthetic_pairs:
-    "IEF":  "305080"    # iShares 7-10Y Treasury → TIGER 미국채10년 (KRW)
-    "TLT":  "305080"    # iShares 20Y+ Treasury  → TIGER 미국채10년 (KRW)
-    "SHY":  "469830"    # iShares 1-3Y Treasury  → SOL 초단기채권 (KRW)
-    "TSLA": "379800"    # Tesla                  → KODEX S&P500 (KRW)
-    "PLTR": "379810"    # Palantir               → KODEX 나스닥100 (KRW)
+    "TSLA": "379800"
+    "PLTR": "379810"
+    "VTV":  "379800"   # Value ETF → KODEX S&P500 (임시 브릿지)
+    "IEF":  "305080"
+    "SHY":  "469830"
+    "DBC":  "469830"
+    "DBMF": "469830"

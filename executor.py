@@ -170,16 +170,18 @@ class KisRebalancer:
         except Exception:
             return 0.0
 
-    def get_portfolio_state(self) -> Tuple[float, Dict[str, float], float]:
+    def get_portfolio_state(self) -> Tuple[float, float, float, Dict[str, float], float]:
         """
-        전 계좌를 합산하여 (총자산_KRW, 현재비중, 드로우다운) 를 반환한다.
+        전 계좌를 합산하여 (total_krw, total_usd_krw, total_krw_only, 현재비중, 드로우다운) 반환.
 
-        현재비중: {ticker: fraction}  — 유니버스 기준 합산으로 정규화
-        총자산_KRW: 유니버스 외 보유(정리 예정) 종목 포함 전체 평가금액
-        드로우다운: 직전 고점 대비 낙폭 (0 이하 실수)
+        total_krw      : 유니버스 기준 전체 (USD+KRW 합산, KRW 환산)
+        total_usd_krw  : USD 계좌 총액 (KRW 환산)
+        total_krw_only : KRW 계좌 총액
+        현재비중       : {ticker: fraction of total_krw}  — drift·출력 기준
+        드로우다운     : 직전 고점 대비 낙폭 (0 이하 실수)
         """
         holdings_krw: Dict[str, float] = {}  # ticker → KRW 환산 금액
-        total_cash_krw = 0.0
+        cash_by_currency: Dict[str, float] = {"KRW": 0.0, "USD": 0.0}
 
         processed_acc: set = set()
         for acc_name, acc_cfg in self.config["accounts"].items():
@@ -203,36 +205,49 @@ class KisRebalancer:
                 krw_amt = amt * self.usd_krw if currency == "USD" else amt
                 holdings_krw[ticker] = holdings_krw.get(ticker, 0.0) + krw_amt
 
-            # balance.deposits는 통화명 문자열 리스트 — orderable_amount로 현금 조회
-            total_cash_krw += self._get_cash_krw(client, currency)
+            cash_by_currency[currency] = (
+                cash_by_currency.get(currency, 0.0)
+                + self._get_cash_krw(client, currency)
+            )
 
         # 유니버스 외 보유 종목(IAU·TSLY 등) 분리 및 경고
         universe_krw = {t: v for t, v in holdings_krw.items() if t in self.universe}
         orphan_krw = {t: v for t, v in holdings_krw.items() if t not in self.universe}
 
         if orphan_krw:
-            total_all = sum(holdings_krw.values()) + total_cash_krw
+            total_all = sum(holdings_krw.values()) + sum(cash_by_currency.values())
             print("  [경고] 유니버스 외 보유 종목 (수동 정리 필요):")
             for t, v in orphan_krw.items():
                 print(f"    {t}: {v:,.0f} KRW ({v/total_all*100:.1f}%)")
 
-        # 비중 계산은 유니버스 + 현금 기준 (orphan 제외하여 drift 왜곡 방지)
-        universe_total_krw = sum(universe_krw.values()) + total_cash_krw
-        if universe_total_krw == 0:
-            return 0.0, {}, 0.0
+        # 계좌별 분리 계산
+        usd_holdings = sum(
+            v for t, v in universe_krw.items()
+            if self.universe[t]["currency"] == "USD"
+        )
+        krw_holdings = sum(
+            v for t, v in universe_krw.items()
+            if self.universe[t]["currency"] == "KRW"
+        )
+        total_usd_krw = usd_holdings + cash_by_currency.get("USD", 0.0)
+        total_krw_only = krw_holdings + cash_by_currency.get("KRW", 0.0)
+        universe_total_krw = total_usd_krw + total_krw_only
 
+        if universe_total_krw == 0:
+            return 0.0, 0.0, 0.0, {}, 0.0
+
+        # 현재 비중 = 전체 대비 (drift·출력용)
         current_weights = {t: v / universe_total_krw for t, v in universe_krw.items()}
 
         # 드로우다운은 전체 자산(orphan 포함)으로 계산
-        total_krw = sum(holdings_krw.values()) + total_cash_krw
+        total_all_krw = sum(holdings_krw.values()) + sum(cash_by_currency.values())
         state = load_state()
-        peak = max(state.get("peak_krw", 0.0), total_krw)
+        peak = max(state.get("peak_krw", 0.0), total_all_krw)
         state["peak_krw"] = peak
         save_state(state)
-        drawdown = (total_krw / peak - 1.0) if peak > 0 else 0.0
+        drawdown = (total_all_krw / peak - 1.0) if peak > 0 else 0.0
 
-        # 반환값 total은 universe_total_krw — _build_orders의 주문 금액 계산 기준
-        return universe_total_krw, current_weights, drawdown
+        return universe_total_krw, total_usd_krw, total_krw_only, current_weights, drawdown
 
     # ──────────────────────────────────────────────
     # 리밸런싱 실행
@@ -241,8 +256,10 @@ class KisRebalancer:
     def rebalance(
         self,
         current_weights: Dict[str, float],
-        target_weights: Dict[str, float],
-        total_value_krw: float,
+        target_usd: Dict[str, float],
+        target_krw: Dict[str, float],
+        total_usd_krw: float,
+        total_krw_only: float,
         threshold: float,
         tracker: Optional[SettlementTracker] = None,
     ) -> Tuple[List[str], List[dict]]:
@@ -256,14 +273,17 @@ class KisRebalancer:
             (order_log, deferred_buys)
             deferred_buys: [{ticker, amount_krw, currency}, ...]
         """
-        drift = compute_drift(current_weights, target_weights)
+        total_value_krw = total_usd_krw + total_krw_only
+        from portfolio import merge_to_total_weights
+        merged_target = merge_to_total_weights(target_usd, target_krw, total_usd_krw, total_krw_only)
+        drift = compute_drift(current_weights, merged_target)
         print(f"총 drift: {drift*100:.1f}%  (임계값: {threshold*100:.0f}%)")
 
         if drift < threshold:
             print("→ 리밸런싱 불필요")
             return [], []
 
-        all_orders = self._build_orders(current_weights, target_weights, total_value_krw)
+        all_orders = self._build_orders(current_weights, target_usd, target_krw, total_usd_krw, total_krw_only)
 
         buffer_tickers = self.config.get("settlement", {}).get("buffer_tickers", [])
         if tracker and buffer_tickers:
@@ -329,16 +349,37 @@ class KisRebalancer:
     def _build_orders(
         self,
         current: Dict[str, float],
-        target: Dict[str, float],
-        total_krw: float,
+        target_usd: Dict[str, float],
+        target_krw: Dict[str, float],
+        total_usd_krw: float,
+        total_krw_only: float,
     ) -> List[Tuple[str, str, float]]:
-        """(ticker, currency, amount_diff_krw) 주문 목록을 생성한다."""
+        """
+        (ticker, currency, amount_diff_krw) 주문 목록 생성.
+
+        각 종목의 목표금액은 계좌별 총액 기준:
+          USD 종목 → target_usd[t] × total_usd_krw
+          KRW 종목 → target_krw[t] × total_krw_only
+
+        per_ticker_drift_threshold: 개별 종목의 전체 포트폴리오 대비 이탈이
+        이 값 미만이면 거래 제외 (불필요한 소규모 거래 방지).
+        """
+        total_krw = total_usd_krw + total_krw_only
+        per_ticker_thr = float(
+            self.config["rebalancing"].get("per_ticker_drift_threshold", 0.0)
+        )
         orders = []
         for ticker, meta in self.universe.items():
             current_amt = current.get(ticker, 0.0) * total_krw
-            target_amt = target.get(ticker, 0.0) * total_krw
+            if meta["currency"] == "USD":
+                target_amt = target_usd.get(ticker, 0.0) * total_usd_krw
+            else:
+                target_amt = target_krw.get(ticker, 0.0) * total_krw_only
             diff = target_amt - current_amt
-            if abs(diff) >= self.min_order_krw:
+            diff_frac = abs(diff) / total_krw if total_krw > 0 else 0.0
+            if abs(diff) >= self.min_order_krw and (
+                per_ticker_thr <= 0 or diff_frac >= per_ticker_thr
+            ):
                 orders.append((ticker, meta["currency"], diff))
         return orders
 
