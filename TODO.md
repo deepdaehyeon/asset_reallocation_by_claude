@@ -24,19 +24,19 @@ _system_archi.md 기준 잔여 작업_
 - [ ] **상관 모니터링** — 자산 간 평균 상관 > 0.8 시 포지션 60%로 강제 축소
 
 ### 실행 레이어
-- [x] **Slack 알림** — 리밸런싱 실행·완료·오류 시 메시지 발송 (`asset_allocator`의 `Messenger` 참고)
-- [ ] **환율 자동 조회** — ecos API 또는 pykis에서 실시간 USD/KRW 환율 주입 (현재 config 폴백값 1380 고정)
-- [ ] **주문 결과 로깅** — 실행된 주문 내역을 CSV/DB에 저장
+- [x] **Slack 알림** — 리밸런싱 시작·완료·오류 시 메시지 발송. 레짐·신뢰도·비중변화·주문내역 포함.
+- [x] **환율 자동 조회** — yfinance KRW=X 실시간 조회, 실패 시 config 폴백값 사용.
+- [x] **주문 결과 로깅** — `logs/orders.csv`에 datetime/ticker/action/qty/price/status 누적 기록.
 
 ### 레짐 모델
-- [ ] **FRED API 연동** — HY 스프레드, 10Y-2Y 커브를 yfinance proxy 대신 FRED 직접 조회
-- [ ] **HMM 레짐 모델** — `hmmlearn`으로 비지도 레짐 분류, 현재 규칙 기반과 앙상블
-  ```python
-  from hmmlearn import hmm
-  model = hmm.GaussianHMM(n_components=3, covariance_type="full")
-  model.fit(feature_matrix)
-  ```
-- [ ] **레짐 신뢰도 출력** — `regime_conf: float [0,1]` 계산 및 낮을 때 Neutral 폴백
+- [x] **FRED API 연동** — `FRED_API_KEY` 환경변수 설정 시 BAMLH0A0HYM2(HY OAS)·T10Y2Y 조회.
+  credit_signal을 HY 스프레드 1M 변화 기반으로 대체, hy_spread·curve_10y2y 피처 병합.
+- [x] **HMM 레짐 모델** — GaussianHMM(4상태) 앙상블. 500일 역사 데이터로 학습,
+  규칙 기반 레이블 다수결로 상태-레짐 매핑. override_threshold 60% 초과 시만 채택.
+- [x] **레짐 신뢰도 출력** — `compute_rule_confidence()` + HMM 사후 확률 평균.
+  신뢰도 < 40% 시 Neutral 자동 폴백. Slack 메시지에 신뢰도 포함.
+- [x] **레짐 전환 히스테리시스 필터** — `RegimeFilter`: N회 연속 확인(기본 3회) +
+  쿨다운(기본 5일) 두 조건 모두 충족해야 전환 확정.
 
 ---
 
@@ -62,6 +62,13 @@ _system_archi.md 기준 잔여 작업_
 - [ ] **MLflow 모델 추적** — 레짐 판정 히스토리, 신호 IC/IR 기록
 - [ ] **Walk-Forward 백테스트** — 2년 학습 / 6개월 검증 슬라이딩 윈도우
 - [ ] **Grafana 대시보드** — 포트폴리오 현황·레짐·드로우다운 실시간 시각화
+
+---
+
+## 추가 완료 (system_archi.md 외)
+
+- [x] **웹 컨트롤 패널** — FastAPI + WebSocket UI. 레짐 조회·Dry Run·리밸런싱 실행,
+  실행 로그 실시간 스트리밍. `python server.py` 실행 후 `http://<IP>:8080` 접속.
 
 ---
 

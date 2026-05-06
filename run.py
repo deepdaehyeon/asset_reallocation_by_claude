@@ -82,9 +82,13 @@ def main() -> None:
         if "curve_10y2y" in features:
             print(f"    10Y-2Y 커브 : {features['curve_10y2y']:+.2f}% (FRED)")
 
-        # ③ 레짐 감지 (규칙 기반 + HMM 앙상블 + 히스테리시스 필터)
+        # ③ 레짐 감지 (규칙 기반 + HMM 앙상블 + 신뢰도 + 히스테리시스 필터)
         print("[3] 레짐 감지 중...")
-        from regime import detect_regime, RegimeFilter, HmmRegimeClassifier, ensemble_regime
+        from regime import (
+            detect_regime, RegimeFilter,
+            HmmRegimeClassifier, ensemble_regime,
+            compute_rule_confidence,
+        )
 
         # 규칙 기반
         rule_regime = detect_regime(features)
@@ -94,6 +98,7 @@ def main() -> None:
         override_thr = hmm_cfg.get("override_threshold", 0.60)
         feature_matrix = compute_feature_matrix(prices)
         raw_regime = rule_regime
+        hmm_probs: dict = {}
 
         if hmm_enabled and len(feature_matrix) >= hmm_min:
             hmm_clf = HmmRegimeClassifier()
@@ -102,9 +107,11 @@ def main() -> None:
             hmm_top = max(hmm_probs, key=hmm_probs.get)
             print(f"    규칙 기반  : {rule_regime}")
             print(
-                f"    HMM 예측   : {hmm_top} "
-                f"({hmm_probs[hmm_top]:.0%}) | "
-                + " / ".join(f"{r}:{p:.0%}" for r, p in sorted(hmm_probs.items(), key=lambda x: -x[1]))
+                f"    HMM 예측   : {hmm_top} ({hmm_probs[hmm_top]:.0%}) | "
+                + " / ".join(
+                    f"{r}:{p:.0%}"
+                    for r, p in sorted(hmm_probs.items(), key=lambda x: -x[1])
+                )
             )
             raw_regime = ensemble_regime(rule_regime, hmm_probs, override_thr)
             if raw_regime != rule_regime:
@@ -112,6 +119,25 @@ def main() -> None:
         else:
             if hmm_enabled:
                 print(f"    HMM        : 학습 데이터 부족 ({len(feature_matrix)}/{hmm_min}일), 규칙 기반 사용")
+
+        # 신뢰도 계산
+        rule_conf = compute_rule_confidence(features, raw_regime)
+        hmm_conf: float | None = hmm_probs.get(raw_regime) if hmm_probs else None
+        combined_conf = (rule_conf + hmm_conf) / 2 if hmm_conf is not None else rule_conf
+
+        if hmm_conf is not None:
+            print(f"    신뢰도     : {combined_conf:.0%}  (규칙기반 {rule_conf:.0%} | HMM {hmm_conf:.0%})")
+        else:
+            print(f"    신뢰도     : {combined_conf:.0%}  (규칙기반)")
+
+        # 신뢰도 미달 → Neutral 폴백
+        conf_threshold = config.get("regime_filter", {}).get("confidence_threshold", 0.40)
+        if raw_regime != "Neutral" and combined_conf < conf_threshold:
+            print(
+                f"    신뢰도 미달 ({combined_conf:.0%} < {conf_threshold:.0%})"
+                f" → Neutral 폴백 (이전: {raw_regime})"
+            )
+            raw_regime = "Neutral"
 
         # 히스테리시스 필터
         old_confirmed = state.get("confirmed_regime")
@@ -216,7 +242,7 @@ def main() -> None:
             save_state(state)
             return
 
-        messenger.send_start(regime, features)
+        messenger.send_start(regime, features, confidence=combined_conf)
 
         threshold = config["rebalancing"]["drift_threshold"]
         order_log, new_deferred = rebalancer.rebalance(
@@ -246,6 +272,7 @@ def main() -> None:
             order_log=order_log,
             deferred_buys=new_deferred,
             pending_sells=tracker.pending_summary(),
+            confidence=combined_conf,
         )
 
         print("━" * 50)

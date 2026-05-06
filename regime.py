@@ -237,6 +237,32 @@ class HmmRegimeClassifier:
         return regime_probs
 
 
+def compute_rule_confidence(features: dict, regime: str) -> float:
+    """
+    규칙 기반 레짐 판단의 신뢰도 [0.0, 1.0]을 반환한다.
+
+    - Risk-On / Risk-Off : 발동된 신호 수 / 전체 신호 수(4)
+    - High-Vol           : 1.0 (임계값 초과는 항상 명확)
+    - Neutral            : 1.0 − max(bullish, bearish) / 4
+    """
+    mom1m  = features["momentum_1m"]
+    mom3m  = features["momentum_3m"]
+    vix    = features["vix"]
+    credit = features["credit_signal"]
+
+    if regime == "High-Vol":
+        return 1.0
+
+    bullish = sum([mom1m > 0.02, mom3m > 0.04, vix < 18, credit > 0.02])
+    bearish = sum([mom1m < -0.03, mom3m < -0.05, vix > 25, credit < -0.03])
+
+    if regime == "Risk-On":
+        return bullish / 4
+    if regime == "Risk-Off":
+        return bearish / 4
+    return 1.0 - max(bullish, bearish) / 4  # Neutral
+
+
 def ensemble_regime(
     rule_regime: str,
     hmm_probs: dict[str, float],

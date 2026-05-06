@@ -149,6 +149,7 @@ hmm:
 regime_filter:
   confirmation_count: 3   # N회 연속 동일 레짐이어야 전환 확정
   cooldown_days: 5         # 마지막 전환 후 최소 N 달력일 경과
+  confidence_threshold: 0.40  # 신뢰도 미달 시 Neutral 폴백 기준
 
 # 리밸런싱 파라미터
 rebalancing:

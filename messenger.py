@@ -23,13 +23,23 @@ class Messenger:
         except Exception as e:
             print(f"[Slack 오류] {e}")
 
-    def send_start(self, regime: str, features: Dict[str, float]) -> None:
+    def send_start(
+        self,
+        regime: str,
+        features: Dict[str, float],
+        confidence: float = 0.0,
+    ) -> None:
+        conf_str = f" | 신뢰도 `{confidence:.0%}`" if confidence > 0 else ""
+        hy_str = (
+            f" | HY {features['hy_spread']:.2f}%"
+            if "hy_spread" in features else ""
+        )
         text = (
             f":rocket: *리밸런싱 시작*\n"
-            f"> 레짐: `{regime}`\n"
+            f"> 레짐: `{regime}`{conf_str}\n"
             f"> VIX {features.get('vix', 0):.1f} | "
             f"모멘텀1M {features.get('momentum_1m', 0):+.1%} | "
-            f"실현변동성 {features.get('realized_vol', 0):.1%}"
+            f"실현변동성 {features.get('realized_vol', 0):.1%}{hy_str}"
         )
         self._send(text)
 
@@ -43,6 +53,7 @@ class Messenger:
         order_log: List[str],
         deferred_buys: Optional[List[dict]] = None,
         pending_sells: Optional[List[str]] = None,
+        confidence: float = 0.0,
     ) -> None:
         weight_lines = "\n".join(
             f">   {ticker:<8} {current_weights.get(ticker, 0):.1%} → {w:.1%}"
@@ -64,9 +75,10 @@ class Messenger:
             lines = "\n".join(f">   {s}" for s in pending_sells)
             pending_section = f"\n*미결제 매도 (결제 대기):*\n{lines}"
 
+        conf_str = f" | 신뢰도 `{confidence:.0%}`" if confidence > 0 else ""
         text = (
             f":white_check_mark: *리밸런싱 완료*\n"
-            f"> 레짐: `{regime}` | 자산: {total_krw:,.0f}원 | DD: {drawdown:+.1%}\n"
+            f"> 레짐: `{regime}`{conf_str} | 자산: {total_krw:,.0f}원 | DD: {drawdown:+.1%}\n"
             f"*비중 변화:*\n{weight_lines}\n"
             f"*주문 내역:*\n{orders}"
             f"{deferred_section}"
