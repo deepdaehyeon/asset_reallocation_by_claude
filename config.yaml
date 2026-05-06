@@ -136,6 +136,12 @@ regime_weights:
     "SHY":    0.07
     "TLT":    0.00
 
+# 레짐 전환 히스테리시스 필터
+# 두 조건 모두 충족해야 레짐 전환 확정
+regime_filter:
+  confirmation_count: 3   # N회 연속 동일 레짐이어야 전환 확정
+  cooldown_days: 5         # 마지막 전환 후 최소 N 달력일 경과
+
 # 리밸런싱 파라미터
 rebalancing:
   drift_threshold: 0.05     # 5%p 이탈 시 리밸런싱 트리거

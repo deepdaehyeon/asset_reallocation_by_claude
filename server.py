@@ -55,20 +55,56 @@ async def get_config():
 
 @app.get("/api/regime")
 async def get_regime():
-    """현재 레짐을 실시간으로 계산해 반환한다 (약 10초 소요)."""
+    """현재 레짐을 실시간으로 계산해 반환한다 (약 10초 소요).
+
+    필터 카운터는 진행시키지 않고 state.json의 현재 상태만 읽는다.
+    카운터 갱신은 run.py 실행 시에만 이루어진다.
+    """
     try:
         cfg = _load_config()
+        state = _load_state()
+
         from fetcher import fetch_signal_prices
         from features import compute_features
         from regime import detect_regime
+        from datetime import date
 
         prices = fetch_signal_prices(
             tickers=cfg["signal"]["tickers"],
             lookback_days=cfg["signal"]["lookback_days"],
         )
         feats = compute_features(prices)
-        regime = detect_regime(feats)
-        return {"regime": regime, "features": feats}
+        raw_regime = detect_regime(feats)
+
+        # 현재 필터 상태 (읽기 전용)
+        fcfg = cfg.get("regime_filter", {})
+        confirm_n = fcfg.get("confirmation_count", 3)
+        cooldown_days = fcfg.get("cooldown_days", 5)
+
+        confirmed = state.get("confirmed_regime", raw_regime)
+        candidate = state.get("candidate_regime", raw_regime)
+        candidate_count = state.get("candidate_count", 0)
+        last_switch = state.get("last_switch_date")
+
+        cooldown_remaining = 0
+        if last_switch:
+            elapsed = (date.today() - date.fromisoformat(last_switch)).days
+            cooldown_remaining = max(0, cooldown_days - elapsed)
+
+        return {
+            "raw_regime": raw_regime,
+            "regime": confirmed,
+            "features": feats,
+            "filter": {
+                "confirmed": confirmed,
+                "candidate": candidate,
+                "candidate_count": candidate_count,
+                "confirm_n": confirm_n,
+                "is_transitioning": candidate != confirmed,
+                "cooldown_remaining": cooldown_remaining,
+                "last_switch_date": last_switch,
+            },
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

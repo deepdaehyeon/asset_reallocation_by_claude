@@ -41,6 +41,9 @@ def main() -> None:
     with open(args.config) as f:
         config = yaml.safe_load(f)
 
+    from executor import load_state, save_state
+    state = load_state()
+
     try:
         # ① 시장 데이터 수집
         print("━" * 50)
@@ -64,12 +67,28 @@ def main() -> None:
         print(f"    VIX         : {features['vix']:.1f}")
         print(f"    credit_signal: {features['credit_signal']:+.2%}")
 
-        # ③ 레짐 감지
+        # ③ 레짐 감지 (히스테리시스 필터 적용)
         print("[3] 레짐 감지 중...")
-        from regime import detect_regime
+        from regime import detect_regime, RegimeFilter
 
-        regime = detect_regime(features)
-        print(f"    → 레짐: {regime}")
+        raw_regime = detect_regime(features)
+        old_confirmed = state.get("confirmed_regime")
+        regime_filter = RegimeFilter(state, config)
+        regime = regime_filter.update(raw_regime)
+
+        print(f"    원시 레짐  : {raw_regime}")
+        if old_confirmed and old_confirmed != regime:
+            print(f"    → 레짐 전환 확정: {old_confirmed} → {regime} ★")
+        elif regime_filter.is_transitioning:
+            cd = regime_filter.cooldown_remaining
+            cd_str = f", 쿨다운 {cd}일 남음" if cd > 0 else ""
+            print(
+                f"    전환 대기  : {regime_filter.candidate} "
+                f"({regime_filter.candidate_count}/{regime_filter.confirm_n}회 확인{cd_str})"
+            )
+            print(f"    확정 레짐  : {regime} (유지)")
+        else:
+            print(f"    → 레짐: {regime}")
 
         # ④ 목표 비중 로드
         print("[4] 목표 비중 산출 중...")
@@ -84,7 +103,6 @@ def main() -> None:
 
         # ⑤ 결제 상태 점검 (T+2 추적 + 지연 매수 대기열 확인)
         print("[5] 결제 상태 점검 중...")
-        from executor import load_state, save_state
         from settlement import SettlementTracker
 
         settlement_cfg = config.get("settlement", {})
@@ -96,7 +114,6 @@ def main() -> None:
             tracker = SettlementTracker({})
             prev_deferred: list = []
         else:
-            state = load_state()
             tracker = SettlementTracker(state)
             purged = tracker.purge_settled()
             prev_deferred = tracker.get_deferred()
@@ -154,6 +171,8 @@ def main() -> None:
         print("[8] 리밸런싱 실행...")
         if args.dry_run:
             print("    [dry-run] 주문 생략")
+            state.update(regime_filter.to_dict())
+            save_state(state)
             return
 
         messenger.send_start(regime, features)
@@ -167,11 +186,11 @@ def main() -> None:
             tracker=tracker,
         )
 
-        # 지연 매수 저장 + state 갱신
+        # 지연 매수 저장 + state 갱신 (settlement + regime filter)
         for d in new_deferred:
             tracker.add_deferred(d["ticker"], d["amount_krw"], d["currency"])
-        state = load_state()
         state.update(tracker.to_dict())
+        state.update(regime_filter.to_dict())
         save_state(state)
 
         if new_deferred:

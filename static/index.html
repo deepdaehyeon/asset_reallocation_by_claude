@@ -152,6 +152,29 @@ body{
 .modal-btns{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .hidden{display:none!important}
 
+/* ── 필터 상태 ── */
+.filter-box{
+  margin-top:10px;padding:10px 12px;
+  background:var(--card2);border-radius:9px;
+  display:flex;flex-direction:column;gap:6px;
+}
+.filter-row{display:flex;align-items:center;gap:8px;font-size:12px}
+.f-label{color:var(--muted);min-width:54px;font-size:10px;text-transform:uppercase;letter-spacing:.4px}
+.f-regime{font-weight:700;font-size:13px}
+.f-dots{display:flex;gap:3px;align-items:center}
+.f-dot{width:8px;height:8px;border-radius:50%;background:var(--border)}
+.f-dot.filled{background:var(--yellow)}
+.f-count{color:var(--muted);font-size:11px}
+.f-cd{color:var(--orange);font-size:11px}
+.raw-note{
+  display:flex;align-items:center;gap:6px;
+  margin-bottom:8px;font-size:12px;color:var(--muted);
+}
+.raw-badge{
+  font-size:11px;font-weight:700;padding:2px 9px;
+  border-radius:10px;border:1px solid var(--border);
+}
+
 /* ── 플레이스홀더 ── */
 .placeholder{color:var(--muted);font-size:12px;line-height:1.6}
 </style>
@@ -173,6 +196,10 @@ body{
   <!-- 시스템 상태 -->
   <div class="card">
     <div class="card-title">시스템 상태</div>
+    <div id="state-regime-row" class="hidden" style="margin-bottom:10px">
+      <div class="s-label" style="margin-bottom:6px;font-size:9px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted)">확정 레짐 (마지막 실행)</div>
+      <div id="state-regime-badge"></div>
+    </div>
     <div class="state-grid">
       <div class="state-item">
         <div class="s-label">고점 자산</div>
@@ -256,6 +283,13 @@ body{
 let configData = null;
 let ws = null;
 
+const REGIME_CLASS = {
+  'Risk-On':  'r-riskon',
+  'Risk-Off': 'r-riskoff',
+  'High-Vol': 'r-highvol',
+  'Neutral':  'r-neutral',
+};
+
 // ── 초기화 ──────────────────────────────────────────────
 
 async function init() {
@@ -266,9 +300,16 @@ async function init() {
 async function loadState() {
   try {
     const s = await fetch('/api/state').then(r => r.json());
-    el('peak-krw').textContent  = s.peak_krw ? fmtKRW(s.peak_krw) : '—';
-    el('pending-sells').textContent = (s.pending_sells?.length ?? '—') + (s.pending_sells ? '건' : '');
-    el('deferred-buys').textContent = (s.deferred_buys?.length ?? '—') + (s.deferred_buys ? '건' : '');
+    el('peak-krw').textContent      = s.peak_krw ? fmtKRW(s.peak_krw) : '—';
+    el('pending-sells').textContent = s.pending_sells ? s.pending_sells.length + '건' : '—';
+    el('deferred-buys').textContent = s.deferred_buys ? s.deferred_buys.length + '건' : '—';
+
+    if (s.confirmed_regime) {
+      const cls = REGIME_CLASS[s.confirmed_regime] ?? 'r-neutral';
+      el('state-regime-badge').innerHTML =
+        `<span class="regime-badge ${cls}" style="font-size:13px;padding:5px 14px">${s.confirmed_regime}</span>`;
+      el('state-regime-row').classList.remove('hidden');
+    }
   } catch(e) { console.warn('state load:', e); }
 }
 
@@ -291,7 +332,7 @@ async function fetchRegime() {
       if (!r.ok) return r.text().then(t => { throw new Error(t) });
       return r.json();
     });
-    renderRegime(data.regime, data.features);
+    renderRegime(data.regime, data.raw_regime, data.features, data.filter);
     renderWeights(data.regime);
     setLastUpdate('레짐 조회');
   } catch(e) {
@@ -302,25 +343,69 @@ async function fetchRegime() {
   }
 }
 
-const REGIME_CLASS = {
-  'Risk-On':  'r-riskon',
-  'Risk-Off': 'r-riskoff',
-  'High-Vol': 'r-highvol',
-  'Neutral':  'r-neutral',
-};
+function renderRegime(confirmed, raw, f, filt) {
+  const cls = REGIME_CLASS[confirmed] ?? 'r-neutral';
 
-function renderRegime(regime, f) {
-  const cls = REGIME_CLASS[regime] ?? 'r-neutral';
+  // 원시 신호가 확정 레짐과 다를 때 표시
+  const rawNote = (raw !== confirmed)
+    ? `<div class="raw-note">
+        원시 신호:
+        <span class="raw-badge ${REGIME_CLASS[raw] ?? 'r-neutral'}">${raw}</span>
+       </div>`
+    : '';
+
+  // 전환 대기 진행 표시
+  let filterHtml = '';
+  if (filt) {
+    const parts = [];
+
+    if (filt.is_transitioning) {
+      const dots = Array.from({length: filt.confirm_n}, (_, i) =>
+        `<span class="f-dot${i < filt.candidate_count ? ' filled' : ''}"></span>`
+      ).join('');
+      const rawCls = REGIME_CLASS[filt.candidate] ?? 'r-neutral';
+      parts.push(`
+        <div class="filter-row">
+          <span class="f-label">전환 대기</span>
+          <span class="f-regime ${rawCls}">${filt.candidate}</span>
+          <span class="f-dots">${dots}</span>
+          <span class="f-count">${filt.candidate_count}/${filt.confirm_n}회</span>
+        </div>`);
+    }
+
+    if (filt.cooldown_remaining > 0) {
+      parts.push(`
+        <div class="filter-row">
+          <span class="f-label">쿨다운</span>
+          <span class="f-cd">전환 후 ${filt.cooldown_remaining}일 남음</span>
+        </div>`);
+    }
+
+    if (filt.last_switch_date && !filt.is_transitioning) {
+      parts.push(`
+        <div class="filter-row">
+          <span class="f-label">마지막 전환</span>
+          <span class="f-count">${filt.last_switch_date}</span>
+        </div>`);
+    }
+
+    if (parts.length > 0) {
+      filterHtml = `<div class="filter-box">${parts.join('')}</div>`;
+    }
+  }
+
   el('regime-content').innerHTML = `
+    ${rawNote}
     <div class="regime-center">
-      <div class="regime-badge ${cls}">${regime}</div>
+      <div class="regime-badge ${cls}">${confirmed}</div>
     </div>
+    ${filterHtml}
     <div class="metrics-grid">
-      ${metric('모멘텀 1M',     f.momentum_1m,   'pct', true)}
-      ${metric('모멘텀 3M',     f.momentum_3m,   'pct', true)}
-      ${metric('실현 변동성',   f.realized_vol,  'pct', false)}
-      ${metric('VIX',          f.vix,           'num', false)}
-      ${metric('크레딧 신호',   f.credit_signal, 'pct', true)}
+      ${metric('모멘텀 1M',   f.momentum_1m,   'pct', true)}
+      ${metric('모멘텀 3M',   f.momentum_3m,   'pct', true)}
+      ${metric('실현 변동성', f.realized_vol,  'pct', false)}
+      ${metric('VIX',        f.vix,           'num', false)}
+      ${metric('크레딧 신호', f.credit_signal, 'pct', true)}
     </div>`;
 }
 
@@ -336,9 +421,9 @@ function metric(label, val, type, signed) {
   return `<div class="metric"><div class="m-label">${label}</div><div class="m-value ${cls}">${txt}</div></div>`;
 }
 
-function renderWeights(regime) {
+function renderWeights(confirmed) {
   if (!configData) return;
-  const weights = configData.regime_weights[regime];
+  const weights = configData.regime_weights[confirmed];
   const universe = configData.universe;
   if (!weights) return;
 
@@ -357,7 +442,7 @@ function renderWeights(regime) {
     </tr>`;
   }).join('');
 
-  el('regime-label-small').textContent = `(${regime})`;
+  el('regime-label-small').textContent = `(${confirmed})`;
   el('weights-card').classList.remove('hidden');
 }
 
