@@ -7,6 +7,7 @@
 """
 import argparse
 import sys
+from datetime import datetime
 from pathlib import Path
 
 import yaml
@@ -130,6 +131,8 @@ def main() -> None:
         else:
             print(f"    신뢰도     : {combined_conf:.0%}  (규칙기반)")
 
+        state["last_run_confidence"] = round(combined_conf, 4)
+
         # 신뢰도 미달 → Neutral 폴백
         conf_threshold = config.get("regime_filter", {}).get("confidence_threshold", 0.40)
         if raw_regime != "Neutral" and combined_conf < conf_threshold:
@@ -209,6 +212,8 @@ def main() -> None:
             total_krw = universe_total  # orphan은 이미 경고 출력됨
             print(f"    유니버스 기준 자산: {universe_total:,.0f} 원")
             print(f"    드로우다운        : {drawdown:+.2%}")
+            state["last_drawdown"] = round(drawdown, 4)
+            state["last_total_krw"] = float(total_krw)
 
         # ⑦ 리스크 제어 + 버퍼 플로어 + 합성 노출 적용
         print("[7] 리스크 제어 적용 중...")
@@ -238,6 +243,7 @@ def main() -> None:
         print("[8] 리밸런싱 실행...")
         if args.dry_run:
             print("    [dry-run] 주문 생략")
+            state["last_run_at"] = datetime.now().isoformat()
             state.update(regime_filter.to_dict())
             save_state(state)
             return
@@ -256,6 +262,7 @@ def main() -> None:
         # 지연 매수 저장 + state 갱신 (settlement + regime filter)
         for d in new_deferred:
             tracker.add_deferred(d["ticker"], d["amount_krw"], d["currency"])
+        state["last_run_at"] = datetime.now().isoformat()
         state.update(tracker.to_dict())
         state.update(regime_filter.to_dict())
         save_state(state)

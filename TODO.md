@@ -61,7 +61,8 @@ _system_archi.md 기준 잔여 작업_
 - [ ] **페이퍼 트레이딩 모드** — KIS 모의투자 계좌 연동 (실거래 전 검증)
 - [ ] **MLflow 모델 추적** — 레짐 판정 히스토리, 신호 IC/IR 기록
 - [ ] **Walk-Forward 백테스트** — 2년 학습 / 6개월 검증 슬라이딩 윈도우
-- [ ] **Grafana 대시보드** — 포트폴리오 현황·레짐·드로우다운 실시간 시각화
+- [x] **Grafana 대시보드** — 포트폴리오 현황·레짐·드로우다운 실시간 시각화.
+  `docker-compose.yml` + prometheus_client `/metrics` 엔드포인트. `docker compose up -d` 후 `http://localhost:3000` 접속 (admin/admin).
 
 ---
 

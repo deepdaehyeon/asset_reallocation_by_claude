@@ -11,14 +11,57 @@ from pathlib import Path
 
 import yaml
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from prometheus_client import Gauge, generate_latest, CONTENT_TYPE_LATEST
 
 BASE_DIR = Path(__file__).parent
 STATE_FILE = BASE_DIR / "state.json"
 CONFIG_FILE = BASE_DIR / "config.yaml"
 
 app = FastAPI(title="자산 배분 시스템")
+
+# ── Prometheus 메트릭 ───────────────────────────────
+_REGIME_MAP = {"Risk-On": 0, "Neutral": 1, "Risk-Off": 2, "High-Vol": 3}
+
+_g_regime          = Gauge("asset_regime_index",         "Confirmed regime (0=Risk-On 1=Neutral 2=Risk-Off 3=High-Vol)")
+_g_confidence      = Gauge("asset_regime_confidence",    "Regime confidence score [0,1]")
+_g_drawdown        = Gauge("asset_portfolio_drawdown",   "Portfolio drawdown ratio")
+_g_peak            = Gauge("asset_portfolio_peak_krw",   "Portfolio peak value KRW")
+_g_total           = Gauge("asset_portfolio_total_krw",  "Portfolio current total KRW")
+_g_pending_sells   = Gauge("asset_pending_sells_count",  "Pending sell settlements count")
+_g_deferred_buys   = Gauge("asset_deferred_buys_count",  "Deferred buy orders count")
+_g_last_run        = Gauge("asset_last_run_timestamp",   "Unix timestamp of last pipeline run")
+_g_candidate_count = Gauge("asset_regime_candidate_count", "Consecutive confirmation count for candidate regime")
+_g_target_weight   = Gauge("asset_target_weight",        "Target portfolio weight", ["ticker", "name", "asset_class"])
+
+
+def _update_metrics(state: dict, cfg: dict) -> None:
+    confirmed = state.get("confirmed_regime", "Neutral")
+    _g_regime.set(_REGIME_MAP.get(confirmed, 1))
+    _g_confidence.set(state.get("last_run_confidence", 0.0))
+    _g_drawdown.set(state.get("last_drawdown", 0.0))
+    _g_peak.set(state.get("peak_krw", 0.0))
+    _g_total.set(state.get("last_total_krw", 0.0))
+    _g_pending_sells.set(len(state.get("pending_sells", [])))
+    _g_deferred_buys.set(len(state.get("deferred_buys", [])))
+    _g_candidate_count.set(state.get("candidate_count", 0))
+
+    last_run = state.get("last_run_at")
+    if last_run:
+        from datetime import datetime
+        _g_last_run.set(datetime.fromisoformat(last_run).timestamp())
+
+    regime = state.get("confirmed_regime", "Neutral")
+    weights = cfg.get("regime_weights", {}).get(regime, {})
+    universe = cfg.get("universe", {})
+    for ticker, w in weights.items():
+        info = universe.get(ticker, {})
+        _g_target_weight.labels(
+            ticker=ticker,
+            name=info.get("name", ticker),
+            asset_class=info.get("asset_class", ""),
+        ).set(w)
 
 # ── 내부 헬퍼 ──────────────────────────────────────
 
@@ -107,6 +150,15 @@ async def get_regime():
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/metrics")
+async def metrics():
+    """Prometheus 스크레이프 엔드포인트."""
+    state = _load_state()
+    cfg = _load_config()
+    _update_metrics(state, cfg)
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 # ── WebSocket 파이프라인 스트리밍 ──────────────────
