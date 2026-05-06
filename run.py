@@ -45,38 +45,79 @@ def main() -> None:
     state = load_state()
 
     try:
-        # ① 시장 데이터 수집
+        # ① 시장 데이터 수집 (HMM용 확장 lookback 포함)
         print("━" * 50)
         print("[1] 시장 데이터 수집 중...")
-        from fetcher import fetch_signal_prices
+        from fetcher import fetch_signal_prices, fetch_fred_data
 
         signal_cfg = config["signal"]
+        hmm_cfg = config.get("hmm", {})
+        hmm_enabled = hmm_cfg.get("enabled", True)
+        hmm_lookback = hmm_cfg.get("lookback_days", 500) if hmm_enabled else 0
+        effective_lookback = max(signal_cfg["lookback_days"], hmm_lookback)
+
         prices = fetch_signal_prices(
             tickers=signal_cfg["tickers"],
-            lookback_days=signal_cfg["lookback_days"],
+            lookback_days=effective_lookback,
         )
+        print(f"    수집 기간  : {len(prices)}일")
 
-        # ② 피처 계산
+        # FRED 데이터 조회 (API 키 있을 때만, 없으면 빈 dict)
+        fred_data = fetch_fred_data()
+        if fred_data:
+            print(f"    FRED 조회  : {', '.join(fred_data.keys())}")
+
+        # ② 피처 계산 (현재 시점 기준, FRED 연동)
         print("[2] 피처 계산 중...")
-        from features import compute_features
+        from features import compute_features, compute_feature_matrix
 
-        features = compute_features(prices)
+        features = compute_features(prices, fred_data or None)
         print(f"    momentum_1m : {features['momentum_1m']:+.2%}")
         print(f"    momentum_3m : {features['momentum_3m']:+.2%}")
         print(f"    realized_vol: {features['realized_vol']:.2%} (연환산)")
         print(f"    VIX         : {features['vix']:.1f}")
         print(f"    credit_signal: {features['credit_signal']:+.2%}")
+        if "hy_spread" in features:
+            print(f"    HY 스프레드 : {features['hy_spread']:.2f}% (FRED)")
+        if "curve_10y2y" in features:
+            print(f"    10Y-2Y 커브 : {features['curve_10y2y']:+.2f}% (FRED)")
 
-        # ③ 레짐 감지 (히스테리시스 필터 적용)
+        # ③ 레짐 감지 (규칙 기반 + HMM 앙상블 + 히스테리시스 필터)
         print("[3] 레짐 감지 중...")
-        from regime import detect_regime, RegimeFilter
+        from regime import detect_regime, RegimeFilter, HmmRegimeClassifier, ensemble_regime
 
-        raw_regime = detect_regime(features)
+        # 규칙 기반
+        rule_regime = detect_regime(features)
+
+        # HMM 앙상블
+        hmm_min = hmm_cfg.get("min_samples", 100)
+        override_thr = hmm_cfg.get("override_threshold", 0.60)
+        feature_matrix = compute_feature_matrix(prices)
+        raw_regime = rule_regime
+
+        if hmm_enabled and len(feature_matrix) >= hmm_min:
+            hmm_clf = HmmRegimeClassifier()
+            hmm_clf.fit(feature_matrix)
+            hmm_probs = hmm_clf.predict_proba(features)
+            hmm_top = max(hmm_probs, key=hmm_probs.get)
+            print(f"    규칙 기반  : {rule_regime}")
+            print(
+                f"    HMM 예측   : {hmm_top} "
+                f"({hmm_probs[hmm_top]:.0%}) | "
+                + " / ".join(f"{r}:{p:.0%}" for r, p in sorted(hmm_probs.items(), key=lambda x: -x[1]))
+            )
+            raw_regime = ensemble_regime(rule_regime, hmm_probs, override_thr)
+            if raw_regime != rule_regime:
+                print(f"    앙상블 조정: {rule_regime} → {raw_regime}")
+        else:
+            if hmm_enabled:
+                print(f"    HMM        : 학습 데이터 부족 ({len(feature_matrix)}/{hmm_min}일), 규칙 기반 사용")
+
+        # 히스테리시스 필터
         old_confirmed = state.get("confirmed_regime")
         regime_filter = RegimeFilter(state, config)
         regime = regime_filter.update(raw_regime)
 
-        print(f"    원시 레짐  : {raw_regime}")
         if old_confirmed and old_confirmed != regime:
             print(f"    → 레짐 전환 확정: {old_confirmed} → {regime} ★")
         elif regime_filter.is_transitioning:

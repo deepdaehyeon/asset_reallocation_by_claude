@@ -136,6 +136,14 @@ regime_weights:
     "SHY":    0.07
     "TLT":    0.00
 
+# HMM 레짐 앙상블
+# enabled: false 로 비활성화 가능
+hmm:
+  enabled: true
+  lookback_days: 500        # HMM 학습용 역사 데이터 기간 (거래일 기준)
+  min_samples: 100          # 최소 학습 샘플 수 (미달 시 규칙 기반만 사용)
+  override_threshold: 0.60  # HMM이 규칙 기반을 override하는 최소 사후 확률
+
 # 레짐 전환 히스테리시스 필터
 # 두 조건 모두 충족해야 레짐 전환 확정
 regime_filter:

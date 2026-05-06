@@ -1,4 +1,4 @@
-"""규칙 기반 시장 레짐 감지 및 히스테리시스 필터."""
+"""규칙 기반 시장 레짐 감지, 히스테리시스 필터, HMM 앙상블."""
 from __future__ import annotations
 
 from datetime import date
@@ -145,3 +145,115 @@ class RegimeFilter:
             "candidate_count": self._count,
             "last_switch_date": self._last_switch,
         }
+
+
+# ── HMM 앙상블 ──────────────────────────────────────────────────────────────
+
+class HmmRegimeClassifier:
+    """
+    GaussianHMM 기반 비지도 레짐 분류기.
+
+    학습: 역사적 피처 행렬로 4-상태 HMM 적합
+    레이블 매핑: 각 HMM 상태를 규칙 기반 레짐과 매핑 (다수결)
+    추론: 현재 피처 → 레짐별 사후 확률 dict
+
+    의존성: hmmlearn, scikit-learn (requirements.txt)
+    """
+
+    N_STATES = 4
+
+    def __init__(self) -> None:
+        self._model = None
+        self._scaler = None
+        self._state_to_regime: dict[int, str] = {}
+
+    def fit(self, feature_matrix) -> None:
+        """
+        피처 행렬로 HMM을 학습하고 상태-레짐 매핑을 결정한다.
+
+        feature_matrix: pd.DataFrame with columns = HMM_FEATURE_COLS
+        """
+        from collections import Counter
+
+        import numpy as np
+        from hmmlearn import hmm
+        from sklearn.preprocessing import StandardScaler
+
+        from features import HMM_FEATURE_COLS
+
+        X = feature_matrix[HMM_FEATURE_COLS].values.astype(float)
+
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+        self._scaler = scaler
+
+        model = hmm.GaussianHMM(
+            n_components=self.N_STATES,
+            covariance_type="diag",
+            n_iter=200,
+            random_state=42,
+            tol=1e-4,
+        )
+        model.fit(X_scaled)
+        self._model = model
+
+        # 각 행의 규칙 기반 레짐을 레이블로 사용 → HMM 상태 매핑
+        states = model.predict(X_scaled)
+        rule_labels = [
+            detect_regime(row)
+            for row in feature_matrix[HMM_FEATURE_COLS].to_dict(orient="records")
+        ]
+        for s in range(self.N_STATES):
+            idxs = [i for i, st in enumerate(states) if st == s]
+            if idxs:
+                labels = [rule_labels[i] for i in idxs]
+                self._state_to_regime[s] = Counter(labels).most_common(1)[0][0]
+            else:
+                self._state_to_regime[s] = "Neutral"
+
+    def predict_proba(self, features: dict) -> dict[str, float]:
+        """
+        현재 피처에서 레짐별 사후 확률을 반환한다.
+
+        HMM이 학습되지 않은 경우 균등 분포를 반환한다.
+        """
+        if self._model is None or self._scaler is None:
+            return {r: 1.0 / len(REGIMES) for r in REGIMES}
+
+        import numpy as np
+        from features import HMM_FEATURE_COLS
+
+        x = np.array([[features[k] for k in HMM_FEATURE_COLS]], dtype=float)
+        x_scaled = self._scaler.transform(x)
+
+        # predict_proba returns (n_samples, n_states) posterior
+        state_probs = self._model.predict_proba(x_scaled)[0]
+
+        regime_probs: dict[str, float] = {r: 0.0 for r in REGIMES}
+        for s, prob in enumerate(state_probs):
+            regime = self._state_to_regime.get(s, "Neutral")
+            regime_probs[regime] += float(prob)
+
+        return regime_probs
+
+
+def ensemble_regime(
+    rule_regime: str,
+    hmm_probs: dict[str, float],
+    override_threshold: float = 0.60,
+) -> str:
+    """
+    규칙 기반 레짐과 HMM 확률 분포를 결합해 최종 레짐을 반환한다.
+
+    HMM이 rule-based와 다른 레짐을 override_threshold 이상 확률로 지지하고,
+    rule-based 레짐의 HMM 확률이 25% 미만인 경우에만 HMM 레짐을 채택한다.
+    그 외에는 규칙 기반 레짐을 사용한다 (보수적 기본값).
+    """
+    hmm_top = max(hmm_probs, key=hmm_probs.get)
+    if (
+        hmm_top != rule_regime
+        and hmm_probs[hmm_top] >= override_threshold
+        and hmm_probs.get(rule_regime, 0.0) < 0.25
+    ):
+        return hmm_top
+    return rule_regime

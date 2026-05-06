@@ -1,7 +1,9 @@
 """KIS 기반 멀티 계좌 리밸런싱 실행 레이어."""
+import csv
 import json
 import math
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -23,6 +25,42 @@ MARKET_TO_CURRENCY: Dict[str, str] = {
 
 # 드로우다운 추적용 상태 파일
 STATE_FILE = Path(__file__).parent / "state.json"
+
+# 주문 로그 CSV
+ORDER_LOG_FILE = Path(__file__).parent / "logs" / "orders.csv"
+_ORDER_LOG_HEADERS = [
+    "datetime", "ticker", "action", "qty", "price", "currency", "amount_krw", "status"
+]
+
+
+def _append_order_log(
+    ticker: str,
+    action: str,
+    qty: int,
+    price: float,
+    currency: str,
+    usd_krw: float,
+    status: str,
+) -> None:
+    """주문 결과를 logs/orders.csv에 누적 기록한다."""
+    ORDER_LOG_FILE.parent.mkdir(exist_ok=True)
+    amount_krw = qty * price * (usd_krw if currency == "USD" else 1.0)
+    row = {
+        "datetime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "ticker": ticker,
+        "action": action,
+        "qty": qty,
+        "price": price,
+        "currency": currency,
+        "amount_krw": round(amount_krw),
+        "status": status,
+    }
+    write_header = not ORDER_LOG_FILE.exists()
+    with open(ORDER_LOG_FILE, "a", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=_ORDER_LOG_HEADERS)
+        if write_header:
+            writer.writeheader()
+        writer.writerow(row)
 
 
 def load_state() -> dict:
@@ -71,15 +109,26 @@ class KisRebalancer:
     ):
         self.config = config
         self.universe: Dict[str, dict] = config["universe"]
-        self.usd_krw: float = float(
-            config["rebalancing"].get("usd_krw_fallback", 1380.0)
-        )
+        fallback = float(config["rebalancing"].get("usd_krw_fallback", 1380.0))
+        self.usd_krw: float = self._fetch_usd_krw(fallback)
         self.min_order_krw: float = float(
             config["rebalancing"].get("min_order_krw", 10_000)
         )
         self.messenger = messenger
         auth_path = auth_path or Path(__file__).parent / "auth.yaml"
         self._clients = self._init_clients(auth_path)
+
+    @staticmethod
+    def _fetch_usd_krw(fallback: float) -> float:
+        """실시간 USD/KRW 환율을 조회한다. 실패 시 fallback 사용."""
+        try:
+            from fetcher import fetch_usd_krw
+            rate = fetch_usd_krw(fallback)
+            print(f"    USD/KRW: {rate:,.1f} (실시간)")
+            return rate
+        except Exception:
+            print(f"    USD/KRW: {fallback:,.1f} (폴백)")
+            return fallback
 
     # ──────────────────────────────────────────────
     # 초기화
@@ -327,6 +376,7 @@ class KisRebalancer:
             if currency == "USD"
             else abs(amount_diff_krw)
         )
+        qty, price = 0, 0.0
 
         try:
             client = self._get_client(ticker)
@@ -347,7 +397,6 @@ class KisRebalancer:
             order_fn = getattr(stock, action)
             order = order_fn(qty=qty, price=price)
 
-            # 미체결 시 가격 조정 (asset_allocator 방식 동일)
             rate = 1.001 if action == "buy" else 0.999
             cnt = 0
             while order.pending:
@@ -358,13 +407,16 @@ class KisRebalancer:
                     order = order_fn(qty=qty, price=price)
                 if cnt >= 1000:
                     print(f"  [timeout] {ticker}: 주문 시간 초과")
+                    _append_order_log(ticker, action, qty, price, currency, self.usd_krw, "timeout")
                     return f"[timeout] {action} {ticker} {qty}주"
 
             label = "매수" if action == "buy" else "매도"
+            _append_order_log(ticker, action, qty, price, currency, self.usd_krw, "ok")
             return f"{label} {ticker} {qty}주 @ {price:,.2f} {currency}"
 
         except Exception as e:
             print(f"  [error] {ticker}: {e}")
+            _append_order_log(ticker, action, qty, price, currency, self.usd_krw, f"error:{e}")
             if self.messenger:
                 self.messenger.send_order_error(ticker, e)
             return f"[오류] {ticker}: {e}"
