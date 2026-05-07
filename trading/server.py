@@ -22,9 +22,9 @@ CONFIG_FILE = BASE_DIR / "config.yaml"
 app = FastAPI(title="자산 배분 시스템")
 
 # ── Prometheus 메트릭 ───────────────────────────────
-_REGIME_MAP = {"Risk-On": 0, "Neutral": 1, "Risk-Off": 2, "High-Vol": 3}
+_REGIME_MAP = {"Goldilocks": 0, "Reflation": 1, "Slowdown": 2, "Stagflation": 3, "Crisis": 4}
 
-_g_regime          = Gauge("asset_regime_index",         "Confirmed regime (0=Risk-On 1=Neutral 2=Risk-Off 3=High-Vol)")
+_g_regime          = Gauge("asset_regime_index",         "Confirmed regime (0=Goldilocks 1=Reflation 2=Slowdown 3=Stagflation 4=Crisis)")
 _g_confidence      = Gauge("asset_regime_confidence",    "Regime confidence score [0,1]")
 _g_drawdown        = Gauge("asset_portfolio_drawdown",   "Portfolio drawdown ratio")
 _g_peak            = Gauge("asset_portfolio_peak_krw",   "Portfolio peak value KRW")
@@ -37,8 +37,8 @@ _g_target_weight   = Gauge("asset_target_weight",        "Target portfolio weigh
 
 
 def _update_metrics(state: dict, cfg: dict) -> None:
-    confirmed = state.get("confirmed_regime", "Neutral")
-    _g_regime.set(_REGIME_MAP.get(confirmed, 1))
+    confirmed = state.get("confirmed_regime", "Slowdown")
+    _g_regime.set(_REGIME_MAP.get(confirmed, 2))
     _g_confidence.set(state.get("last_run_confidence", 0.0))
     _g_drawdown.set(state.get("last_drawdown", 0.0))
     _g_peak.set(state.get("peak_krw", 0.0))
@@ -52,7 +52,7 @@ def _update_metrics(state: dict, cfg: dict) -> None:
         from datetime import datetime
         _g_last_run.set(datetime.fromisoformat(last_run).timestamp())
 
-    regime = state.get("confirmed_regime", "Neutral")
+    regime = state.get("confirmed_regime", "Slowdown")
     weights = cfg.get("regime_weights", {}).get(regime, {})
     universe = cfg.get("universe", {})
     for ticker, w in weights.items():

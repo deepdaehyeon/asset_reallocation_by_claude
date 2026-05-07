@@ -97,62 +97,87 @@ universe:
 # ※ 실제 실행 시에는 HMM 사후 확률로 가중 평균(Continuous Exposure)이 적용된다.
 #    이 값은 극단 레짐(확률 100%)일 때의 순수 배분이다.
 #
+# 포트폴리오 구조:
+#   Core 80%     — equity_etf / equity_factor / bond / gold / commodity / managed_futures / cash
+#   Satellite 20% — equity_individual (TSLA + PLTR: 장기투자 + 알파)
+#
 # 자산군 설명:
-#   equity_etf        : KODEX S&P500 + 나스닥100 (KRW, 베타 분산)
-#   equity_factor     : VTV(Value) (USD, Value 팩터)
-#   equity_individual : TSLA + PLTR (USD, 고베타 성장주)
-#   commodity         : DBC (USD, 인플레 헤지 — 롤비용 주의)
-#   managed_futures   : DBMF (USD, 트렌드 팔로잉 — 횡보장 약점 있음)
-#   bond_usd          : IEF + SHY (USD 중단기채)
-#   bond_krw          : TIGER 미국채10년 (KRW)
-#   gold              : ACE KRX금현물 (KRW, 보조 헤지 — 조건부 자산)
-#   cash              : SOL 초단기채권 (KRW)
+#   equity_etf        : KODEX S&P500 + 나스닥100 (KRW, 시장 베타)
+#   equity_factor     : VTV(Value ETF) (USD, Reflation·금리 상승 수혜)
+#   equity_individual : TSLA + PLTR (USD, 고베타 성장주 = Satellite)
+#   commodity         : DBC (USD, 인플레 헤지 — Reflation·Stagflation 핵심)
+#   managed_futures   : DBMF (USD, CTA — Slowdown·Stagflation·Crisis 방어)
+#   bond_usd          : IEF + SHY (USD 중단기채 — Slowdown·Crisis 방어)
+#   bond_krw          : TIGER 미국채10년 (KRW — Slowdown·Crisis panic bid)
+#   gold              : ACE KRX금현물 (KRW, 전천후 헤지)
+#   cash              : SOL 초단기채권 (KRW, Crisis·Stagflation 방어)
 # ────────────────────────────────────────────────────────────────────────────
 
 regime_targets:
-  Risk-On:             # equity 59% | factor 10% | commodity 10% | MF 8% | gold 8% | cash 15%
-    equity_etf:        0.38   # KODEX (KRW)
-    equity_factor:     0.10   # VTV (USD, Value 팩터)
-    equity_individual: 0.11   # TSLA+PLTR (USD, 고베타)
-    commodity:         0.10   # DBC (USD)
-    managed_futures:   0.08   # DBMF (USD)
+  # ── Goldilocks: 성장↑ + 유동성↑ (인플레 안정) ──────────────────────────────
+  # 가장 Risk-On. Satellite 풀 포지션. 채권 최소화.
+  Goldilocks:          # core 80% | satellite 20%
+    equity_etf:        0.40   # KODEX S&P500 + 나스닥100 — 광범위 성장
+    equity_factor:     0.05   # VTV 소량 (성장 환경에서 Value 기회비용)
+    equity_individual: 0.20   # TSLA+PLTR — Satellite 풀 포지션
+    commodity:         0.05   # DBC — 유동성 수혜 소량
+    managed_futures:   0.05   # DBMF — 트렌드 소량
     bond_usd:          0.00
     bond_krw:          0.00
-    gold:              0.08   # 보조 헤지
+    gold:              0.10   # 유동성 + 헤지
     cash:              0.15
 
-  Neutral:             # equity 46% | commodity 9% | MF 9% | bond 9% | gold 10% | cash 17%
-    equity_etf:        0.27
-    equity_factor:     0.08
-    equity_individual: 0.11
-    commodity:         0.09
-    managed_futures:   0.09
-    bond_usd:          0.02
-    bond_krw:          0.07
-    gold:              0.10
+  # ── Reflation: 성장↑ + 인플레↑ ─────────────────────────────────────────────
+  # 성장주 약점 환경. DBC·Gold·VTV(Value) 강화. Satellite 축소.
+  Reflation:           # core 90% | satellite 10%
+    equity_etf:        0.25   # S&P500 OK (나스닥 비중은 라우팅 고정 — 전체 줄임)
+    equity_factor:     0.10   # VTV — 금리 상승 수혜 Value ETF
+    equity_individual: 0.10   # TSLA+PLTR 축소 (금리 상승에 Duration 민감)
+    commodity:         0.18   # DBC — Reflation 핵심 자산
+    managed_futures:   0.05   # DBMF
+    bond_usd:          0.00   # 금리 상승 환경 — 채권 회피
+    bond_krw:          0.00
+    gold:              0.15   # 인플레 헤지
     cash:              0.17
 
-  Risk-Off:            # equity 24% | commodity 7% | MF 10% | bond 22% | gold 15% | cash 22%
-    equity_etf:        0.08
-    equity_factor:     0.05   # Value는 방어적 — 소량 유지
-    equity_individual: 0.11
-    commodity:         0.07
-    managed_futures:   0.10
-    bond_usd:          0.08
-    bond_krw:          0.14
-    gold:              0.15
-    cash:              0.22
+  # ── Slowdown: 성장↓ (인플레 낮음) ──────────────────────────────────────────
+  # 전통적 경기 둔화. 채권·금·DBMF 방어. Satellite 축소.
+  Slowdown:            # core 90% | satellite 10%
+    equity_etf:        0.15   # 소량 유지
+    equity_factor:     0.05   # VTV 방어적 소량
+    equity_individual: 0.10   # Satellite 축소
+    commodity:         0.05   # 수요 감소 — 소량만
+    managed_futures:   0.12   # DBMF — 하락 추세 추종
+    bond_usd:          0.12   # IEF+SHY — 금리 하락 수혜
+    bond_krw:          0.15   # TIGER 채권 — 금리 하락 수혜
+    gold:              0.14   # 안전자산
+    cash:              0.12
 
-  High-Vol:            # equity 11% | commodity 6% | MF 10% | bond 29% | gold 16% | cash 28%
+  # ── Stagflation: 성장↓ + 인플레↑ ───────────────────────────────────────────
+  # 가장 어려운 환경. DBC·Gold·DBMF·Cash 집중. 성장주 최소화. 장기채 회피.
+  Stagflation:         # core 92% | satellite 8%
+    equity_etf:        0.08   # 최소 유지
+    equity_factor:     0.05   # VTV 소량
+    equity_individual: 0.08   # Satellite 최소 (고밸류에이션 압박)
+    commodity:         0.20   # DBC — Stagflation 핵심 승자
+    managed_futures:   0.12   # DBMF — 추세추종
+    bond_usd:          0.05   # SHY 위주 단기채 소량 (장기채는 인플레 피해)
+    bond_krw:          0.00   # 장기채 회피
+    gold:              0.18   # 통화가치 방어
+    cash:              0.24   # SOL 초단기채 — Duration 회피
+
+  # ── Crisis: 유동성 쇼크 ─────────────────────────────────────────────────────
+  # 강제청산·상관관계 붕괴. 현금·초단기채 최대화. Equity 최소.
+  Crisis:              # core 95% | satellite 5%
     equity_etf:        0.00
-    equity_factor:     0.03   # VTV 소량
-    equity_individual: 0.08
-    commodity:         0.06
-    managed_futures:   0.10
-    bond_usd:          0.11
-    bond_krw:          0.18
-    gold:              0.16
-    cash:              0.28
+    equity_factor:     0.03   # VTV 극소량 (회복 대비)
+    equity_individual: 0.05   # Satellite 최소
+    commodity:         0.05   # 초기 동반 매도 후 반등 고려
+    managed_futures:   0.12   # DBMF — 하락 추세 수혜
+    bond_usd:          0.10   # IEF+SHY — panic bid (달러 안전자산)
+    bond_krw:          0.10   # TIGER 채권 — panic bid
+    gold:              0.15   # 위기 안전자산
+    cash:              0.40   # SOL 초단기채 — 유동성 최우선
 
 # 자산군 → 종목 매핑 (within-class 상대 비중, 고정)
 asset_routing:
@@ -186,9 +211,10 @@ account_ratio_fallback:
 # ── 자산군별 최대 비중 상한 ──────────────────────────────────────────────────
 # 레짐 블렌딩으로 인한 과집중 방지. 초과분은 cash로 이동.
 class_max_weight:
-  managed_futures:   0.10   # DBMF — 횡보장 약점, 10% 상한
-  equity_individual: 0.12   # TSLA+PLTR — 고베타 집중 방지
-  gold:              0.18   # 보조 헤지 역할 — 과대 비중 방지
+  equity_individual: 0.20   # Satellite 20% 상한 — Core/Satellite 구조 유지
+  commodity:         0.20   # DBC — Stagflation 20%가 최대
+  managed_futures:   0.12   # DBMF — 횡보장 약점 고려
+  gold:              0.18   # 전천후 헤지 — 과대 비중 방지
 
 # ── 변동성 타겟팅 ────────────────────────────────────────────────────────────
 # 실현 변동성이 목표를 초과하면 equity 비중을 자동 축소 → cash 이동

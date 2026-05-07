@@ -11,7 +11,7 @@ def blend_regime_targets(regime_probs: Dict[str, float], config: dict) -> dict:
     레짐별 사후 확률을 가중치로 자산군 목표 비중을 혼합한다.
 
     Discrete regime 전환 대신 Continuous Exposure를 구현:
-      Risk-On 70% / Neutral 30% → 비중도 7:3 가중 평균
+      Goldilocks 70% / Slowdown 30% → 비중도 7:3 가중 평균
     이를 통해 레짐 오판·지연에 의한 양방향 슬리피지를 완화한다.
     """
     all_classes: Set[str] = set()
@@ -248,7 +248,7 @@ def apply_risk_controls(
 
     severe (-30%):   equity만 0으로 축소 — 채권·금·현금 유지
                      "바닥에서 전량 현금화" 패턴을 방지한다.
-    moderate (-20%): equity 40% 수준으로 강제 축소 (Risk-Off 강제 효과)
+    moderate (-20%): equity 40% 수준으로 강제 축소 (Slowdown/Crisis 강제 효과)
     mild (-10%):     equity 75% 유지 (소폭 방어)
 
     equity_tickers: USD·KRW 계좌 각각 해당 계좌의 equity 종목 집합

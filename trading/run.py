@@ -162,7 +162,7 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
 
     print("[3] 레짐 감지 중...")
     from regime import (
-        detect_regime, RegimeFilter, REGIMES,
+        detect_regime, RegimeFilter, REGIMES, DEFAULT_REGIME,
         HmmRegimeClassifier, ensemble_regime,
         compute_rule_confidence,
     )
@@ -203,12 +203,12 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
         print(f"    신뢰도     : {combined_conf:.0%}  (규칙기반)")
 
     conf_threshold = config.get("regime_filter", {}).get("confidence_threshold", 0.40)
-    if raw_regime != "Neutral" and combined_conf < conf_threshold:
+    if raw_regime != DEFAULT_REGIME and combined_conf < conf_threshold:
         print(
             f"    신뢰도 미달 ({combined_conf:.0%} < {conf_threshold:.0%})"
-            f" → Neutral 폴백 (이전: {raw_regime})"
+            f" → {DEFAULT_REGIME} 폴백 (이전: {raw_regime})"
         )
-        raw_regime = "Neutral"
+        raw_regime = DEFAULT_REGIME
 
     old_confirmed = state.get("confirmed_regime")
     regime_filter = RegimeFilter(state, config)
@@ -449,7 +449,8 @@ def run_execution(config: dict, state: dict, messenger: Messenger, args) -> None
 
     blended_targets = state.get("saved_blended_targets")
     realized_vol = float(state.get("saved_realized_vol", 0.0))
-    regime = state.get("saved_regime", "Neutral")
+    from regime import DEFAULT_REGIME
+    regime = state.get("saved_regime", DEFAULT_REGIME)
     combined_conf = float(state.get("saved_confidence", 0.0))
     saved_features: dict = state.get("saved_features", {})
 

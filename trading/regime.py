@@ -3,7 +3,15 @@ from __future__ import annotations
 
 from datetime import date
 
-REGIMES = ["Risk-On", "Neutral", "Risk-Off", "High-Vol"]
+# 5개 레짐: 성장·인플레·유동성 3축으로 정의
+# Goldilocks : 성장↑ + 유동성↑ (인플레 안정)
+# Reflation  : 성장↑ + 인플레↑
+# Slowdown   : 성장↓ (인플레 낮음)
+# Stagflation: 성장↓ + 인플레↑
+# Crisis     : 유동성 쇼크
+REGIMES = ["Goldilocks", "Reflation", "Slowdown", "Stagflation", "Crisis"]
+
+DEFAULT_REGIME = "Slowdown"  # 신뢰도 미달 시 보수적 폴백
 
 
 def detect_regime(features: dict) -> str:
@@ -11,42 +19,54 @@ def detect_regime(features: dict) -> str:
     피처 딕셔너리로부터 시장 레짐을 분류한다.
 
     우선순위:
-      1. High-Vol  — 실현변동성 또는 VIX가 극단적으로 높을 때
-      2. Risk-Off  — 베어리시 신호 2개 이상
-      3. Risk-On   — 불리시 신호 2개 이상
-      4. Neutral   — 혼재
+      1. Crisis      — 실현변동성 또는 VIX가 극단적으로 높을 때 (유동성 쇼크)
+      2. Stagflation — 성장↓ + 인플레↑
+      3. Slowdown    — 성장↓
+      4. Goldilocks  — 성장↑ + 인플레 안정
+      5. Reflation   — 성장↑ + 인플레↑
+      6. 혼재        — 성장 방향성으로 보수적 판단
 
-    Returns:
-        "Risk-On" | "Neutral" | "Risk-Off" | "High-Vol"
+    성장 proxy: momentum_1m / momentum_3m / credit_signal
+    인플레 proxy: hy_spread(FRED) / curve_10y2y(FRED) / vix
     """
-    vix = features["vix"]
-    mom1m = features["momentum_1m"]
-    mom3m = features["momentum_3m"]
-    rvol = features["realized_vol"]
+    vix    = features["vix"]
+    mom1m  = features["momentum_1m"]
+    mom3m  = features["momentum_3m"]
+    rvol   = features["realized_vol"]
     credit = features["credit_signal"]
+    hy_spread = features.get("hy_spread", 4.5)   # 없으면 중립값
+    curve     = features.get("curve_10y2y", 0.5)  # 없으면 중립값
 
-    if rvol > 0.25 or vix > 35:
-        return "High-Vol"
+    # 1. Crisis: 유동성 쇼크
+    if rvol > 0.30 or vix > 40:
+        return "Crisis"
 
-    bearish = sum([
-        mom1m < -0.03,
-        mom3m < -0.05,
-        vix > 25,
-        credit < -0.03,
-    ])
+    growth_bullish = sum([mom1m > 0.02, mom3m > 0.03, credit > 0.01])
+    growth_bearish = sum([mom1m < -0.02, mom3m < -0.03, credit < -0.02])
 
-    bullish = sum([
-        mom1m > 0.02,
-        mom3m > 0.04,
-        vix < 18,
-        credit > 0.02,
-    ])
+    infl_rising = sum([hy_spread > 5.0, curve > 1.5, vix > 25])
+    infl_low    = sum([hy_spread < 4.0, curve < 0.5,  vix < 18])
 
-    if bearish >= 2:
-        return "Risk-Off"
-    if bullish >= 2:
-        return "Risk-On"
-    return "Neutral"
+    # 2. Stagflation: 성장↓ + 인플레↑
+    if growth_bearish >= 2 and infl_rising >= 1:
+        return "Stagflation"
+
+    # 3. Slowdown: 성장↓
+    if growth_bearish >= 2:
+        return "Slowdown"
+
+    # 4. Goldilocks: 성장↑ + 인플레 안정
+    if growth_bullish >= 2 and infl_low >= 1:
+        return "Goldilocks"
+
+    # 5. Reflation: 성장↑ + 인플레↑
+    if growth_bullish >= 2 and infl_rising >= 1:
+        return "Reflation"
+
+    # 6. 혼재: 보수적으로 성장 방향성 우선
+    if growth_bearish >= 1:
+        return "Slowdown"
+    return "Goldilocks"
 
 
 class RegimeFilter:
@@ -160,7 +180,7 @@ class HmmRegimeClassifier:
     의존성: hmmlearn, scikit-learn (requirements.txt)
     """
 
-    N_STATES = 4
+    N_STATES = 5  # Goldilocks / Reflation / Slowdown / Stagflation / Crisis
 
     def __init__(self) -> None:
         self._model = None
@@ -209,7 +229,7 @@ class HmmRegimeClassifier:
                 labels = [rule_labels[i] for i in idxs]
                 self._state_to_regime[s] = Counter(labels).most_common(1)[0][0]
             else:
-                self._state_to_regime[s] = "Neutral"
+                self._state_to_regime[s] = DEFAULT_REGIME
 
     def predict_proba(self, features: dict) -> dict[str, float]:
         """
@@ -241,26 +261,34 @@ def compute_rule_confidence(features: dict, regime: str) -> float:
     """
     규칙 기반 레짐 판단의 신뢰도 [0.0, 1.0]을 반환한다.
 
-    - Risk-On / Risk-Off : 발동된 신호 수 / 전체 신호 수(4)
-    - High-Vol           : 1.0 (임계값 초과는 항상 명확)
-    - Neutral            : 1.0 − max(bullish, bearish) / 4
+    각 레짐에 기여하는 신호 수 / 최대 가능 신호 수로 계산한다.
+    - Crisis     : 1.0 (임계값 초과는 항상 명확)
+    - 기타 레짐  : (성장 신호 + 인플레 신호) / 최대 신호 수
     """
     mom1m  = features["momentum_1m"]
     mom3m  = features["momentum_3m"]
     vix    = features["vix"]
     credit = features["credit_signal"]
+    hy_spread = features.get("hy_spread", 4.5)
+    curve     = features.get("curve_10y2y", 0.5)
 
-    if regime == "High-Vol":
+    if regime == "Crisis":
         return 1.0
 
-    bullish = sum([mom1m > 0.02, mom3m > 0.04, vix < 18, credit > 0.02])
-    bearish = sum([mom1m < -0.03, mom3m < -0.05, vix > 25, credit < -0.03])
+    growth_bullish = sum([mom1m > 0.02, mom3m > 0.03, credit > 0.01])
+    growth_bearish = sum([mom1m < -0.02, mom3m < -0.03, credit < -0.02])
+    infl_rising    = sum([hy_spread > 5.0, curve > 1.5, vix > 25])
+    infl_low       = sum([hy_spread < 4.0, curve < 0.5, vix < 18])
 
-    if regime == "Risk-On":
-        return bullish / 4
-    if regime == "Risk-Off":
-        return bearish / 4
-    return 1.0 - max(bullish, bearish) / 4  # Neutral
+    if regime == "Goldilocks":
+        return (growth_bullish + infl_low) / 6
+    if regime == "Reflation":
+        return (growth_bullish + infl_rising) / 6
+    if regime == "Slowdown":
+        return growth_bearish / 3
+    if regime == "Stagflation":
+        return (growth_bearish + infl_rising) / 6
+    return 0.5
 
 
 def ensemble_regime(

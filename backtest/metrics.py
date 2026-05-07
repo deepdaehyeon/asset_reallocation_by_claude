@@ -53,7 +53,7 @@ def regime_breakdown(
 ) -> pd.DataFrame:
     """레짐별 성과 분해."""
     rows = []
-    for regime in ["Risk-On", "Neutral", "Risk-Off", "High-Vol"]:
+    for regime in ["Goldilocks", "Reflation", "Slowdown", "Stagflation", "Crisis"]:
         mask = regimes == regime
         r = returns[mask]
         if len(r) < 10:

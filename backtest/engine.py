@@ -113,7 +113,7 @@ class BacktestEngine:
         sig = self.signal_px[start:as_of]
 
         if len(sig) < 30:
-            return "Neutral", {r: 0.25 for r in REGIMES}
+            return "Slowdown", {r: 1.0 / len(REGIMES) for r in REGIMES}
 
         features = compute_features(sig)
         rule_regime = detect_regime(features)
@@ -175,7 +175,7 @@ class BacktestEngine:
         portfolio_value = 1.0
         peak_value = 1.0
         shares: Dict[str, float] = {}
-        current_regime = "Neutral"
+        current_regime = "Slowdown"
         weights: Dict[str, float] = {}
 
         rows: List[dict] = []
