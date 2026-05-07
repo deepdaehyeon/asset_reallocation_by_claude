@@ -22,6 +22,12 @@ from metrics import compute_metrics
 
 # 민감도 테스트 파라미터 정의 (config 경로 → 테스트값 목록)
 SENSITIVITY_PARAMS: Dict[str, dict] = {
+    "hmm_predict_lookback": {
+        "description": "HMM 추론 시퀀스 길이 — 거래일 (기본 60일)",
+        "path":   ["hmm", "predict_lookback"],
+        "values": [10, 20, 40, 60, 90, 120],
+        "base":   60,
+    },
     "vol_target": {
         "description": "변동성 타겟팅 목표 변동성 (기본 10%)",
         "path":   ["vol_targeting", "target_vol"],
@@ -47,10 +53,10 @@ SENSITIVITY_PARAMS: Dict[str, dict] = {
         "base":   -0.20,
     },
     "class_max_managed_futures": {
-        "description": "Managed Futures 최대 비중 상한 (기본 10%)",
+        "description": "Managed Futures 최대 비중 상한 (기본 12%)",
         "path":   ["class_max_weight", "managed_futures"],
-        "values": [0.08, 0.09, 0.10, 0.11, 0.12],
-        "base":   0.10,
+        "values": [0.09, 0.10, 0.11, 0.12, 0.13, 0.14],
+        "base":   0.12,
     },
 }
 
