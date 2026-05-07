@@ -231,11 +231,14 @@ class HmmRegimeClassifier:
             else:
                 self._state_to_regime[s] = DEFAULT_REGIME
 
-    def predict_proba(self, features: dict) -> dict[str, float]:
+    def predict_proba(self, feature_sequence) -> dict[str, float]:
         """
-        현재 피처에서 레짐별 사후 확률을 반환한다.
+        피처 시퀀스(최근 N일)에서 마지막 시점의 레짐별 사후 확률을 반환한다.
 
-        HMM이 학습되지 않은 경우 균등 분포를 반환한다.
+        단일 관측값 대신 시퀀스 전체를 HMM에 통과시켜 전이 확률(transition matrix)과
+        과거 문맥이 반영된 마지막 시점의 사후 확률을 사용한다.
+
+        feature_sequence: HMM_FEATURE_COLS 컬럼을 가진 pd.DataFrame (shape: T × n_features)
         """
         if self._model is None or self._scaler is None:
             return {r: 1.0 / len(REGIMES) for r in REGIMES}
@@ -243,15 +246,15 @@ class HmmRegimeClassifier:
         import numpy as np
         from features import HMM_FEATURE_COLS
 
-        x = np.array([[features[k] for k in HMM_FEATURE_COLS]], dtype=float)
-        x_scaled = self._scaler.transform(x)
+        X = feature_sequence[HMM_FEATURE_COLS].values.astype(float)
+        X_scaled = self._scaler.transform(X)
 
-        # predict_proba returns (n_samples, n_states) posterior
-        state_probs = self._model.predict_proba(x_scaled)[0]
+        # predict_proba returns (T, n_states) — 마지막 시점 사후 확률 사용
+        state_probs = self._model.predict_proba(X_scaled)[-1]
 
         regime_probs: dict[str, float] = {r: 0.0 for r in REGIMES}
         for s, prob in enumerate(state_probs):
-            regime = self._state_to_regime.get(s, "Neutral")
+            regime = self._state_to_regime.get(s, DEFAULT_REGIME)
             regime_probs[regime] += float(prob)
 
         return regime_probs

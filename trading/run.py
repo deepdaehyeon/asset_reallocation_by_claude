@@ -170,6 +170,7 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
     rule_regime = detect_regime(features)
     hmm_min = hmm_cfg.get("min_samples", 100)
     override_thr = hmm_cfg.get("override_threshold", 0.60)
+    predict_lookback = hmm_cfg.get("predict_lookback", 60)
     feature_matrix = compute_feature_matrix(prices)
     raw_regime = rule_regime
     hmm_probs: dict = {}
@@ -177,7 +178,8 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
     if hmm_enabled and len(feature_matrix) >= hmm_min:
         hmm_clf = HmmRegimeClassifier()
         hmm_clf.fit(feature_matrix)
-        hmm_probs = hmm_clf.predict_proba(features)
+        seq = feature_matrix.tail(predict_lookback)
+        hmm_probs = hmm_clf.predict_proba(seq)
         hmm_top = max(hmm_probs, key=hmm_probs.get)
         print(f"    규칙 기반  : {rule_regime}")
         print(

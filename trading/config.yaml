@@ -251,7 +251,8 @@ vol_targeting:
 # HMM 레짐 앙상블
 hmm:
   enabled: true
-  lookback_days: 500
+  lookback_days: 500       # HMM 학습 윈도우 (거래일)
+  predict_lookback: 60     # 추론 시 사용할 시퀀스 길이 — 전이 확률 문맥 반영
   min_samples: 100
   override_threshold: 0.60
 

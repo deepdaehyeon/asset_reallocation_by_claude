@@ -93,6 +93,7 @@ class BacktestEngine:
         self.hmm_lookback = hmm_cfg.get("lookback_days", 500)
         self.hmm_min = hmm_cfg.get("min_samples", 100)
         self.override_thr = hmm_cfg.get("override_threshold", 0.60)
+        self.predict_lookback = hmm_cfg.get("predict_lookback", 60)
 
         eq_classes = set(config.get("vol_targeting", {}).get(
             "equity_asset_classes",
@@ -125,7 +126,8 @@ class BacktestEngine:
                 clf = HmmRegimeClassifier()
                 with _quiet():
                     clf.fit(fm)
-                hmm_probs = clf.predict_proba(features)
+                seq = fm.tail(self.predict_lookback)
+                hmm_probs = clf.predict_proba(seq)
                 final = ensemble_regime(rule_regime, hmm_probs, self.override_thr)
                 return final, hmm_probs
 
