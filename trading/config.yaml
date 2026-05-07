@@ -32,12 +32,23 @@ universe:
     currency: KRW
     exec_account: KRW_2
     asset_class: equity_etf
-  # ── Equity Factor (USD) — Value 팩터 ─────────────────────────────────────
+  # ── Equity Factor (USD) — Value / 소형가치 팩터 ──────────────────────────
   "VTV":
     name: "Vanguard Value ETF"
     currency: USD
     exec_account: USD
     asset_class: equity_factor
+  "AVUV":
+    name: "Avantis U.S. Small Cap Value ETF"
+    currency: USD
+    exec_account: USD
+    asset_class: equity_factor
+  # ── Equity Sector (USD) — 에너지 섹터 (인플레 헤지) ──────────────────────
+  "XLE":
+    name: "Energy Select Sector SPDR ETF"
+    currency: USD
+    exec_account: USD
+    asset_class: equity_sector
   # ── Equity Individual (USD) — 고베타 성장주 ───────────────────────────────
   "TSLA":
     name: "Tesla"
@@ -115,10 +126,11 @@ universe:
 
 regime_targets:
   # ── Goldilocks: 성장↑ + 유동성↑ (인플레 안정) ──────────────────────────────
-  # 가장 Risk-On. Satellite 풀 포지션. 채권 최소화.
+  # 가장 Risk-On. Satellite 풀 포지션. 섹터/에너지 불필요. 채권 최소화.
   Goldilocks:          # core 80% | satellite 20%
     equity_etf:        0.40   # KODEX S&P500 + 나스닥100 — 광범위 성장
-    equity_factor:     0.05   # VTV 소량 (성장 환경에서 Value 기회비용)
+    equity_factor:     0.05   # VTV+AVUV 소량 (성장 환경에서 Value 기회비용)
+    equity_sector:     0.00   # XLE — 에너지 필요 없음
     equity_individual: 0.20   # TSLA+PLTR — Satellite 풀 포지션
     commodity:         0.05   # DBC — 유동성 수혜 소량
     managed_futures:   0.05   # DBMF — 트렌드 소량
@@ -128,12 +140,13 @@ regime_targets:
     cash:              0.15
 
   # ── Reflation: 성장↑ + 인플레↑ ─────────────────────────────────────────────
-  # 성장주 약점 환경. DBC·Gold·VTV(Value) 강화. Satellite 축소.
+  # 성장주 약점 환경. DBC·XLE·Gold·VTV·AVUV 강화. Satellite 축소.
   Reflation:           # core 90% | satellite 10%
-    equity_etf:        0.25   # S&P500 OK (나스닥 비중은 라우팅 고정 — 전체 줄임)
-    equity_factor:     0.10   # VTV — 금리 상승 수혜 Value ETF
+    equity_etf:        0.22   # S&P500 비중 축소 (나스닥 금리 민감)
+    equity_factor:     0.08   # VTV+AVUV — Value/소형가치 금리 상승 수혜
+    equity_sector:     0.07   # XLE — 에너지 섹터 Reflation 핵심 수혜
     equity_individual: 0.10   # TSLA+PLTR 축소 (금리 상승에 Duration 민감)
-    commodity:         0.18   # DBC — Reflation 핵심 자산
+    commodity:         0.16   # DBC — Reflation 핵심 자산
     managed_futures:   0.05   # DBMF
     bond_usd:          0.00   # 금리 상승 환경 — 채권 회피
     bond_krw:          0.00
@@ -141,10 +154,11 @@ regime_targets:
     cash:              0.17
 
   # ── Slowdown: 성장↓ (인플레 낮음) ──────────────────────────────────────────
-  # 전통적 경기 둔화. 채권·금·DBMF 방어. Satellite 축소.
+  # 전통적 경기 둔화. 채권·금·DBMF 방어. 섹터/에너지 수요 감소.
   Slowdown:            # core 90% | satellite 10%
     equity_etf:        0.15   # 소량 유지
-    equity_factor:     0.05   # VTV 방어적 소량
+    equity_factor:     0.05   # VTV+AVUV 방어적 소량
+    equity_sector:     0.00   # XLE — 에너지 수요 감소
     equity_individual: 0.10   # Satellite 축소
     commodity:         0.05   # 수요 감소 — 소량만
     managed_futures:   0.12   # DBMF — 하락 추세 추종
@@ -154,23 +168,25 @@ regime_targets:
     cash:              0.12
 
   # ── Stagflation: 성장↓ + 인플레↑ ───────────────────────────────────────────
-  # 가장 어려운 환경. DBC·Gold·DBMF·Cash 집중. 성장주 최소화. 장기채 회피.
+  # 가장 어려운 환경. DBC·XLE·Gold·DBMF·Cash 집중. 장기채 회피.
   Stagflation:         # core 92% | satellite 8%
-    equity_etf:        0.08   # 최소 유지
-    equity_factor:     0.05   # VTV 소량
+    equity_etf:        0.05   # 최소 유지
+    equity_factor:     0.03   # VTV+AVUV 소량
+    equity_sector:     0.05   # XLE — 에너지 Stagflation에서도 버팀
     equity_individual: 0.08   # Satellite 최소 (고밸류에이션 압박)
-    commodity:         0.20   # DBC — Stagflation 핵심 승자
+    commodity:         0.18   # DBC — Stagflation 핵심 승자
     managed_futures:   0.12   # DBMF — 추세추종
     bond_usd:          0.05   # SHY 위주 단기채 소량 (장기채는 인플레 피해)
     bond_krw:          0.00   # 장기채 회피
     gold:              0.18   # 통화가치 방어
-    cash:              0.24   # SOL 초단기채 — Duration 회피
+    cash:              0.26   # SOL 초단기채 — Duration 회피
 
   # ── Crisis: 유동성 쇼크 ─────────────────────────────────────────────────────
   # 강제청산·상관관계 붕괴. 현금·초단기채 최대화. Equity 최소.
   Crisis:              # core 95% | satellite 5%
     equity_etf:        0.00
-    equity_factor:     0.03   # VTV 극소량 (회복 대비)
+    equity_factor:     0.03   # VTV+AVUV 극소량 (회복 대비)
+    equity_sector:     0.00   # XLE — 위기 초반 동반 매도
     equity_individual: 0.05   # Satellite 최소
     commodity:         0.05   # 초기 동반 매도 후 반등 고려
     managed_futures:   0.12   # DBMF — 하락 추세 수혜
@@ -184,8 +200,11 @@ asset_routing:
   equity_etf:          # KRW 계좌 전용
     "379800": 0.64
     "379810": 0.36
-  equity_factor:       # USD 계좌 전용 — VTV 100%
-    VTV:  1.00
+  equity_factor:       # USD 계좌 전용 — VTV(Large Value) + AVUV(Small Value)
+    VTV:  0.60
+    AVUV: 0.40
+  equity_sector:       # USD 계좌 전용 — XLE(에너지) 100%
+    XLE:  1.00
   equity_individual:   # USD 계좌 전용
     TSLA: 0.36
     PLTR: 0.64
@@ -226,6 +245,7 @@ vol_targeting:
   equity_asset_classes:
     - equity_etf
     - equity_factor
+    - equity_sector
     - equity_individual
 
 # HMM 레짐 앙상블
@@ -261,6 +281,7 @@ risk:
   equity_asset_classes:
     - equity_etf
     - equity_factor
+    - equity_sector
     - equity_individual
 
 # T+2 결제 지연 대응
@@ -271,6 +292,8 @@ settlement:
     "TSLA": "379800"
     "PLTR": "379810"
     "VTV":  "379800"   # Value ETF → KODEX S&P500 (임시 브릿지)
+    "AVUV": "379800"   # Small Cap Value → KODEX S&P500 (임시 브릿지)
+    "XLE":  "379800"   # 에너지 → KODEX S&P500 (임시 브릿지)
     "IEF":  "305080"
     "SHY":  "469830"
     "DBC":  "469830"

@@ -151,24 +151,26 @@ def derive_account_weights(
         usd_pool[cls] = amt
         usd_remaining -= amt
 
-    # equity_factor + equity_individual: USD 예산 내에서 비례 배분
+    # equity_factor + equity_sector + equity_individual: USD 예산 내에서 비례 배분
     eq_factor_wanted = targets.get("equity_factor", 0.0) * total
-    eq_ind_wanted = targets.get("equity_individual", 0.0) * total
-    eq_usd_wanted = eq_factor_wanted + eq_ind_wanted
-    eq_usd_actual = min(eq_usd_wanted, max(usd_remaining, 0.0))
-    usd_remaining -= eq_usd_actual
+    eq_sector_wanted = targets.get("equity_sector", 0.0) * total
+    eq_ind_wanted    = targets.get("equity_individual", 0.0) * total
+    eq_usd_wanted    = eq_factor_wanted + eq_sector_wanted + eq_ind_wanted
+    eq_usd_actual    = min(eq_usd_wanted, max(usd_remaining, 0.0))
+    usd_remaining   -= eq_usd_actual
 
     if eq_usd_wanted > 0:
-        factor_ratio = eq_factor_wanted / eq_usd_wanted
-        usd_pool["equity_factor"] = eq_usd_actual * factor_ratio
-        usd_pool["equity_individual"] = eq_usd_actual * (1.0 - factor_ratio)
+        usd_pool["equity_factor"]     = eq_usd_actual * eq_factor_wanted / eq_usd_wanted
+        usd_pool["equity_sector"]     = eq_usd_actual * eq_sector_wanted / eq_usd_wanted
+        usd_pool["equity_individual"] = eq_usd_actual * eq_ind_wanted    / eq_usd_wanted
     else:
-        usd_pool["equity_factor"] = 0.0
+        usd_pool["equity_factor"]     = 0.0
+        usd_pool["equity_sector"]     = 0.0
         usd_pool["equity_individual"] = 0.0
 
     if eq_usd_wanted - eq_usd_actual > total * 0.001:
         print(
-            f"    [USD 예산 조정] equity(factor+individual) "
+            f"    [USD 예산 조정] equity(factor+sector+individual) "
             f"{eq_usd_wanted/total:.1%} → {eq_usd_actual/total:.1%} "
             f"(USD 비중 {total_usd_krw/total:.0%} 한도)"
         )
@@ -191,15 +193,17 @@ def derive_account_weights(
 
     # ── KRW 배정 ────────────────────────────────────────────────────────────
     eq_factor_final = usd_pool.get("equity_factor", 0.0)
-    eq_ind_final = usd_pool.get("equity_individual", 0.0)
+    eq_sector_final = usd_pool.get("equity_sector", 0.0)
+    eq_ind_final    = usd_pool.get("equity_individual", 0.0)
     equity_total_target = (
         targets.get("equity_etf", 0.0)
         + targets.get("equity_individual", 0.0)
         + targets.get("equity_factor", 0.0)
+        + targets.get("equity_sector", 0.0)
     )
     equity_etf_of_total = max(
         0.0,
-        equity_total_target - (eq_factor_final + eq_ind_final) / total,
+        equity_total_target - (eq_factor_final + eq_sector_final + eq_ind_final) / total,
     )
 
     krw_w: dict = {}
