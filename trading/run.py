@@ -18,8 +18,31 @@ from typing import Dict, List, Optional, Tuple
 
 import yaml
 
-from executor import load_state, save_state
+from executor import KisRebalancer, load_state, save_state
+from features import compute_feature_matrix, compute_features
+from fetcher import fetch_fred_data, fetch_signal_prices
 from messenger import Messenger
+from portfolio import (
+    apply_class_caps,
+    apply_risk_controls,
+    apply_synthetic_reallocation,
+    apply_vol_targeting,
+    blend_regime_targets,
+    compute_drift,
+    derive_account_weights,
+    enforce_buffer_floor,
+    merge_to_total_weights,
+)
+from regime import (
+    DEFAULT_REGIME,
+    REGIMES,
+    HmmRegimeClassifier,
+    RegimeFilter,
+    compute_rule_confidence,
+    detect_regime,
+    ensemble_regime,
+)
+from settlement import SettlementTracker
 
 BASE_DIR = Path(__file__).parent
 
@@ -91,8 +114,6 @@ def _compute_side_drifts(
 
     current_weights는 총자산 기준 비중이므로 각 계좌 총액으로 환산 후 비교한다.
     """
-    from portfolio import compute_drift
-
     universe = config["universe"]
 
     krw_tickers = (
@@ -129,8 +150,6 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
     """
     print("━" * 50)
     print("[1] 시장 데이터 수집 중...")
-    from fetcher import fetch_signal_prices, fetch_fred_data
-
     signal_cfg = config["signal"]
     hmm_cfg = config.get("hmm", {})
     hmm_enabled = hmm_cfg.get("enabled", True)
@@ -148,8 +167,6 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
         print(f"    FRED 조회  : {', '.join(fred_data.keys())}")
 
     print("[2] 피처 계산 중...")
-    from features import compute_features, compute_feature_matrix
-
     features = compute_features(prices, fred_data or None)
     print(f"    momentum_1m : {features['momentum_1m']:+.2%}")
     print(f"    momentum_3m : {features['momentum_3m']:+.2%}")
@@ -162,12 +179,6 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
         print(f"    10Y-2Y 커브 : {features['curve_10y2y']:+.2f}% (FRED)")
 
     print("[3] 레짐 감지 중...")
-    from regime import (
-        detect_regime, RegimeFilter, REGIMES, DEFAULT_REGIME,
-        HmmRegimeClassifier, ensemble_regime,
-        compute_rule_confidence,
-    )
-
     rule_regime = detect_regime(features)
     hmm_min = hmm_cfg.get("min_samples", 100)
     override_thr = hmm_cfg.get("override_threshold", 0.60)
@@ -267,8 +278,6 @@ def _compute_targets(
 
     Returns (target_usd, target_krw)
     """
-    from portfolio import apply_vol_targeting, apply_class_caps, derive_account_weights
-
     blended = apply_vol_targeting(blended_targets, realized_vol, config)
     blended = apply_class_caps(blended, config.get("class_max_weight", {}))
     target_usd, target_krw = derive_account_weights(blended, config, total_usd_krw, total_krw_only)
@@ -284,8 +293,6 @@ def _apply_risk_controls(
     config: dict,
 ) -> Tuple[dict, dict]:
     """단계 7: 드로우다운 스케일 → 버퍼 플로어 → 합성 노출."""
-    from portfolio import apply_risk_controls, enforce_buffer_floor, apply_synthetic_reallocation
-
     settlement_cfg = config.get("settlement", {})
     buffer_tickers: List[str] = settlement_cfg.get("buffer_tickers", [])
     buffer_min = float(settlement_cfg.get("buffer_min", 0.07))
@@ -358,7 +365,6 @@ def run_monitor(config: dict, state: dict, messenger: Messenger, args) -> None:
         print("모니터링 완료 (dry-run)")
         return
 
-    from executor import KisRebalancer
     rebalancer = KisRebalancer(config, messenger=messenger)
     total_krw, total_usd_krw, total_krw_only, current_weights, drawdown = (
         rebalancer.get_portfolio_state()
@@ -369,8 +375,6 @@ def run_monitor(config: dict, state: dict, messenger: Messenger, args) -> None:
     print(f"    드로우다운: {drawdown:+.2%}")
 
     print("[5] 목표 비중 산출 중...")
-    from portfolio import blend_regime_targets
-
     blended_targets = blend_regime_targets(market["blend_probs"], config)
     cls_str = "  ".join(
         f"{k}:{v:.0%}" for k, v in sorted(blended_targets.items(), key=lambda x: -x[1])
@@ -452,7 +456,6 @@ def run_execution(config: dict, state: dict, messenger: Messenger, args) -> None
 
     blended_targets = state.get("saved_blended_targets")
     realized_vol = float(state.get("saved_realized_vol", 0.0))
-    from regime import DEFAULT_REGIME
     regime = state.get("saved_regime", DEFAULT_REGIME)
     combined_conf = float(state.get("saved_confidence", 0.0))
     saved_features: dict = state.get("saved_features", {})
@@ -463,7 +466,6 @@ def run_execution(config: dict, state: dict, messenger: Messenger, args) -> None
 
     print("━" * 50)
     print("[4] 계좌 잔고 조회 중...")
-    from executor import KisRebalancer
     rebalancer = KisRebalancer(config, messenger=messenger)
     total_krw, total_usd_krw, total_krw_only, current_weights, drawdown = (
         rebalancer.get_portfolio_state()
@@ -497,8 +499,6 @@ def run_execution(config: dict, state: dict, messenger: Messenger, args) -> None
     )
 
     print("[6] 결제 상태 점검 중...")
-    from settlement import SettlementTracker
-
     if args.dry_run:
         tracker = SettlementTracker({})
         prev_deferred: list = []
@@ -519,7 +519,6 @@ def run_execution(config: dict, state: dict, messenger: Messenger, args) -> None
         target_usd, target_krw, drawdown, prev_deferred, total_krw_only, config
     )
 
-    from portfolio import merge_to_total_weights
     merged_target = merge_to_total_weights(target_usd, target_krw, total_usd_krw, total_krw_only)
     _print_targets(target_usd, target_krw, merged_target, current_weights, side)
 

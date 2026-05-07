@@ -5,7 +5,7 @@ import math
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 import pykis
 import yaml
@@ -430,6 +430,31 @@ class KisRebalancer:
             price = float(quote.high if action == "buy" else quote.low)
         return _adjust_tick(price, currency)
 
+    def _wait_for_fill(
+        self,
+        order,
+        reorder: Callable[[float], object],
+        ticker: str,
+        action: str,
+        qty: int,
+        price: float,
+        currency: str,
+    ) -> Tuple[bool, float]:
+        """미체결 주문 대기 루프. 100초마다 가격 조정 재주문, 1000초 초과 시 타임아웃."""
+        rate = 1.001 if action == "buy" else 0.999
+        cnt = 0
+        while order.pending:
+            time.sleep(1)
+            cnt += 1
+            if cnt % 100 == 0:
+                price = _adjust_tick(price * rate, currency)
+                order = reorder(price)
+            if cnt >= 1000:
+                print(f"  [timeout] {ticker}: 주문 시간 초과")
+                _append_order_log(ticker, action, qty, price, currency, self.usd_krw, "timeout")
+                return False, price
+        return True, price
+
     def sell_orphans(self, side: str) -> List[str]:
         """
         유니버스에 없는 보유 종목을 전량 매도한다.
@@ -507,18 +532,12 @@ class KisRebalancer:
 
             print(f"  sell {ticker} {qty}주 @ {price:,.2f} {currency}  [유니버스 외 정리]")
             order = stock.sell(qty=qty, price=price)
-
-            cnt = 0
-            while order.pending:
-                time.sleep(1)
-                cnt += 1
-                if cnt % 100 == 0:
-                    price = _adjust_tick(price * 0.999, currency)
-                    order = stock.sell(qty=qty, price=price)
-                if cnt >= 1000:
-                    print(f"  [timeout] {ticker}: 주문 시간 초과")
-                    _append_order_log(ticker, "sell", qty, price, currency, self.usd_krw, "timeout")
-                    return f"[timeout] 매도 {ticker} {qty}주"
+            filled, price = self._wait_for_fill(
+                order, lambda p: stock.sell(qty=qty, price=p),
+                ticker, "sell", qty, price, currency,
+            )
+            if not filled:
+                return f"[timeout] 매도 {ticker} {qty}주"
 
             _append_order_log(ticker, "sell", qty, price, currency, self.usd_krw, "ok")
             return f"매도 {ticker} {qty}주 @ {price:,.2f} {currency} [정리]"
@@ -565,19 +584,12 @@ class KisRebalancer:
 
             order_fn = getattr(stock, action)
             order = order_fn(qty=qty, price=price)
-
-            rate = 1.001 if action == "buy" else 0.999
-            cnt = 0
-            while order.pending:
-                time.sleep(1)
-                cnt += 1
-                if cnt % 100 == 0:
-                    price = _adjust_tick(price * rate, currency)
-                    order = order_fn(qty=qty, price=price)
-                if cnt >= 1000:
-                    print(f"  [timeout] {ticker}: 주문 시간 초과")
-                    _append_order_log(ticker, action, qty, price, currency, self.usd_krw, "timeout")
-                    return f"[timeout] {action} {ticker} {qty}주"
+            filled, price = self._wait_for_fill(
+                order, lambda p: order_fn(qty=qty, price=p),
+                ticker, action, qty, price, currency,
+            )
+            if not filled:
+                return f"[timeout] {action} {ticker} {qty}주"
 
             label = "매수" if action == "buy" else "매도"
             _append_order_log(ticker, action, qty, price, currency, self.usd_krw, "ok")
