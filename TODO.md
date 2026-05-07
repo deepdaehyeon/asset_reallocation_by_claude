@@ -43,10 +43,15 @@ _system_archi.md 기준 잔여 작업_
 
 ## Phase 4 — 운영 자동화
 
-- [ ] **cron 스케줄** — 매월 첫 거래일 자동 실행 (현재 `cron.sh` 없음)
+- [ ] **cron 스케줄** — 모니터링/국장/미장 각각 자동 실행 (현재 `cron.sh` 없음)
   ```bash
-  # crontab: 매월 1일 KST 09:30
-  30 0 1 * * cd /path/to && python run.py >> logs/run.log 2>&1
+  # crontab -e  (서버 시간 UTC 기준)
+  # 모니터링: 매일 KST 08:50 (UTC 23:50 전날)
+  50 23 * * * cd /path/to && python run.py --mode monitor >> logs/monitor.log 2>&1
+  # 국장 실행: 매일 KST 09:10 (UTC 00:10)
+  10 0 * * * cd /path/to && python run.py --mode krw >> logs/krw.log 2>&1
+  # 미장 실행: 매일 KST 23:00 (UTC 14:00, DST 무관 안전 시각)
+  0 14 * * * cd /path/to && python run.py --mode usd >> logs/usd.log 2>&1
   ```
 - [ ] **MLflow 모델 추적** — 레짐 판정 히스토리, 신호 IC/IR 기록
 - [ ] **Walk-Forward 백테스트** — 2년 학습 / 6개월 검증 슬라이딩 윈도우
@@ -61,6 +66,8 @@ _system_archi.md 기준 잔여 작업_
   `docker-compose up -d` → prometheus:9090, grafana:3000.
 - [x] **변동성 타겟팅** — `apply_vol_targeting()` (portfolio.py).
 - [x] **자산군별 비중 상한** — `apply_class_caps()` (portfolio.py).
+- [x] **모니터링/국장/미장 분리 실행** — `--mode monitor/krw/usd`. 모니터링에서 계좌별
+  드리프트 계산 + 트리거 저장, 국장/미장 run이 소비. 7일 쿨다운 + 드로우다운 비상 오버라이드.
 
 ---
 

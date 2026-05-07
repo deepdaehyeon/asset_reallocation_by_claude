@@ -217,10 +217,11 @@ regime_filter:
 
 # 리밸런싱 파라미터
 rebalancing:
-  drift_threshold:           0.05   # 전체 drift 합 > 5%p 시 리밸런싱 실행
-  per_ticker_drift_threshold: 0.05  # 개별 종목 목표 대비 ±5% 이탈 시만 주문 생성
+  drift_threshold:            0.05   # 계좌 내 drift > 5%p 시 리밸런싱 트리거
+  per_ticker_drift_threshold: 0.05   # 개별 종목 목표 대비 ±5% 이탈 시만 주문 생성
   min_order_krw: 10000
   usd_krw_fallback: 1380.0
+  min_rebalance_interval_days: 7     # 마지막 리밸런싱 후 최소 7일 쿨다운 (드로우다운 비상 시 무시)
 
 # 리스크 제어
 # severe: equity만 0으로 (채권·금·현금 유지) — 바닥에서 전량 현금화 방지

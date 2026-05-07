@@ -262,31 +262,46 @@ class KisRebalancer:
         total_krw_only: float,
         threshold: float,
         tracker: Optional[SettlementTracker] = None,
+        side: str = "all",
     ) -> Tuple[List[str], List[dict]]:
         """
-        drift가 threshold를 초과할 때만 리밸런싱을 실행한다.
+        리밸런싱을 실행한다.
 
-        버퍼 잔여분 내 매수는 즉시 실행하고,
-        버퍼를 초과하는 매수는 deferred_buys로 반환한다.
+        side: "all" | "krw" | "usd"
+          - "krw" / "usd": 해당 계좌 종목만 주문 생성 (monitor에서 트리거 확정 후 호출)
+          - threshold=0.0 으로 호출하면 drift 재확인 없이 바로 실행
+
+        버퍼 잔여분 내 KRW 매수는 즉시 실행하고, 초과분은 deferred_buys로 반환한다.
+        USD 계좌는 버퍼 로직 미적용 (USD 현금으로 직접 집행).
 
         Returns:
             (order_log, deferred_buys)
-            deferred_buys: [{ticker, amount_krw, currency}, ...]
         """
         total_value_krw = total_usd_krw + total_krw_only
-        from portfolio import merge_to_total_weights
-        merged_target = merge_to_total_weights(target_usd, target_krw, total_usd_krw, total_krw_only)
-        drift = compute_drift(current_weights, merged_target)
-        print(f"총 drift: {drift*100:.1f}%  (임계값: {threshold*100:.0f}%)")
 
-        if drift < threshold:
-            print("→ 리밸런싱 불필요")
-            return [], []
+        # threshold > 0 이면 drift 재확인 (monitor 없이 직접 호출 시 안전장치)
+        if threshold > 0:
+            from portfolio import merge_to_total_weights
+            merged_target = merge_to_total_weights(target_usd, target_krw, total_usd_krw, total_krw_only)
+            drift = compute_drift(current_weights, merged_target)
+            print(f"총 drift: {drift*100:.1f}%  (임계값: {threshold*100:.0f}%)")
+            if drift < threshold:
+                print("→ 리밸런싱 불필요")
+                return [], []
 
         all_orders = self._build_orders(current_weights, target_usd, target_krw, total_usd_krw, total_krw_only)
 
+        # side 필터: 해당 계좌 종목만
+        if side == "krw":
+            all_orders = [(t, c, a) for t, c, a in all_orders if c == "KRW"]
+        elif side == "usd":
+            all_orders = [(t, c, a) for t, c, a in all_orders if c == "USD"]
+
         buffer_tickers = self.config.get("settlement", {}).get("buffer_tickers", [])
-        if tracker and buffer_tickers:
+        # USD 단독 실행 시 KRW 버퍼 로직 불필요
+        if side == "usd":
+            immediate, deferred = all_orders, []
+        elif tracker and buffer_tickers:
             immediate, deferred = self._split_buy_orders(
                 all_orders, current_weights, total_value_krw, buffer_tickers
             )
@@ -298,7 +313,8 @@ class KisRebalancer:
 
         sell_cnt = sum(1 for _, _, a in immediate if a < 0)
         buy_cnt = sum(1 for _, _, a in immediate if a > 0)
-        print(f"→ 즉시 실행 {len(immediate)}건 (매도 {sell_cnt}, 매수 {buy_cnt}), 지연 매수 {len(deferred)}건")
+        side_label = f" [{side.upper()}]" if side != "all" else ""
+        print(f"→{side_label} 즉시 실행 {len(immediate)}건 (매도 {sell_cnt}, 매수 {buy_cnt}), 지연 매수 {len(deferred)}건")
 
         order_log: List[str] = []
         for ticker, currency, amount_diff_krw in immediate:
