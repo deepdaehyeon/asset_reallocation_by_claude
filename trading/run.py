@@ -18,6 +18,7 @@ from typing import Dict, List, Optional, Tuple
 
 import yaml
 
+from executor import load_state, save_state
 from messenger import Messenger
 
 BASE_DIR = Path(__file__).parent
@@ -596,7 +597,6 @@ def main() -> None:
     with open(args.config) as f:
         config = yaml.safe_load(f)
 
-    from executor import load_state, save_state
     state = load_state()
 
     try:
