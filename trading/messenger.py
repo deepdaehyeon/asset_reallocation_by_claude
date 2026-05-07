@@ -86,6 +86,60 @@ class Messenger:
         )
         self._send(text, mention=True)
 
+    def send_monitor(
+        self,
+        regime: str,
+        candidate: Optional[str],
+        candidate_count: int,
+        confirm_n: int,
+        cooldown_remaining: int,
+        features: Dict[str, float],
+        confidence: float,
+        blend_probs: Dict[str, float],
+        total_krw: float,
+        drawdown: float,
+        drift_krw: float,
+        drift_usd: float,
+        trigger_krw: bool,
+        trigger_usd: bool,
+        reason_krw: str,
+        reason_usd: str,
+    ) -> None:
+        conf_str = f"`{confidence:.0%}`" if confidence > 0 else "—"
+
+        if candidate and candidate != regime:
+            cd_str = f", 쿨다운 {cooldown_remaining}일" if cooldown_remaining > 0 else ""
+            filter_str = f"전환 대기 `{candidate}` ({candidate_count}/{confirm_n}회{cd_str}) → 확정 `{regime}`"
+        else:
+            filter_str = f"확정 `{regime}`"
+
+        prob_str = "  ".join(
+            f"`{r}` {p:.0%}"
+            for r, p in sorted(blend_probs.items(), key=lambda x: -x[1])
+            if p >= 0.05
+        )
+
+        krw_icon = ":bell:" if trigger_krw else ":white_circle:"
+        usd_icon = ":bell:" if trigger_usd else ":white_circle:"
+
+        hy_str = f" | HY {features['hy_spread']:.2f}%" if "hy_spread" in features else ""
+        curve_str = f" | 10Y-2Y {features['curve_10y2y']:+.2f}%" if "curve_10y2y" in features else ""
+
+        text = (
+            f":bar_chart: *모니터링 완료*\n"
+            f"> 레짐: {filter_str} | 신뢰도 {conf_str}\n"
+            f"> HMM: {prob_str}\n"
+            f"> VIX `{features.get('vix', 0):.1f}` | "
+            f"모멘텀1M `{features.get('momentum_1m', 0):+.1%}` | "
+            f"모멘텀3M `{features.get('momentum_3m', 0):+.1%}` | "
+            f"실현변동성 `{features.get('realized_vol', 0):.1%}`"
+            f"{hy_str}{curve_str}\n"
+            f"> 자산 `{total_krw:,.0f}원` | DD `{drawdown:+.1%}`\n"
+            f"{krw_icon} KRW drift `{drift_krw:.1%}` → {reason_krw}\n"
+            f"{usd_icon} USD drift `{drift_usd:.1%}` → {reason_usd}"
+        )
+        self._send(text)
+
     def send_dry_run(
         self,
         regime: str,

@@ -442,6 +442,25 @@ def run_monitor(config: dict, state: dict, messenger: Messenger, args) -> None:
     })
     state.update(market["regime_filter"].to_dict())
     save_state(state)
+    rf = market["regime_filter"]
+    messenger.send_monitor(
+        regime=market["regime"],
+        candidate=rf.candidate,
+        candidate_count=rf.candidate_count,
+        confirm_n=rf.confirm_n,
+        cooldown_remaining=rf.cooldown_remaining,
+        features=features,
+        confidence=market["combined_conf"],
+        blend_probs=market["blend_probs"],
+        total_krw=total_krw,
+        drawdown=drawdown,
+        drift_krw=drift_krw,
+        drift_usd=drift_usd,
+        trigger_krw=trigger_krw,
+        trigger_usd=trigger_usd,
+        reason_krw=reason_krw,
+        reason_usd=reason_usd,
+    )
     print("━" * 50)
     print("모니터링 완료")
 
