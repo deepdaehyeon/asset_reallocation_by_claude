@@ -359,8 +359,19 @@ def run_monitor(config: dict, state: dict, messenger: Messenger, args) -> None:
         drawdown = 0.0
         print("    [dry-run] 계좌 조회 생략 — 트리거 계산 불가")
         state["last_run_at"] = datetime.now().isoformat()
-        state.update(market["regime_filter"].to_dict())
+        rf = market["regime_filter"]
+        state.update(rf.to_dict())
         save_state(state)
+        messenger.send_dry_run(
+            regime=market["regime"],
+            candidate=rf.candidate,
+            candidate_count=rf.candidate_count,
+            confirm_n=rf.confirm_n,
+            cooldown_remaining=rf.cooldown_remaining,
+            features=market["features"],
+            confidence=market["combined_conf"],
+            blend_probs=market["blend_probs"],
+        )
         print("━" * 50)
         print("모니터링 완료 (dry-run)")
         return
