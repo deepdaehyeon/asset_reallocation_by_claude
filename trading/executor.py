@@ -117,6 +117,8 @@ class KisRebalancer:
         self.messenger = messenger
         auth_path = auth_path or Path(__file__).parent / "auth.yaml"
         self._clients = self._init_clients(auth_path)
+        # 유니버스 외 보유 종목: {ticker: {currency, acc_name, amount_krw}}
+        self._orphan_holdings: Dict[str, dict] = {}
 
     @staticmethod
     def _fetch_usd_krw(fallback: float) -> float:
@@ -205,18 +207,26 @@ class KisRebalancer:
                 krw_amt = amt * self.usd_krw if currency == "USD" else amt
                 holdings_krw[ticker] = holdings_krw.get(ticker, 0.0) + krw_amt
 
+                # 유니버스 외 종목 기록 (acc_name 포함)
+                if ticker not in self.universe and krw_amt > 0:
+                    self._orphan_holdings[ticker] = {
+                        "currency":   currency,
+                        "acc_name":   acc_name,
+                        "amount_krw": krw_amt,
+                    }
+
             cash_by_currency[currency] = (
                 cash_by_currency.get(currency, 0.0)
                 + self._get_cash_krw(client, currency)
             )
 
-        # 유니버스 외 보유 종목(IAU·TSLY 등) 분리 및 경고
+        # 유니버스 외 보유 종목 분리 및 안내
         universe_krw = {t: v for t, v in holdings_krw.items() if t in self.universe}
         orphan_krw = {t: v for t, v in holdings_krw.items() if t not in self.universe}
 
         if orphan_krw:
             total_all = sum(holdings_krw.values()) + sum(cash_by_currency.values())
-            print("  [경고] 유니버스 외 보유 종목 (수동 정리 필요):")
+            print("  [정리 예정] 유니버스 외 보유 종목 (리밸런싱 시 자동 전량 매도):")
             for t, v in orphan_krw.items():
                 print(f"    {t}: {v:,.0f} KRW ({v/total_all*100:.1f}%)")
 
@@ -420,11 +430,112 @@ class KisRebalancer:
             price = float(quote.high if action == "buy" else quote.low)
         return _adjust_tick(price, currency)
 
+    def sell_orphans(self, side: str) -> List[str]:
+        """
+        유니버스에 없는 보유 종목을 전량 매도한다.
+
+        get_portfolio_state() 호출 후 채워진 _orphan_holdings를 사용.
+        side: "all" | "krw" | "usd"
+        """
+        targets = {
+            t: info for t, info in self._orphan_holdings.items()
+            if side == "all"
+            or (side == "krw" and info["currency"] == "KRW")
+            or (side == "usd" and info["currency"] == "USD")
+        }
+        if not targets:
+            return []
+
+        # 계좌별로 잔고를 재조회해 현재 수량을 확보한다
+        # (portfolio_state 수집 시점과 매도 시점 사이의 가격 변화로 인한 수량 오차 방지)
+        live_qtys: Dict[str, int] = {}
+        fetched_keys: set = set()
+        for info in targets.values():
+            acc_name, currency = info["acc_name"], info["currency"]
+            key = (acc_name, currency)
+            if key in fetched_keys:
+                continue
+            fetched_keys.add(key)
+            client = self._clients[acc_name]
+            try:
+                for s in client.account().balance().stocks:
+                    mkt_cur = MARKET_TO_CURRENCY.get(s.market, "KRW")
+                    if mkt_cur != currency or s.symbol in self.universe:
+                        continue
+                    qty_val = getattr(s, "qty", None)
+                    if qty_val is not None:
+                        live_qtys[s.symbol] = int(qty_val)
+            except Exception as e:
+                print(f"    [경고] {acc_name} 잔고 재조회 실패: {e}")
+
+        results: List[str] = []
+        for ticker, info in targets.items():
+            currency = info["currency"]
+            client = self._clients[info["acc_name"]]
+
+            qty = live_qtys.get(ticker, 0)
+            if qty > 0:
+                # 정확한 수량으로 전량 매도
+                result = self._execute_exact_sell(ticker, currency, qty, client)
+            else:
+                # qty API 미지원 시 보유 평가금액으로 추정 (소액이면 생략)
+                amount_krw = info["amount_krw"]
+                if amount_krw < self.min_order_krw:
+                    print(f"  [skip] {ticker}: 소액 ({amount_krw:,.0f}원)")
+                    continue
+                result = self._execute_order(ticker, currency, -amount_krw, client=client)
+
+            if result:
+                results.append(result)
+
+        return results
+
+    def _execute_exact_sell(
+        self,
+        ticker: str,
+        currency: str,
+        qty: int,
+        client: "pykis.PyKis",
+    ) -> Optional[str]:
+        """지정 수량을 정확히 전량 매도한다 (유니버스 외 종목 정리 전용)."""
+        try:
+            stock = client.stock(ticker)
+            price = self._get_price(stock, "sell", currency)
+            if price <= 0:
+                print(f"  [skip] {ticker}: 가격 조회 실패")
+                return None
+
+            print(f"  sell {ticker} {qty}주 @ {price:,.2f} {currency}  [유니버스 외 정리]")
+            order = stock.sell(qty=qty, price=price)
+
+            cnt = 0
+            while order.pending:
+                time.sleep(1)
+                cnt += 1
+                if cnt % 100 == 0:
+                    price = _adjust_tick(price * 0.999, currency)
+                    order = stock.sell(qty=qty, price=price)
+                if cnt >= 1000:
+                    print(f"  [timeout] {ticker}: 주문 시간 초과")
+                    _append_order_log(ticker, "sell", qty, price, currency, self.usd_krw, "timeout")
+                    return f"[timeout] 매도 {ticker} {qty}주"
+
+            _append_order_log(ticker, "sell", qty, price, currency, self.usd_krw, "ok")
+            return f"매도 {ticker} {qty}주 @ {price:,.2f} {currency} [정리]"
+
+        except Exception as e:
+            print(f"  [error] {ticker}: {e}")
+            _append_order_log(ticker, "sell", qty, 0.0, currency, self.usd_krw, f"error:{e}")
+            if self.messenger:
+                self.messenger.send_order_error(ticker, e)
+            return f"[오류] {ticker}: {e}"
+
     def _execute_order(
         self,
         ticker: str,
         currency: str,
         amount_diff_krw: float,
+        client: Optional["pykis.PyKis"] = None,
     ) -> Optional[str]:
         """지정 종목을 KRW 환산 금액 기준으로 매수/매도한다. 결과 문자열을 반환한다."""
         action = "buy" if amount_diff_krw > 0 else "sell"
@@ -436,7 +547,8 @@ class KisRebalancer:
         qty, price = 0, 0.0
 
         try:
-            client = self._get_client(ticker)
+            if client is None:
+                client = self._get_client(ticker)
             stock = client.stock(ticker)
             price = self._get_price(stock, action, currency)
 

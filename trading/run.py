@@ -472,6 +472,24 @@ def run_execution(config: dict, state: dict, messenger: Messenger, args) -> None
     print(f"    총 자산: {total_krw:,.0f} 원  │  USD {usd_pct:.1f}% / KRW {krw_pct:.1f}%")
     print(f"    드로우다운: {drawdown:+.2%}")
 
+    print("[4b] 유니버스 외 종목 자동 정리 중...")
+    if args.dry_run:
+        orphans = rebalancer._orphan_holdings
+        if orphans:
+            for t, info in orphans.items():
+                if side == "all" or info["currency"].lower() == side:
+                    print(f"    [dry-run] 매도 예정: {t} ({info['currency']}, {info['amount_krw']:,.0f}원)")
+        else:
+            print("    정리 대상 없음")
+    else:
+        orphan_log = rebalancer.sell_orphans(side)
+        if orphan_log:
+            print(f"    처리 완료 {len(orphan_log)}건:")
+            for entry in orphan_log:
+                print(f"      {entry}")
+        else:
+            print("    정리 대상 없음")
+
     print("[5] 목표 비중 산출 중...")
     target_usd, target_krw = _compute_targets(
         blended_targets, realized_vol, config, total_usd_krw, total_krw_only
