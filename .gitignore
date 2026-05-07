@@ -4,3 +4,4 @@ state.json
 __pycache__/
 .env
 logs/*.csv
+backtest/.cache/
