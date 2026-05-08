@@ -29,7 +29,13 @@ sys.path.insert(0, str(ROOT / "trading"))
 
 from data import load_all_prices
 from engine import BacktestEngine
-from metrics import compute_metrics, crisis_analysis, drawdown_series, regime_breakdown
+from metrics import (
+    compute_metrics,
+    crisis_analysis,
+    drawdown_series,
+    regime_breakdown,
+    regime_classification_metrics,
+)
 from robustness import (
     run_subperiod_analysis,
     run_regime_intent_validation,
@@ -125,6 +131,34 @@ def run_full(config, universe_px, signal_px, args) -> pd.DataFrame:
         cols = ["cagr", "volatility", "sharpe", "max_drawdown", "days", "pct_time"]
         available_cols = [c for c in cols if c in rb.columns]
         print(rb[available_cols].to_string())
+
+    # 레짐 분류 품질 (HMM 앙상블 vs 규칙 기반)
+    if "rule_regime" in result.columns:
+        cm = regime_classification_metrics(
+            result["rule_regime"], result["regime"], result["returns"]
+        )
+        if cm and "error" not in cm:
+            print_section("레짐 분류 품질  [HMM 앙상블 vs 규칙 기반]")
+            print(f"  MCC               {cm['mcc']:+.3f}   (−1↔+1, 높을수록 일치)")
+            print(f"  Macro-F1          {cm['macro_f1']:.3f}   (클래스 균등 가중 F1)")
+            print(f"  Balanced Accuracy {cm['balanced_accuracy']:.3f}   (클래스별 accuracy 평균)")
+            print(f"  HMM Override율    {cm['override_rate']:.1%}  (규칙 기반을 덮어쓴 날 비율)")
+
+            print(f"\n  {'레짐':<12} {'Precision':>9} {'Recall':>8} {'F1':>7} {'일수':>6}")
+            print(f"  {'─'*46}")
+            for regime_name, s in cm["per_class"].items():
+                flag = " ◀ 핵심" if regime_name in ("Crisis", "Stagflation") else ""
+                print(
+                    f"  {regime_name:<12} {s['precision']:>9.3f} {s['recall']:>8.3f}"
+                    f" {s['f1']:>7.3f} {s['support']:>6}{flag}"
+                )
+
+            mc = cm["miss_cost"]
+            if mc["total_days"] > 0:
+                miss_rate = mc["miss_days"] / mc["total_days"]
+                print(f"\n  위험 레짐 오판 현황 (Crisis/Stagflation → Goldilocks)")
+                print(f"  오판 일수   {mc['miss_days']:4d}일 / {mc['total_days']}일 ({miss_rate:.0%})")
+                print(f"  오판 구간 일평균 수익률  {mc['avg_daily_return']:+.3%}")
 
     # 레짐 비중
     counts = result["regime"].value_counts()

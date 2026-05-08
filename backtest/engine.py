@@ -112,13 +112,16 @@ class BacktestEngine:
 
     def _get_regime(
         self, as_of: pd.Timestamp
-    ) -> Tuple[str, Dict[str, float]]:
-        """as_of 날짜 이전 데이터로만 레짐 + 블렌딩 확률 계산 (워크포워드)."""
+    ) -> Tuple[str, Dict[str, float], str]:
+        """as_of 날짜 이전 데이터로만 레짐 + 블렌딩 확률 계산 (워크포워드).
+
+        Returns: (ensemble_regime, hmm_probs, rule_regime)
+        """
         start = as_of - pd.Timedelta(days=self.hmm_lookback + 60)
         sig = self.signal_px[start:as_of]
 
         if len(sig) < 30:
-            return "Slowdown", {r: 1.0 / len(REGIMES) for r in REGIMES}
+            return "Slowdown", {r: 1.0 / len(REGIMES) for r in REGIMES}, "Slowdown"
 
         features = compute_features(sig)
         rule_regime = detect_regime(features)
@@ -133,10 +136,10 @@ class BacktestEngine:
                 seq = fm.tail(self.predict_lookback)
                 hmm_probs = clf.predict_proba(seq)
                 final = ensemble_regime(rule_regime, hmm_probs, self.override_thr)
-                return final, hmm_probs
+                return final, hmm_probs, rule_regime
 
         blend[rule_regime] = 1.0
-        return rule_regime, blend
+        return rule_regime, blend, rule_regime
 
     def _target_weights(
         self,
@@ -190,6 +193,7 @@ class BacktestEngine:
         peak_value = 1.0
         shares: Dict[str, float] = {}
         current_regime = "Slowdown"
+        current_rule_regime = "Slowdown"
         weights: Dict[str, float] = {}
 
         rows: List[dict] = []
@@ -199,8 +203,9 @@ class BacktestEngine:
             available = day_prices.dropna()
 
             if i == 0:
-                regime, blend_probs = self._get_regime(date)
+                regime, blend_probs, rule_regime = self._get_regime(date)
                 current_regime = regime
+                current_rule_regime = rule_regime
 
                 sig = self.signal_px[:date].tail(65)
                 rv = compute_features(sig).get("realized_vol", 0.15) if len(sig) >= 30 else 0.15
@@ -214,12 +219,13 @@ class BacktestEngine:
                     if available.get(t, 0) > 0
                 }
                 rows.append({
-                    "date":       date,
-                    "value":      portfolio_value,
-                    "drawdown":   0.0,
-                    "regime":     current_regime,
-                    "rebalanced": True,
-                    "tx_cost":    0.0,
+                    "date":        date,
+                    "value":       portfolio_value,
+                    "drawdown":    0.0,
+                    "regime":      current_regime,
+                    "rule_regime": current_rule_regime,
+                    "rebalanced":  True,
+                    "tx_cost":     0.0,
                 })
                 continue
 
@@ -238,8 +244,9 @@ class BacktestEngine:
             day_tx = 0.0
 
             if do_rebal:
-                regime, blend_probs = self._get_regime(date)
+                regime, blend_probs, rule_regime = self._get_regime(date)
                 current_regime = regime
+                current_rule_regime = rule_regime
 
                 sig = self.signal_px[:date].tail(65)
                 rv = compute_features(sig).get("realized_vol", 0.15) if len(sig) >= 30 else 0.15
@@ -272,12 +279,13 @@ class BacktestEngine:
                 weights = new_weights
 
             rows.append({
-                "date":       date,
-                "value":      portfolio_value,
-                "drawdown":   drawdown,
-                "regime":     current_regime,
-                "rebalanced": do_rebal,
-                "tx_cost":    day_tx,
+                "date":        date,
+                "value":       portfolio_value,
+                "drawdown":    drawdown,
+                "regime":      current_regime,
+                "rule_regime": current_rule_regime,
+                "rebalanced":  do_rebal,
+                "tx_cost":     day_tx,
             })
 
         result = pd.DataFrame(rows).set_index("date")
@@ -300,6 +308,7 @@ class BacktestEngine:
         peak_value = 1.0
         shares: Dict[str, float] = {}
         current_regime = "Slowdown"
+        current_rule_regime = "Slowdown"
         target_weights: Dict[str, float] = {}
         last_rebal_date: Optional[pd.Timestamp] = None
 
@@ -310,8 +319,9 @@ class BacktestEngine:
             available = day_prices.dropna()
 
             if i == 0:
-                regime, blend_probs = self._get_regime(date)
+                regime, blend_probs, rule_regime = self._get_regime(date)
                 current_regime = regime
+                current_rule_regime = rule_regime
 
                 sig = self.signal_px[:date].tail(65)
                 rv = compute_features(sig).get("realized_vol", 0.15) if len(sig) >= 30 else 0.15
@@ -326,13 +336,14 @@ class BacktestEngine:
                 }
                 last_rebal_date = date
                 rows.append({
-                    "date":       date,
-                    "value":      portfolio_value,
-                    "drawdown":   0.0,
-                    "regime":     current_regime,
-                    "rebalanced": True,
-                    "tx_cost":    0.0,
-                    "drift":      0.0,
+                    "date":        date,
+                    "value":       portfolio_value,
+                    "drawdown":    0.0,
+                    "regime":      current_regime,
+                    "rule_regime": current_rule_regime,
+                    "rebalanced":  True,
+                    "tx_cost":     0.0,
+                    "drift":       0.0,
                 })
                 continue
 
@@ -368,8 +379,9 @@ class BacktestEngine:
             day_tx = 0.0
             if do_rebal:
                 try:
-                    regime, blend_probs = self._get_regime(date)
+                    regime, blend_probs, rule_regime = self._get_regime(date)
                     current_regime = regime
+                    current_rule_regime = rule_regime
                 except Exception:
                     # HMM 수렴 실패 시 기존 레짐 유지, 리밸런싱 스킵
                     do_rebal = False
@@ -403,13 +415,14 @@ class BacktestEngine:
                 drift = 0.0
 
             rows.append({
-                "date":       date,
-                "value":      portfolio_value,
-                "drawdown":   drawdown,
-                "regime":     current_regime,
-                "rebalanced": do_rebal,
-                "tx_cost":    day_tx,
-                "drift":      drift,
+                "date":        date,
+                "value":       portfolio_value,
+                "drawdown":    drawdown,
+                "regime":      current_regime,
+                "rule_regime": current_rule_regime,
+                "rebalanced":  do_rebal,
+                "tx_cost":     day_tx,
+                "drift":       drift,
             })
 
         result = pd.DataFrame(rows).set_index("date")

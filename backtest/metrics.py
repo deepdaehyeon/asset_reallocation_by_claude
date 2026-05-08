@@ -72,6 +72,93 @@ def drawdown_series(returns: pd.Series) -> pd.Series:
     return (cum - cum.cummax()) / cum.cummax()
 
 
+def regime_classification_metrics(
+    rule_regimes: pd.Series,
+    ensemble_regimes: pd.Series,
+    returns: pd.Series,
+) -> dict:
+    """
+    레짐 분류 품질 지표.
+
+    rule_regimes    : 규칙 기반 레짐 (pseudo ground truth)
+    ensemble_regimes: HMM 앙상블 레짐 (predicted)
+    returns         : 일별 포트폴리오 수익률
+
+    Returns
+    -------
+    dict with keys:
+      mcc               : Matthews Correlation Coefficient [-1, 1]
+      macro_f1          : 클래스별 F1 단순 평균 (불균형 무관)
+      balanced_accuracy : 클래스별 accuracy 단순 평균
+      per_class         : 레짐별 precision / recall / f1 / support
+      override_rate     : HMM이 규칙 기반을 덮어쓴 비율
+      miss_cost         : 위험 레짐을 Goldilocks로 오판했을 때 평균 일별 수익률
+    """
+    try:
+        from sklearn.metrics import (
+            matthews_corrcoef,
+            f1_score,
+            precision_recall_fscore_support,
+            balanced_accuracy_score,
+        )
+    except ImportError:
+        return {"error": "scikit-learn 미설치"}
+
+    labels = ["Goldilocks", "Reflation", "Slowdown", "Stagflation", "Crisis"]
+
+    aligned = pd.DataFrame({
+        "rule":     rule_regimes,
+        "ensemble": ensemble_regimes,
+        "returns":  returns,
+    }).dropna()
+
+    if len(aligned) < 10:
+        return {}
+
+    y_true = aligned["rule"].values
+    y_pred = aligned["ensemble"].values
+
+    mcc = float(matthews_corrcoef(y_true, y_pred))
+    macro_f1 = float(f1_score(y_true, y_pred, average="macro", labels=labels, zero_division=0))
+    bal_acc = float(balanced_accuracy_score(y_true, y_pred))
+
+    precision, recall, f1, support = precision_recall_fscore_support(
+        y_true, y_pred, labels=labels, zero_division=0
+    )
+    per_class = {
+        label: {
+            "precision": round(float(precision[i]), 3),
+            "recall":    round(float(recall[i]), 3),
+            "f1":        round(float(f1[i]), 3),
+            "support":   int(support[i]),
+        }
+        for i, label in enumerate(labels)
+    }
+
+    # HMM이 규칙 기반과 다른 날 비율
+    override_mask = aligned["rule"] != aligned["ensemble"]
+    override_rate = float(override_mask.mean())
+
+    # 위험 레짐(Crisis / Stagflation)을 Goldilocks로 오판한 날의 포트폴리오 수익
+    rare = {"Crisis", "Stagflation"}
+    miss_mask = aligned["rule"].isin(rare) & (aligned["ensemble"] == "Goldilocks")
+    miss_returns = aligned.loc[miss_mask, "returns"]
+    miss_cost = {
+        "avg_daily_return": round(float(miss_returns.mean()), 5) if len(miss_returns) > 0 else 0.0,
+        "miss_days":        int(miss_mask.sum()),
+        "total_days":       int(aligned["rule"].isin(rare).sum()),
+    }
+
+    return {
+        "mcc":               round(mcc, 3),
+        "macro_f1":          round(macro_f1, 3),
+        "balanced_accuracy": round(bal_acc, 3),
+        "override_rate":     round(override_rate, 3),
+        "per_class":         per_class,
+        "miss_cost":         miss_cost,
+    }
+
+
 def crisis_analysis(
     returns: pd.Series,
     periods: Optional[Dict[str, tuple]] = None,
