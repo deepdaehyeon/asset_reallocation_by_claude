@@ -367,9 +367,14 @@ class BacktestEngine:
 
             day_tx = 0.0
             if do_rebal:
-                regime, blend_probs = self._get_regime(date)
-                current_regime = regime
+                try:
+                    regime, blend_probs = self._get_regime(date)
+                    current_regime = regime
+                except Exception:
+                    # HMM 수렴 실패 시 기존 레짐 유지, 리밸런싱 스킵
+                    do_rebal = False
 
+            if do_rebal:
                 sig = self.signal_px[:date].tail(65)
                 rv = compute_features(sig).get("realized_vol", 0.15) if len(sig) >= 30 else 0.15
 
