@@ -13,7 +13,7 @@ import sys
 from contextlib import contextmanager
 from copy import deepcopy
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -78,6 +78,8 @@ class BacktestEngine:
         rebal_freq: str = "W-FRI",
         tx_cost: float = 0.001,
         usd_ratio: float = 0.30,
+        drift_threshold: Optional[float] = None,
+        cooldown_days: int = 7,
     ) -> None:
         self.config = deepcopy(config)
         self.universe_px = universe_px[start:end]
@@ -87,6 +89,8 @@ class BacktestEngine:
         self.rebal_freq = rebal_freq
         self.tx_cost = tx_cost
         self.usd_ratio = usd_ratio
+        self.drift_threshold = drift_threshold
+        self.cooldown_days = cooldown_days
 
         hmm_cfg = config.get("hmm", {})
         self.hmm_enabled = hmm_cfg.get("enabled", True)
@@ -160,15 +164,23 @@ class BacktestEngine:
         """
         백테스트 실행.
 
+        drift_threshold가 설정된 경우 drift 기반 리밸런싱,
+        그렇지 않으면 캘린더(rebal_freq) 기반 리밸런싱을 사용한다.
+
         Returns
         -------
         pd.DataFrame
             index: date
-            columns: value, returns, drawdown, regime, rebalanced, tx_cost
+            columns: value, returns, drawdown, regime, rebalanced, tx_cost[, drift]
         """
+        if self.drift_threshold is not None:
+            return self._run_drift()
+        return self._run_calendar()
+
+    def _run_calendar(self) -> pd.DataFrame:
+        """캘린더 기반 리밸런싱 (기존 로직)."""
         px = self.universe_px.copy()
         all_dates = px.index
-        tickers = list(px.columns)
 
         rebal_dates = set(
             pd.date_range(self.start, self.end, freq=self.rebal_freq).normalize()
@@ -186,7 +198,6 @@ class BacktestEngine:
             day_prices = px.loc[date]
             available = day_prices.dropna()
 
-            # ── 첫날: 초기 비중으로 진입 ──────────────────────────────────
             if i == 0:
                 regime, blend_probs = self._get_regime(date)
                 current_regime = regime
@@ -212,7 +223,6 @@ class BacktestEngine:
                 })
                 continue
 
-            # ── 일별 포트폴리오 가치 업데이트 ─────────────────────────────
             portfolio_value = sum(
                 shares.get(t, 0.0) * float(available[t])
                 for t in available.index
@@ -236,15 +246,12 @@ class BacktestEngine:
 
                 new_weights = self._target_weights(blend_probs, rv, portfolio_value)
 
-                # 드로우다운 리스크 컨트롤 (전체 비중 기준 근사)
                 thresholds = self.config["risk"]["drawdown_thresholds"]
                 new_weights = _apply_drawdown_scale(
                     new_weights, drawdown, thresholds, self._equity_tickers
                 )
-
                 new_weights = _normalize_to_available(new_weights, available)
 
-                # 편도 턴오버 × 거래비용
                 old_weights: Dict[str, float] = {
                     t: shares.get(t, 0.0) * float(available[t]) / portfolio_value
                     for t in available.index
@@ -271,6 +278,133 @@ class BacktestEngine:
                 "regime":     current_regime,
                 "rebalanced": do_rebal,
                 "tx_cost":    day_tx,
+            })
+
+        result = pd.DataFrame(rows).set_index("date")
+        result["returns"] = result["value"].pct_change().fillna(0.0)
+        return result
+
+    def _run_drift(self) -> pd.DataFrame:
+        """
+        Drift 기반 리밸런싱.
+
+        트리거 조건 (run.py _compute_trigger와 동일):
+          1. drawdown <= moderate threshold → 쿨다운 무시, 즉시 리밸런싱
+          2. 쿨다운 미경과 → 스킵
+          3. drift > drift_threshold → 리밸런싱
+        """
+        px = self.universe_px.copy()
+        all_dates = px.index
+
+        portfolio_value = 1.0
+        peak_value = 1.0
+        shares: Dict[str, float] = {}
+        current_regime = "Slowdown"
+        target_weights: Dict[str, float] = {}
+        last_rebal_date: Optional[pd.Timestamp] = None
+
+        rows: List[dict] = []
+
+        for i, date in enumerate(all_dates):
+            day_prices = px.loc[date]
+            available = day_prices.dropna()
+
+            if i == 0:
+                regime, blend_probs = self._get_regime(date)
+                current_regime = regime
+
+                sig = self.signal_px[:date].tail(65)
+                rv = compute_features(sig).get("realized_vol", 0.15) if len(sig) >= 30 else 0.15
+
+                target_weights = self._target_weights(blend_probs, rv, portfolio_value)
+                target_weights = _normalize_to_available(target_weights, available)
+
+                shares = {
+                    t: w * portfolio_value / available[t]
+                    for t, w in target_weights.items()
+                    if available.get(t, 0) > 0
+                }
+                last_rebal_date = date
+                rows.append({
+                    "date":       date,
+                    "value":      portfolio_value,
+                    "drawdown":   0.0,
+                    "regime":     current_regime,
+                    "rebalanced": True,
+                    "tx_cost":    0.0,
+                    "drift":      0.0,
+                })
+                continue
+
+            portfolio_value = sum(
+                shares.get(t, 0.0) * float(available[t])
+                for t in available.index
+                if t in shares
+            )
+            if portfolio_value <= 0:
+                portfolio_value = rows[-1]["value"]
+
+            peak_value = max(peak_value, portfolio_value)
+            drawdown = (portfolio_value - peak_value) / peak_value
+
+            current_w: Dict[str, float] = {
+                t: shares.get(t, 0.0) * float(available[t]) / portfolio_value
+                for t in available.index
+                if t in shares
+            }
+
+            all_tickers = set(current_w) | set(target_weights)
+            drift = sum(
+                abs(current_w.get(t, 0.0) - target_weights.get(t, 0.0))
+                for t in all_tickers
+            )
+
+            days_since = (date - last_rebal_date).days if last_rebal_date else 999
+            moderate_thr = self.config["risk"]["drawdown_thresholds"]["moderate"]
+            emergency = drawdown <= moderate_thr
+
+            do_rebal = emergency or (drift > self.drift_threshold and days_since >= self.cooldown_days)
+
+            day_tx = 0.0
+            if do_rebal:
+                regime, blend_probs = self._get_regime(date)
+                current_regime = regime
+
+                sig = self.signal_px[:date].tail(65)
+                rv = compute_features(sig).get("realized_vol", 0.15) if len(sig) >= 30 else 0.15
+
+                new_weights = self._target_weights(blend_probs, rv, portfolio_value)
+
+                thresholds = self.config["risk"]["drawdown_thresholds"]
+                new_weights = _apply_drawdown_scale(
+                    new_weights, drawdown, thresholds, self._equity_tickers
+                )
+                new_weights = _normalize_to_available(new_weights, available)
+
+                turnover = sum(
+                    abs(new_weights.get(t, 0.0) - current_w.get(t, 0.0))
+                    for t in set(new_weights) | set(current_w)
+                ) / 2
+                day_tx = turnover * self.tx_cost
+                portfolio_value *= (1 - day_tx)
+
+                shares = {
+                    t: w * portfolio_value / float(available[t])
+                    for t, w in new_weights.items()
+                    if available.get(t, 0) > 0
+                }
+                target_weights = new_weights
+                last_rebal_date = date
+                drift = 0.0
+
+            rows.append({
+                "date":       date,
+                "value":      portfolio_value,
+                "drawdown":   drawdown,
+                "regime":     current_regime,
+                "rebalanced": do_rebal,
+                "tx_cost":    day_tx,
+                "drift":      drift,
             })
 
         result = pd.DataFrame(rows).set_index("date")

@@ -189,6 +189,100 @@ def run_crisis(config, universe_px, signal_px, args) -> pd.DataFrame:
     return result
 
 
+def run_drift(config, universe_px, signal_px, args) -> None:
+    """
+    Drift 임계값별 비교 분석.
+
+    3% / 5% / 8% / 10% drift 트리거를 주간 캘린더 기준선과 비교해
+    리밸런싱 빈도, 거래비용, 성과 영향을 보여준다.
+    """
+    print_section(f"Drift 임계값 비교 분석  [{args.start} ~ {args.end}]")
+    print("  목적: 5% 임계값의 민감도 검증 — 더 느슨하거나 엄격할 때 결과가 어떻게 달라지는가")
+    print(f"  거래비용 {args.tx_cost:.2%} / 쿨다운 {args.cooldown}일\n")
+
+    variants = [
+        ("주간(기준)", None),
+        ("drift  3%",  0.03),
+        ("drift  5%",  0.05),
+        ("drift  8%",  0.08),
+        ("drift 10%",  0.10),
+    ]
+
+    rows = []
+    for label, thr in variants:
+        engine = BacktestEngine(
+            config=config,
+            universe_px=universe_px,
+            signal_px=signal_px,
+            start=args.start,
+            end=args.end,
+            rebal_freq=REBAL_FREQ_MAP[args.rebal],
+            tx_cost=args.tx_cost,
+            drift_threshold=thr,
+            cooldown_days=args.cooldown,
+        )
+        result = engine.run()
+        m = compute_metrics(result["returns"])
+        n_years = len(result) / 252
+
+        rebal_n = int(result["rebalanced"].sum())
+        total_tx = float(result["tx_cost"].sum())
+
+        drift_stats = {}
+        if "drift" in result.columns:
+            triggered = result.loc[result["rebalanced"] & (result["drift"] == 0.0)]
+            pre_trigger = result["drift"]
+            drift_stats = {
+                "drift_mean": float(pre_trigger[pre_trigger > 0].mean()) if (pre_trigger > 0).any() else 0.0,
+                "drift_max":  float(pre_trigger.max()),
+            }
+
+        rows.append({
+            "임계값":        label,
+            "리밸횟수":      rebal_n,
+            "연평균횟수":    round(rebal_n / n_years, 1),
+            "누적비용":      total_tx,
+            "CAGR":          m.get("cagr", 0.0),
+            "Sharpe":        m.get("sharpe", 0.0),
+            "MaxDD":         m.get("max_drawdown", 0.0),
+            "drift_mean":    drift_stats.get("drift_mean", float("nan")),
+            "drift_max":     drift_stats.get("drift_max",  float("nan")),
+        })
+
+    df = pd.DataFrame(rows).set_index("임계값")
+
+    print_section("성과 요약")
+    header = f"  {'임계값':<12} {'리밸횟수':>6} {'연평균':>6} {'누적비용':>8} {'CAGR':>8} {'Sharpe':>7} {'MaxDD':>8}"
+    print(header)
+    print("  " + "─" * (len(header) - 2))
+    base_cagr = df.loc["주간(기준)", "CAGR"]
+    for label, row in df.iterrows():
+        diff = f"({row['CAGR'] - base_cagr:+.1%})" if label != "주간(기준)" else "      "
+        marker = " ◀ 현재설정" if label == "drift  5%" else ""
+        print(
+            f"  {label:<12} {row['리밸횟수']:>6} {row['연평균횟수']:>6.1f} "
+            f"{row['누적비용']:>7.3%} {row['CAGR']:>7.1%} {diff:<9}"
+            f"{row['Sharpe']:>6.2f} {row['MaxDD']:>7.1%}{marker}"
+        )
+
+    print_section("Drift 분포 (drift 모드 전용)")
+    print(f"  {'임계값':<12} {'평균drift':>10} {'최대drift':>10}  해석")
+    print("  " + "─" * 52)
+    for label, row in df.iterrows():
+        if pd.isna(row["drift_mean"]):
+            print(f"  {label:<12} {'N/A':>10} {'N/A':>10}  (캘린더 기반)")
+            continue
+        ratio = row["drift_mean"] / df.loc["drift  5%", "drift_mean"] if df.loc["drift  5%", "drift_mean"] > 0 else 1.0
+        bar = "█" * int(row["drift_mean"] * 200)
+        print(f"  {label:<12} {row['drift_mean']:>9.1%} {row['drift_max']:>9.1%}  {bar}")
+
+    print_section("해석 가이드")
+    print("  - 연평균 리밸횟수가 52회(주간)보다 적으면 거래비용 절감 효과 있음")
+    print("  - CAGR 차이가 ±0.5% 이내이면 임계값 선택에 둔감 → 로버스트")
+    print("  - 평균 drift가 임계값의 70~90% 수준이면 임계값이 적절히 바인딩됨")
+    print("  - 평균 drift ≈ 임계값이면 자주 경계선을 넘음 → 임계값 상향 고려")
+
+
 def run_sens(config, universe_px, signal_px, args) -> dict:
     print_section("파라미터 민감도 분석")
     print("  목적: 결과가 파라미터 변화에 과도하게 민감하지 않음을 확인")
@@ -345,11 +439,12 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--mode",
-        choices=["full", "crisis", "sensitivity", "robustness"],
+        choices=["full", "crisis", "sensitivity", "robustness", "drift"],
         default="full",
         help=(
             "full: 전체 기간 / crisis: 위기 구간 / "
-            "sensitivity: 파라미터 민감도 / robustness: 레짐 비중 로버스트니스"
+            "sensitivity: 파라미터 민감도 / robustness: 레짐 비중 로버스트니스 / "
+            "drift: drift 임계값 비교 (3%%/5%%/8%%/10%% vs 주간)"
         ),
     )
     p.add_argument("--start",    default=DEFAULT_START, help="시작일 YYYY-MM-DD")
@@ -377,6 +472,13 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="robustness 모드에서 3단계 비중 교란 테스트 활성화 (시간 오래 걸림)",
     )
+    p.add_argument(
+        "--cooldown",
+        type=int,
+        default=7,
+        metavar="DAYS",
+        help="drift 모드 쿨다운 (기본 7일)",
+    )
     return p.parse_args()
 
 
@@ -402,6 +504,8 @@ def main() -> None:
         run_sens(config, universe_px, signal_px, args)
     elif args.mode == "robustness":
         run_robustness(config, universe_px, signal_px, args)
+    elif args.mode == "drift":
+        run_drift(config, universe_px, signal_px, args)
 
 
 if __name__ == "__main__":
