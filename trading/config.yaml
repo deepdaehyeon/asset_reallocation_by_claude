@@ -101,6 +101,12 @@ universe:
     currency: KRW
     exec_account: KRW_2
     asset_class: cash
+  # ── Synthetic Bridge (KRW) — T+2 합성 노출 전용, regime_targets 미포함 ────
+  "261220":
+    name: "KODEX WTI원유선물(H)"
+    currency: KRW
+    exec_account: KRW_2
+    asset_class: commodity_krw
 
 # ────────────────────────────────────────────────────────────────────────────
 # 동적 자산 배분 — 레짐별 자산군 목표 비중 (합계 = 1.0)
@@ -290,12 +296,12 @@ settlement:
   buffer_tickers: ["469830"]
   buffer_min: 0.07
   synthetic_pairs:
-    "TSLA": "379800"
-    "PLTR": "379810"
-    "VTV":  "379800"   # Value ETF → KODEX S&P500 (임시 브릿지)
-    "AVUV": "379800"   # Small Cap Value → KODEX S&P500 (임시 브릿지)
-    "XLE":  "379800"   # 에너지 → KODEX S&P500 (임시 브릿지)
-    "IEF":  "305080"
-    "SHY":  "469830"
-    "DBC":  "469830"
-    "DBMF": "469830"
+    "TSLA": "379810"   # 나스닥100 (TSLA는 NASDAQ100 구성종목)
+    "PLTR": "379810"   # 나스닥100 (AI/테크 방향성)
+    "VTV":  "379800"   # S&P500 (KRX에 Value ETF 대체재 없음)
+    "AVUV": "379800"   # S&P500 (KRX에 소형가치 대체재 없음)
+    "XLE":  "261220"   # KODEX WTI원유선물(H) (에너지 섹터 직접 대체)
+    "IEF":  "305080"   # TIGER 미국채10년 (만기 일치)
+    "SHY":  "469830"   # SOL 초단기채권 (단기채 방향성)
+    "DBC":  "261220"   # KODEX WTI원유선물(H) (DBC 에너지 비중 50%+)
+    "DBMF": "469830"   # SOL 초단기채권 (CTA 대체재 없음, 현금 차선)
