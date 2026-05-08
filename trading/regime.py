@@ -191,7 +191,7 @@ class HmmRegimeClassifier:
         """
         피처 행렬로 HMM을 학습하고 상태-레짐 매핑을 결정한다.
 
-        feature_matrix: pd.DataFrame with columns = HMM_FEATURE_COLS
+        feature_matrix: pd.DataFrame with columns ⊇ active feature cols
         """
         from collections import Counter
 
@@ -199,9 +199,12 @@ class HmmRegimeClassifier:
         from hmmlearn import hmm
         from sklearn.preprocessing import StandardScaler
 
-        from features import HMM_FEATURE_COLS
+        from features import get_active_feature_cols
 
-        X = feature_matrix[HMM_FEATURE_COLS].values.astype(float)
+        active_cols = get_active_feature_cols(feature_matrix)
+        self._feature_cols = active_cols
+
+        X = feature_matrix[active_cols].values.astype(float)
 
         scaler = StandardScaler()
         X_scaled = scaler.fit_transform(X)
@@ -218,10 +221,11 @@ class HmmRegimeClassifier:
         self._model = model
 
         # 각 행의 규칙 기반 레짐을 레이블로 사용 → HMM 상태 매핑
+        # 사용 가능한 모든 열을 detect_regime에 전달 (더 정확한 레이블 생성)
         states = model.predict(X_scaled)
         rule_labels = [
             detect_regime(row)
-            for row in feature_matrix[HMM_FEATURE_COLS].to_dict(orient="records")
+            for row in feature_matrix.to_dict(orient="records")
         ]
         for s in range(self.N_STATES):
             idxs = [i for i, st in enumerate(states) if st == s]
@@ -238,15 +242,19 @@ class HmmRegimeClassifier:
         단일 관측값 대신 시퀀스 전체를 HMM에 통과시켜 전이 확률(transition matrix)과
         과거 문맥이 반영된 마지막 시점의 사후 확률을 사용한다.
 
-        feature_sequence: HMM_FEATURE_COLS 컬럼을 가진 pd.DataFrame (shape: T × n_features)
+        feature_sequence: 학습 시 사용한 피처 컬럼을 가진 pd.DataFrame (shape: T × n_features)
         """
         if self._model is None or self._scaler is None:
             return {r: 1.0 / len(REGIMES) for r in REGIMES}
 
         import numpy as np
-        from features import HMM_FEATURE_COLS
 
-        X = feature_sequence[HMM_FEATURE_COLS].values.astype(float)
+        cols = getattr(self, "_feature_cols", None)
+        if cols is None:
+            from features import get_active_feature_cols
+            cols = get_active_feature_cols(feature_sequence)
+
+        X = feature_sequence[cols].values.astype(float)
         X_scaled = self._scaler.transform(X)
 
         # predict_proba returns (T, n_states) — 마지막 시점 사후 확률 사용
@@ -282,12 +290,16 @@ class BalancedRFClassifier:
         from sklearn.ensemble import RandomForestClassifier
         from sklearn.preprocessing import StandardScaler
 
-        from features import HMM_FEATURE_COLS
+        from features import get_active_feature_cols
 
-        X = feature_matrix[HMM_FEATURE_COLS].values.astype(float)
+        active_cols = get_active_feature_cols(feature_matrix)
+        self._feature_cols = active_cols
+
+        X = feature_matrix[active_cols].values.astype(float)
+        # 모든 available 열을 detect_regime에 전달해 더 정확한 레이블 생성
         labels = [
             detect_regime(row)
-            for row in feature_matrix[HMM_FEATURE_COLS].to_dict(orient="records")
+            for row in feature_matrix.to_dict(orient="records")
         ]
 
         scaler = StandardScaler()
@@ -311,9 +323,12 @@ class BalancedRFClassifier:
 
         import numpy as np
 
-        from features import HMM_FEATURE_COLS
+        cols = getattr(self, "_feature_cols", None)
+        if cols is None:
+            from features import PRICE_FEATURE_COLS
+            cols = PRICE_FEATURE_COLS
 
-        x = np.array([[features.get(c, 0.0) for c in HMM_FEATURE_COLS]], dtype=float)
+        x = np.array([[features.get(c, 0.0) for c in cols]], dtype=float)
         x_scaled = self._scaler.transform(x)
         proba = self._model.predict_proba(x_scaled)[0]
 

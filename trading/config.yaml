@@ -4,8 +4,9 @@
 
 # 레짐 감지용 시장 데이터 (yfinance)
 signal:
-  tickers: ["SPY", "^VIX", "TLT", "HYG"]
+  tickers: ["SPY", "^VIX", "TLT", "HYG", "DX-Y.NYB", "DJP"]
   lookback_days: 130          # 모멘텀 6M 계산에 필요한 최소 거래일
+  # DX-Y.NYB: 달러 인덱스(DXY) / DJP: Bloomberg Commodity Index ETN
 
 # KIS 계좌 정의
 accounts:

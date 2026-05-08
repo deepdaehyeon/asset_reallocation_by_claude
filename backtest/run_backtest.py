@@ -27,6 +27,10 @@ import yaml
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT / "trading"))
 
+import sys as _sys
+_sys.path.insert(0, str(ROOT / "trading"))
+from fetcher import fetch_fred_history
+
 from data import load_all_prices
 from engine import BacktestEngine
 from metrics import (
@@ -99,7 +103,7 @@ def print_section(title: str) -> None:
     print(f"{'━'*54}")
 
 
-def run_full(config, universe_px, signal_px, args) -> pd.DataFrame:
+def run_full(config, universe_px, signal_px, args, fred_history=None) -> pd.DataFrame:
     print_section(f"전체 기간 백테스트  [{args.start} ~ {args.end}]")
     print(f"  거래비용 {args.tx_cost:.2%} / 리밸런싱 {args.rebal}")
 
@@ -111,6 +115,7 @@ def run_full(config, universe_px, signal_px, args) -> pd.DataFrame:
         end=args.end,
         rebal_freq=REBAL_FREQ_MAP[args.rebal],
         tx_cost=args.tx_cost,
+        fred_history=fred_history,
     )
     result = engine.run()
     m = compute_metrics(result["returns"])
@@ -178,7 +183,7 @@ def run_full(config, universe_px, signal_px, args) -> pd.DataFrame:
     return result
 
 
-def run_crisis(config, universe_px, signal_px, args) -> pd.DataFrame:
+def run_crisis(config, universe_px, signal_px, args, fred_history=None) -> pd.DataFrame:
     engine = BacktestEngine(
         config=config,
         universe_px=universe_px,
@@ -187,6 +192,7 @@ def run_crisis(config, universe_px, signal_px, args) -> pd.DataFrame:
         end=args.end,
         rebal_freq=REBAL_FREQ_MAP[args.rebal],
         tx_cost=args.tx_cost,
+        fred_history=fred_history,
     )
     result = engine.run()
     bm = build_benchmark(universe_px, signal_px, args.start, args.end)
@@ -223,7 +229,7 @@ def run_crisis(config, universe_px, signal_px, args) -> pd.DataFrame:
     return result
 
 
-def run_drift(config, universe_px, signal_px, args) -> None:
+def run_drift(config, universe_px, signal_px, args, fred_history=None) -> None:
     """
     Drift 임계값별 비교 분석.
 
@@ -254,6 +260,7 @@ def run_drift(config, universe_px, signal_px, args) -> None:
             tx_cost=args.tx_cost,
             drift_threshold=thr,
             cooldown_days=args.cooldown,
+            fred_history=fred_history,
         )
         result = engine.run()
         m = compute_metrics(result["returns"])
@@ -317,7 +324,7 @@ def run_drift(config, universe_px, signal_px, args) -> None:
     print("  - 평균 drift ≈ 임계값이면 자주 경계선을 넘음 → 임계값 상향 고려")
 
 
-def run_sens(config, universe_px, signal_px, args) -> dict:
+def run_sens(config, universe_px, signal_px, args, fred_history=None) -> dict:
     print_section("파라미터 민감도 분석")
     print("  목적: 결과가 파라미터 변화에 과도하게 민감하지 않음을 확인")
     print("  (민감도가 낮을수록 과적합 가능성 낮음)")
@@ -344,7 +351,7 @@ def run_sens(config, universe_px, signal_px, args) -> dict:
     return results
 
 
-def run_robustness(config, universe_px, signal_px, args) -> None:
+def run_robustness(config, universe_px, signal_px, args, fred_history=None) -> None:
     """
     레짐별 비중 로버스트니스 검증.
 
@@ -404,6 +411,7 @@ def run_robustness(config, universe_px, signal_px, args) -> None:
         end=args.end,
         rebal_freq=rebal_freq,
         tx_cost=args.tx_cost,
+        fred_history=fred_history,
     )
     full_result = engine.run()
 
@@ -530,16 +538,23 @@ def main() -> None:
     print(f"  유니버스 {len(universe_px.columns)}개 종목, {len(universe_px)}거래일")
     print(f"  신호 티커 {len(signal_px.columns)}개")
 
+    # FRED 매크로 히스토리 (API 키 있으면 로드, 없으면 가격 파생 피처만 사용)
+    fred_history = fetch_fred_history(args.start, args.end)
+    if not fred_history.empty:
+        print(f"  FRED 매크로 피처: {list(fred_history.columns)}")
+    else:
+        print("  FRED 매크로: API 키 없음 또는 조회 실패 — 가격 파생 피처만 사용")
+
     if args.mode == "full":
-        run_full(config, universe_px, signal_px, args)
+        run_full(config, universe_px, signal_px, args, fred_history)
     elif args.mode == "crisis":
-        run_crisis(config, universe_px, signal_px, args)
+        run_crisis(config, universe_px, signal_px, args, fred_history)
     elif args.mode == "sensitivity":
-        run_sens(config, universe_px, signal_px, args)
+        run_sens(config, universe_px, signal_px, args, fred_history)
     elif args.mode == "robustness":
-        run_robustness(config, universe_px, signal_px, args)
+        run_robustness(config, universe_px, signal_px, args, fred_history)
     elif args.mode == "drift":
-        run_drift(config, universe_px, signal_px, args)
+        run_drift(config, universe_px, signal_px, args, fred_history)
 
 
 if __name__ == "__main__":

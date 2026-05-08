@@ -28,7 +28,8 @@ TICKER_INCEPTION: Dict[str, str] = {
     "BIL":  "2007-05-25",
 }
 
-SIGNAL_TICKERS = ["SPY", "^VIX", "TLT", "HYG"]
+SIGNAL_TICKERS = ["SPY", "^VIX", "TLT", "HYG", "DX-Y.NYB", "DJP"]
+# DX-Y.NYB: 달러 인덱스(DXY)  /  DJP: Bloomberg Commodity Index ETN (2006~)
 
 
 def _cache_path(ticker: str) -> Path:

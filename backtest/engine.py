@@ -81,6 +81,7 @@ class BacktestEngine:
         usd_ratio: float = 0.30,
         drift_threshold: Optional[float] = None,
         cooldown_days: int = 7,
+        fred_history: Optional[pd.DataFrame] = None,
     ) -> None:
         self.config = deepcopy(config)
         self.universe_px = universe_px[start:end]
@@ -92,6 +93,7 @@ class BacktestEngine:
         self.usd_ratio = usd_ratio
         self.drift_threshold = drift_threshold
         self.cooldown_days = cooldown_days
+        self.fred_history = fred_history
 
         hmm_cfg = config.get("hmm", {})
         self.hmm_enabled = hmm_cfg.get("enabled", True)
@@ -131,7 +133,12 @@ class BacktestEngine:
         blend: Dict[str, float] = {r: 0.0 for r in REGIMES}
 
         if self.hmm_enabled:
-            fm = compute_feature_matrix(sig)
+            fred_slice = (
+                self.fred_history[:as_of]
+                if self.fred_history is not None and not self.fred_history.empty
+                else None
+            )
+            fm = compute_feature_matrix(sig, fred_slice)
             if len(fm) >= self.hmm_min:
                 clf = HmmRegimeClassifier()
                 with _quiet():
