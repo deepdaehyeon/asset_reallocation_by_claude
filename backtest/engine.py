@@ -26,6 +26,7 @@ if str(_TRADING) not in sys.path:
 from features import compute_features, compute_feature_matrix
 from regime import (
     REGIMES,
+    BalancedRFClassifier,
     HmmRegimeClassifier,
     detect_regime,
     ensemble_regime,
@@ -98,6 +99,8 @@ class BacktestEngine:
         self.hmm_min = hmm_cfg.get("min_samples", 100)
         self.override_thr = hmm_cfg.get("override_threshold", 0.60)
         self.predict_lookback = hmm_cfg.get("predict_lookback", 60)
+        self.rf_enabled = hmm_cfg.get("rf_enabled", True)
+        self.rf_weight = float(hmm_cfg.get("rf_weight", 0.40))
 
         eq_classes = set(config.get("vol_targeting", {}).get(
             "equity_asset_classes",
@@ -135,8 +138,20 @@ class BacktestEngine:
                     clf.fit(fm)
                 seq = fm.tail(self.predict_lookback)
                 hmm_probs = clf.predict_proba(seq)
-                final = ensemble_regime(rule_regime, hmm_probs, self.override_thr)
-                return final, hmm_probs, rule_regime
+
+                if self.rf_enabled:
+                    rf_clf = BalancedRFClassifier()
+                    rf_clf.fit(fm)
+                    rf_probs = rf_clf.predict_proba(features)
+                    w = self.rf_weight
+                    raw = {r: (1 - w) * hmm_probs[r] + w * rf_probs[r] for r in REGIMES}
+                    total = sum(raw.values())
+                    blend = {r: v / total for r, v in raw.items()} if total > 0 else hmm_probs
+                else:
+                    blend = hmm_probs
+
+                final = ensemble_regime(rule_regime, blend, self.override_thr)
+                return final, blend, rule_regime
 
         blend[rule_regime] = 1.0
         return rule_regime, blend, rule_regime

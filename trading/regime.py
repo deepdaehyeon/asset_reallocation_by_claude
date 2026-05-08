@@ -260,6 +260,72 @@ class HmmRegimeClassifier:
         return regime_probs
 
 
+class BalancedRFClassifier:
+    """
+    RandomForest 기반 레짐 분류기.
+
+    목적: GaussianHMM의 소수 레짐(Crisis/Stagflation) 과소 탐지 보완.
+    학습: 피처 행렬 각 행에 규칙 기반 레이블을 부여한 뒤 RF 학습.
+    특징: class_weight='balanced' → 희귀 레짐에 자동 고가중치.
+    추론: 현재 피처 벡터(단일 행) → 레짐별 확률 dict.
+
+    HMM이 순서 정보(전이 확률)를 담당하고,
+    RF는 피처 공간에서 소수 클래스 경계를 더 민감하게 학습하는 역할을 한다.
+    """
+
+    def __init__(self) -> None:
+        self._model = None
+        self._scaler = None
+
+    def fit(self, feature_matrix) -> None:
+        """피처 행렬로 RF를 학습한다. 레이블은 규칙 기반 detect_regime()으로 생성."""
+        from sklearn.ensemble import RandomForestClassifier
+        from sklearn.preprocessing import StandardScaler
+
+        from features import HMM_FEATURE_COLS
+
+        X = feature_matrix[HMM_FEATURE_COLS].values.astype(float)
+        labels = [
+            detect_regime(row)
+            for row in feature_matrix[HMM_FEATURE_COLS].to_dict(orient="records")
+        ]
+
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+        self._scaler = scaler
+
+        self._model = RandomForestClassifier(
+            n_estimators=200,
+            class_weight="balanced",
+            max_depth=6,
+            min_samples_leaf=5,
+            random_state=42,
+            n_jobs=-1,
+        )
+        self._model.fit(X_scaled, labels)
+
+    def predict_proba(self, features: dict) -> dict[str, float]:
+        """현재 피처 dict → 레짐별 확률 (클래스 균형 가중치 반영)."""
+        if self._model is None or self._scaler is None:
+            return {r: 1.0 / len(REGIMES) for r in REGIMES}
+
+        import numpy as np
+
+        from features import HMM_FEATURE_COLS
+
+        x = np.array([[features.get(c, 0.0) for c in HMM_FEATURE_COLS]], dtype=float)
+        x_scaled = self._scaler.transform(x)
+        proba = self._model.predict_proba(x_scaled)[0]
+
+        classes = list(self._model.classes_)
+        regime_probs: dict[str, float] = {r: 0.0 for r in REGIMES}
+        for i, cls in enumerate(classes):
+            if cls in regime_probs:
+                regime_probs[cls] = float(proba[i])
+
+        return regime_probs
+
+
 def compute_rule_confidence(features: dict, regime: str) -> float:
     """
     규칙 기반 레짐 판단의 신뢰도 [0.0, 1.0]을 반환한다.

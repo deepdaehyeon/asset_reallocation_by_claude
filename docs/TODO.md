@@ -39,6 +39,21 @@ _최종 갱신: 2026-05-08_
 
 ---
 
+## 레짐 판단 모델 고도화
+
+### 완료
+- [x] **레짐 분류 품질 메트릭** — MCC / Macro-F1 / Balanced Accuracy / 위험 레짐 오판 비용 (`backtest/metrics.py`, `run_backtest.py`)
+- [x] **BalancedRF 앙상블** (Stage 1) — `BalancedRFClassifier` 추가. HMM 0.6 + RF 0.4 블렌딩으로 Crisis/Stagflation recall 개선 (`trading/regime.py`, `engine.py`, `run.py`)
+
+### 대기
+- [ ] **Markov Switching Model** (Stage 2) — `statsmodels.tsa.MarkovAutoregression` 도입.
+  - 근거: 금융 레짐 모델의 학문적 표준 (Hamilton 1989), 전환 확률 행렬 해석 가능, M1에서 215ms로 현재 HMM과 동등한 속도.
+  - 제약: 다변량 입력 제한 → 5개 피처를 PCA 2~3개 성분으로 축약 후 학습.
+  - 위치: `trading/regime.py`에 `MarkovSwitchingClassifier` 클래스 추가, `engine.py` / `run.py` 연동.
+  - 참고: `docs/regime_model_research.md` 비교 분석 섹션.
+
+---
+
 ## Phase 3 — LLM 텍스트 신호 모듈
 
 - [ ] 뉴스 헤드라인 수집 파이프라인 (Reuters/Bloomberg RSS 또는 News API)

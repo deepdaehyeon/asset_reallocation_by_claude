@@ -36,6 +36,7 @@ from portfolio import (
 from regime import (
     DEFAULT_REGIME,
     REGIMES,
+    BalancedRFClassifier,
     HmmRegimeClassifier,
     RegimeFilter,
     compute_rule_confidence,
@@ -187,6 +188,9 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
     raw_regime = rule_regime
     hmm_probs: dict = {}
 
+    rf_enabled = hmm_cfg.get("rf_enabled", True)
+    rf_weight = float(hmm_cfg.get("rf_weight", 0.40))
+
     if hmm_enabled and len(feature_matrix) >= hmm_min:
         hmm_clf = HmmRegimeClassifier()
         hmm_clf.fit(feature_matrix)
@@ -201,6 +205,22 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
                 for r, p in sorted(hmm_probs.items(), key=lambda x: -x[1])
             )
         )
+
+        if rf_enabled:
+            rf_clf = BalancedRFClassifier()
+            rf_clf.fit(feature_matrix)
+            rf_probs = rf_clf.predict_proba(features)
+            rf_top = max(rf_probs, key=rf_probs.get)
+            print(
+                f"    RF(balanced): {rf_top} ({rf_probs[rf_top]:.0%}) | "
+                f"crisis={rf_probs.get('Crisis', 0):.0%}  "
+                f"stag={rf_probs.get('Stagflation', 0):.0%}"
+            )
+            w = rf_weight
+            raw = {r: (1 - w) * hmm_probs[r] + w * rf_probs[r] for r in REGIMES}
+            total = sum(raw.values())
+            hmm_probs = {r: v / total for r, v in raw.items()} if total > 0 else hmm_probs
+
         raw_regime = ensemble_regime(rule_regime, hmm_probs, override_thr)
         if raw_regime != rule_regime:
             print(f"    앙상블 조정: {rule_regime} → {raw_regime}")

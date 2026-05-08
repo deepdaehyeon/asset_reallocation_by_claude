@@ -254,13 +254,15 @@ vol_targeting:
     - equity_sector
     - equity_individual
 
-# HMM 레짐 앙상블
+# HMM + RF 앙상블 레짐 모델
 hmm:
   enabled: true
   lookback_days: 500       # HMM 학습 윈도우 (거래일)
   predict_lookback: 60     # 추론 시 사용할 시퀀스 길이 — 전이 확률 문맥 반영
   min_samples: 100
   override_threshold: 0.60
+  rf_enabled: true         # BalancedRF 앙상블 (소수 레짐 탐지 보강)
+  rf_weight: 0.40          # RF 확률 가중치 (HMM 0.6 + RF 0.4)
 
 # 레짐 전환 히스테리시스 필터 (표시·알림 목적 — 실제 비중은 연속 블렌딩 적용)
 regime_filter:
