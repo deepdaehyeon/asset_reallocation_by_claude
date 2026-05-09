@@ -2,6 +2,8 @@
 import csv
 import json
 import math
+import sqlite3
+import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
@@ -23,8 +25,9 @@ MARKET_TO_CURRENCY: Dict[str, str] = {
     "NYSE":   "USD",
 }
 
-# 드로우다운 추적용 상태 파일
-STATE_FILE = Path(__file__).parent / "state.json"
+# 상태 파일 경로
+STATE_FILE = Path(__file__).parent / "state.json"   # 레거시 JSON (읽기 전용 폴백)
+STATE_DB   = Path(__file__).parent / "state.db"     # SQLite (primary)
 
 # 주문 로그 CSV
 ORDER_LOG_FILE = Path(__file__).parent / "logs" / "orders.csv"
@@ -33,37 +36,53 @@ _ORDER_LOG_HEADERS = [
 ]
 
 
-def _append_order_log(
-    ticker: str,
-    action: str,
-    qty: int,
-    price: float,
-    currency: str,
-    usd_krw: float,
-    status: str,
-) -> None:
-    """주문 결과를 logs/orders.csv에 누적 기록한다."""
-    ORDER_LOG_FILE.parent.mkdir(exist_ok=True)
-    amount_krw = qty * price * (usd_krw if currency == "USD" else 1.0)
-    row = {
-        "datetime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "ticker": ticker,
-        "action": action,
-        "qty": qty,
-        "price": price,
-        "currency": currency,
-        "amount_krw": round(amount_krw),
-        "status": status,
-    }
-    write_header = not ORDER_LOG_FILE.exists()
-    with open(ORDER_LOG_FILE, "a", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=_ORDER_LOG_HEADERS)
-        if write_header:
-            writer.writeheader()
-        writer.writerow(row)
+# ── SQLite 상태 관리 ─────────────────────────────────────────────────────────
+
+def _db_init(db_path: Path) -> sqlite3.Connection:
+    """DB가 없으면 스키마를 생성하고 연결을 반환한다."""
+    con = sqlite3.connect(db_path)
+    con.execute("PRAGMA journal_mode=WAL")  # 동시 읽기 허용, 쓰기 내구성 향상
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS state_current (
+            key   TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )
+    """)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS state_history (
+            id        INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts        TEXT    NOT NULL,
+            regime    TEXT,
+            drawdown  REAL,
+            total_krw REAL,
+            drift_krw REAL,
+            drift_usd REAL,
+            snapshot  TEXT    NOT NULL
+        )
+    """)
+    con.commit()
+    return con
 
 
 def load_state() -> dict:
+    """SQLite에서 state를 로드한다. DB 없으면 state.json 폴백."""
+    if STATE_DB.exists():
+        try:
+            con = _db_init(STATE_DB)
+            rows = con.execute("SELECT key, value FROM state_current").fetchall()
+            con.close()
+            if rows:
+                flat = {k: json.loads(v) for k, v in rows}
+                state = flat.get("__root__", {})
+                if not isinstance(state, dict):
+                    state = {}
+                if not isinstance(state.get("peak_krw"), (int, float)):
+                    state["peak_krw"] = 0.0
+                return state
+        except Exception as e:
+            print(f"  [경고] state.db 로드 실패 ({e}) → state.json 폴백 시도")
+
+    # JSON 폴백
     if STATE_FILE.exists():
         try:
             with open(STATE_FILE) as f:
@@ -72,15 +91,47 @@ def load_state() -> dict:
             print(f"  [경고] state.json 로드 실패 ({e}) → 기본값 사용")
             return {"peak_krw": 0.0}
         if not isinstance(state.get("peak_krw"), (int, float)):
-            print("  [경고] state.json: peak_krw 누락 또는 타입 오류 → 0.0 설정")
             state["peak_krw"] = 0.0
         return state
+
     return {"peak_krw": 0.0}
 
 
 def save_state(state: dict) -> None:
-    with open(STATE_FILE, "w") as f:
-        json.dump(state, f, ensure_ascii=False, indent=2)
+    """state를 SQLite에 원자적으로 저장하고 history 스냅샷을 남긴다."""
+    con = _db_init(STATE_DB)
+    try:
+        with con:  # BEGIN … COMMIT (예외 시 ROLLBACK)
+            con.execute(
+                "INSERT OR REPLACE INTO state_current (key, value) VALUES (?, ?)",
+                ("__root__", json.dumps(state, ensure_ascii=False)),
+            )
+            # 레짐·드로우다운 등 핵심 필드만 history로 분리 저장
+            con.execute(
+                """INSERT INTO state_history
+                   (ts, regime, drawdown, total_krw, drift_krw, drift_usd, snapshot)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    datetime.now().isoformat(),
+                    state.get("confirmed_regime"),
+                    state.get("last_drawdown"),
+                    state.get("last_total_krw"),
+                    state.get("last_drift_krw"),
+                    state.get("last_drift_usd"),
+                    json.dumps(state, ensure_ascii=False),
+                ),
+            )
+    finally:
+        con.close()
+
+    # JSON 미러 (사람이 직접 읽을 수 있도록 — 쓰기 실패해도 SQLite가 primary)
+    try:
+        tmp = STATE_FILE.with_suffix(".tmp")
+        with open(tmp, "w") as f:
+            json.dump(state, f, ensure_ascii=False, indent=2)
+        tmp.replace(STATE_FILE)   # atomic rename
+    except OSError:
+        pass
 
 
 def _adjust_tick(price: float, currency: str) -> float:

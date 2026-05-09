@@ -3,6 +3,8 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional, Set, Tuple
 
+import numpy as np
+
 
 # ── 연속 노출 (Continuous Exposure) ─────────────────────────────────────────
 
@@ -40,6 +42,44 @@ def blend_regime_targets(regime_probs: Dict[str, float], config: dict) -> dict:
     return blended
 
 
+# ── 포트폴리오 EWMA 변동성 계산 ──────────────────────────────────────────────
+
+def compute_portfolio_ewma_vol(
+    prices,
+    weights: dict,
+    lam: float = 0.94,
+    annualize: int = 252,
+) -> float:
+    """
+    EWMA 방식으로 포트폴리오 실현 변동성을 계산한다.
+
+    weights: {ticker: float} — 자산별 목표 비중 (prices에 없는 종목은 무시)
+    lam:     EWMA 감쇠 파라미터 (RiskMetrics 표준 λ=0.94)
+    반환: 연환산 변동성 (0 이상)
+
+    포트폴리오 수익률 = Σ(w_i × r_i) → EWMA 분산 → √annualize 환산
+    """
+    import pandas as pd
+
+    tickers = [t for t in weights if t in prices.columns and weights[t] > 0]
+    if not tickers:
+        return 0.0
+
+    w = np.array([weights[t] for t in tickers])
+    w /= w.sum()
+
+    rets = prices[tickers].pct_change(fill_method=None).dropna()
+    if len(rets) < 10:
+        return 0.0
+
+    port_rets = rets.values @ w
+    # EWMA 분산
+    var = float(np.var(port_rets[:10]))
+    for r in port_rets[10:]:
+        var = lam * var + (1 - lam) * r * r
+    return float(np.sqrt(var * annualize))
+
+
 # ── 자산군 상한 적용 ─────────────────────────────────────────────────────────
 
 def apply_class_caps(targets: dict, class_max: dict) -> dict:
@@ -60,28 +100,67 @@ def apply_class_caps(targets: dict, class_max: dict) -> dict:
     return adjusted
 
 
+# ── VIX 기반 동적 자산군 상한 ────────────────────────────────────────────────
+
+def apply_dynamic_class_caps(targets: dict, class_max: dict, vix: float) -> dict:
+    """
+    VIX 수준에 따라 고변동 자산군 상한을 동적으로 축소한 뒤 apply_class_caps를 적용한다.
+
+    VIX > 30: commodity/equity_individual 상한 50% 축소
+    VIX > 25: 25% 축소
+    """
+    caps = dict(class_max)
+    if vix > 30:
+        scale = 0.50
+    elif vix > 25:
+        scale = 0.75
+    else:
+        return apply_class_caps(targets, caps)
+
+    for cls in ("commodity", "equity_individual"):
+        if cls in caps:
+            caps[cls] = caps[cls] * scale
+
+    return apply_class_caps(targets, caps)
+
+
 # ── 변동성 타겟팅 ────────────────────────────────────────────────────────────
 
 def apply_vol_targeting(
     targets: dict,
     realized_vol: float,
     config: dict,
+    regime: str = "",
 ) -> dict:
     """
-    실현 변동성(연환산)이 목표를 초과할 때 equity 비중을 비례 축소한다.
+    포트폴리오 실현 변동성(EWMA 연환산)이 목표를 초과할 때 equity 비중을 비례 축소한다.
 
-    scale = clip(target_vol / realized_vol, floor, 1.0)
-    레버리지 없음: realized_vol < target_vol 이면 scale = 1.0 유지.
+    레짐별 target_vol 지원:
+      Goldilocks 13% / Reflation 11% / Slowdown 9% / Stagflation 8% / Crisis 6%
+    regime 미지정 시 config의 target_vol(기본 10%)을 사용한다.
+
+    scale = clip(target_vol / portfolio_vol, floor, 1.0)
+    레버리지 없음: portfolio_vol < target_vol 이면 scale = 1.0 유지.
     축소된 equity 비중은 cash로 이동한다.
-
-    같은 60% equity라도 rvol 25% vs rvol 10%는 완전히 다른 리스크이므로
-    포지션 크기를 변동성 역비례로 조정해 실질 리스크를 일정하게 유지한다.
     """
     vol_cfg = config.get("vol_targeting", {})
     if not vol_cfg.get("enabled", False):
         return dict(targets)
 
-    target_vol = float(vol_cfg.get("target_vol", 0.10))
+    # 레짐별 목표 변동성 (config > 하드코딩 폴백)
+    _regime_defaults = {
+        "Goldilocks":  0.13,
+        "Reflation":   0.11,
+        "Slowdown":    0.09,
+        "Stagflation": 0.08,
+        "Crisis":      0.06,
+    }
+    regime_vols = vol_cfg.get("regime_target_vol", _regime_defaults)
+    if regime and regime in regime_vols:
+        target_vol = float(regime_vols[regime])
+    else:
+        target_vol = float(vol_cfg.get("target_vol", 0.10))
+
     floor = float(vol_cfg.get("floor", 0.65))
     equity_classes = set(vol_cfg.get("equity_asset_classes", []))
 
@@ -250,29 +329,32 @@ def apply_risk_controls(
     drawdown: float,
     thresholds: dict,
     equity_tickers: Optional[Set[str]] = None,
+    equity_floor_pct: float = 0.10,
 ) -> dict:
     """
     드로우다운 수준에 따라 비중을 단계적으로 조정한다.
 
-    severe (-30%):   equity만 0으로 축소 — 채권·금·현금 유지
-                     "바닥에서 전량 현금화" 패턴을 방지한다.
+    severe (-30%):   equity를 floor(기본 10%)까지 축소 — 채권·금·현금 유지
+                     완전 청산 시 반등 구간 전체를 놓칠 수 있어 최소 비중 유지
     moderate (-20%): equity 40% 수준으로 강제 축소 (Slowdown/Crisis 강제 효과)
     mild (-10%):     equity 75% 유지 (소폭 방어)
 
     equity_tickers: USD·KRW 계좌 각각 해당 계좌의 equity 종목 집합
+    equity_floor_pct: severe 시 equity 최소 유지율 (기본 10%)
     """
     severe = thresholds["severe"]
     moderate = thresholds["moderate"]
     mild = thresholds["mild"]
+    floor = float(thresholds.get("equity_floor_pct", equity_floor_pct))
 
     if drawdown <= severe:
-        # equity만 0 — 채권·금·현금은 그대로 유지
+        # equity를 floor 비율까지만 축소 — 채권·금·현금은 그대로 유지
         if equity_tickers:
             return {
-                t: (0.0 if t in equity_tickers else w)
+                t: (w * floor if t in equity_tickers else w)
                 for t, w in weights.items()
             }
-        return {t: 0.0 for t in weights}
+        return {t: w * floor for t, w in weights.items()}
 
     if drawdown <= moderate:
         if equity_tickers:

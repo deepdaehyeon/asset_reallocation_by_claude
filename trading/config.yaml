@@ -237,11 +237,20 @@ class_max_weight:
   gold:              0.18   # 전천후 헤지 — 과대 비중 방지
 
 # ── 변동성 타겟팅 ────────────────────────────────────────────────────────────
-# 실현 변동성이 목표를 초과하면 equity 비중을 자동 축소 → cash 이동
+# portfolio EWMA vol 기반 (SPY realized vol 아님)
+# regime_target_vol: 레짐별 목표 변동성 (레짐 미지정 시 target_vol 사용)
 # floor: 최소 equity 유지율 (1.0 - floor = 최대 축소율)
 vol_targeting:
   enabled: true
-  target_vol:  0.10        # 연 10% 목표 포트폴리오 변동성
+  target_vol:  0.10        # 레짐 미지정 시 기본값
+  regime_target_vol:
+    Goldilocks:  0.13      # 성장 국면: 리스크 허용도 높음
+    Reflation:   0.11
+    Slowdown:    0.09
+    Stagflation: 0.08
+    Crisis:      0.06      # 위기 국면: 리스크 최소화
+  use_portfolio_vol: true  # true: EWMA 포트폴리오 변동성 / false: SPY realized vol
+  ewma_lambda: 0.94        # RiskMetrics 표준 λ
   floor:       0.65        # equity 최대 35% 축소
   equity_asset_classes:
     - equity_etf
@@ -274,14 +283,15 @@ rebalancing:
   min_rebalance_interval_days: 7     # 마지막 리밸런싱 후 최소 7일 쿨다운 (드로우다운 비상 시 무시)
 
 # 리스크 제어
-# severe: equity만 0으로 (채권·금·현금 유지) — 바닥에서 전량 현금화 방지
+# severe: equity를 floor(10%)까지 축소, 채권·금·현금 유지 — 반등 구간 미스 방지
 # moderate: equity 40% 수준으로 축소 (Risk-Off 강제 효과)
 # mild: equity 75% 유지
 risk:
   drawdown_thresholds:
-    mild:     -0.10
-    moderate: -0.20
-    severe:   -0.30
+    mild:             -0.10
+    moderate:         -0.20
+    severe:           -0.30
+    equity_floor_pct:  0.10  # severe 시 equity 최소 10% 유지 (반등 miss 방지)
   equity_asset_classes:
     - equity_etf
     - equity_factor

@@ -33,9 +33,11 @@ from regime import (
 )
 from portfolio import (
     apply_class_caps,
+    apply_dynamic_class_caps,
     apply_risk_controls,
     apply_vol_targeting,
     blend_regime_targets,
+    compute_portfolio_ewma_vol,
     derive_account_weights,
     merge_to_total_weights,
 )
@@ -168,15 +170,33 @@ class BacktestEngine:
         blend_probs: Dict[str, float],
         realized_vol: float,
         portfolio_value: float,
+        regime: str = "",
+        vix: float = 0.0,
+        signal_px_slice: Optional[pd.DataFrame] = None,
     ) -> Dict[str, float]:
         """블렌딩 확률 → 전체 포트폴리오 기준 종목별 목표 비중."""
         usd_val = portfolio_value * self.usd_ratio
         krw_val = portfolio_value * (1 - self.usd_ratio)
 
+        vol_cfg = self.config.get("vol_targeting", {})
+
         with _quiet():
             blended = blend_regime_targets(blend_probs, self.config)
-            blended = apply_vol_targeting(blended, realized_vol, self.config)
-            blended = apply_class_caps(blended, self.config.get("class_max_weight", {}))
+
+            # portfolio EWMA vol
+            if vol_cfg.get("use_portfolio_vol", True) and signal_px_slice is not None:
+                lam = float(vol_cfg.get("ewma_lambda", 0.94))
+                ticker_w = {t: blended.get(m["asset_class"], 0.0)
+                            for t, m in self.config["universe"].items()
+                            if m["asset_class"] in blended}
+                port_vol = compute_portfolio_ewma_vol(signal_px_slice, ticker_w, lam=lam)
+                eff_vol = port_vol if port_vol > 0 else realized_vol
+            else:
+                eff_vol = realized_vol
+
+            blended = apply_vol_targeting(blended, eff_vol, self.config, regime=regime)
+            class_max = self.config.get("class_max_weight", {})
+            blended = apply_dynamic_class_caps(blended, class_max, vix) if vix > 0 else apply_class_caps(blended, class_max)
             usd_w, krw_w = derive_account_weights(
                 blended, self.config, usd_val, krw_val
             )
@@ -230,9 +250,14 @@ class BacktestEngine:
                 current_rule_regime = rule_regime
 
                 sig = self.signal_px[:date].tail(65)
-                rv = compute_features(sig).get("realized_vol", 0.15) if len(sig) >= 30 else 0.15
+                feat = compute_features(sig) if len(sig) >= 30 else {}
+                rv = feat.get("realized_vol", 0.15)
+                vix = feat.get("vix", 0.0)
 
-                weights = self._target_weights(blend_probs, rv, portfolio_value)
+                weights = self._target_weights(
+                    blend_probs, rv, portfolio_value,
+                    regime=regime, vix=vix, signal_px_slice=sig,
+                )
                 weights = _normalize_to_available(weights, available)
 
                 shares = {
@@ -271,9 +296,14 @@ class BacktestEngine:
                 current_rule_regime = rule_regime
 
                 sig = self.signal_px[:date].tail(65)
-                rv = compute_features(sig).get("realized_vol", 0.15) if len(sig) >= 30 else 0.15
+                feat = compute_features(sig) if len(sig) >= 30 else {}
+                rv = feat.get("realized_vol", 0.15)
+                vix = feat.get("vix", 0.0)
 
-                new_weights = self._target_weights(blend_probs, rv, portfolio_value)
+                new_weights = self._target_weights(
+                    blend_probs, rv, portfolio_value,
+                    regime=regime, vix=vix, signal_px_slice=sig,
+                )
 
                 thresholds = self.config["risk"]["drawdown_thresholds"]
                 new_weights = _apply_drawdown_scale(
@@ -346,9 +376,14 @@ class BacktestEngine:
                 current_rule_regime = rule_regime
 
                 sig = self.signal_px[:date].tail(65)
-                rv = compute_features(sig).get("realized_vol", 0.15) if len(sig) >= 30 else 0.15
+                feat = compute_features(sig) if len(sig) >= 30 else {}
+                rv = feat.get("realized_vol", 0.15)
+                vix = feat.get("vix", 0.0)
 
-                target_weights = self._target_weights(blend_probs, rv, portfolio_value)
+                target_weights = self._target_weights(
+                    blend_probs, rv, portfolio_value,
+                    regime=regime, vix=vix, signal_px_slice=sig,
+                )
                 target_weights = _normalize_to_available(target_weights, available)
 
                 shares = {
@@ -410,9 +445,14 @@ class BacktestEngine:
 
             if do_rebal:
                 sig = self.signal_px[:date].tail(65)
-                rv = compute_features(sig).get("realized_vol", 0.15) if len(sig) >= 30 else 0.15
+                feat = compute_features(sig) if len(sig) >= 30 else {}
+                rv = feat.get("realized_vol", 0.15)
+                vix = feat.get("vix", 0.0)
 
-                new_weights = self._target_weights(blend_probs, rv, portfolio_value)
+                new_weights = self._target_weights(
+                    blend_probs, rv, portfolio_value,
+                    regime=regime, vix=vix, signal_px_slice=sig,
+                )
 
                 thresholds = self.config["risk"]["drawdown_thresholds"]
                 new_weights = _apply_drawdown_scale(
@@ -476,9 +516,10 @@ def _apply_drawdown_scale(
     severe = thresholds["severe"]
     moderate = thresholds["moderate"]
     mild = thresholds["mild"]
+    floor = float(thresholds.get("equity_floor_pct", 0.10))
 
     if drawdown <= severe:
-        scale = 0.0
+        scale = floor
     elif drawdown <= moderate:
         scale = 0.40
     elif drawdown <= mild:

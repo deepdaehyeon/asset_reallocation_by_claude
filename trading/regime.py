@@ -269,6 +269,62 @@ class HmmRegimeClassifier:
 
         return regime_probs
 
+    def get_transition_matrix(self) -> dict[str, dict[str, float]]:
+        """
+        HMM 내부 전이 확률을 레짐 레이블 기준으로 반환한다.
+
+        반환: {from_regime: {to_regime: prob}} — 확률 합 = 1.0 (행 기준)
+        """
+        if self._model is None:
+            return {}
+
+        import numpy as np
+
+        trans: dict[str, dict[str, float]] = {r: {r2: 0.0 for r2 in REGIMES} for r in REGIMES}
+        row_count: dict[str, float] = {r: 0.0 for r in REGIMES}
+
+        transmat = self._model.transmat_
+        for s_from in range(self.N_STATES):
+            r_from = self._state_to_regime.get(s_from, DEFAULT_REGIME)
+            for s_to in range(self.N_STATES):
+                r_to = self._state_to_regime.get(s_to, DEFAULT_REGIME)
+                trans[r_from][r_to] += float(transmat[s_from, s_to])
+            row_count[r_from] += 1.0
+
+        # 동일 레짐으로 매핑된 상태가 여럿이면 평균
+        for r in REGIMES:
+            if row_count[r] > 1:
+                trans[r] = {r2: v / row_count[r] for r2, v in trans[r].items()}
+
+        return trans
+
+    def get_transition_entropy(self) -> float:
+        """
+        현재 레짐 분포의 전환 불확실성을 Shannon entropy로 반환한다 (0 = 완전 확실).
+
+        마지막 predict_proba()를 호출하지 않고도 모델 학습 직후 호출 가능.
+        전이 행렬의 행별 entropy 가중 평균 (가중치 = stationary distribution).
+        """
+        if self._model is None:
+            return float("nan")
+
+        import numpy as np
+
+        transmat = self._model.transmat_  # (N, N)
+        # 정상 분포 (eigenvector)
+        eigenvalues, eigenvectors = np.linalg.eig(transmat.T)
+        stationary = np.real(eigenvectors[:, np.argmax(np.real(eigenvalues))])
+        stationary = np.abs(stationary)
+        stationary /= stationary.sum()
+
+        entropy = 0.0
+        for s in range(self.N_STATES):
+            row = transmat[s]
+            row_ent = -float(np.sum(row * np.log(np.maximum(row, 1e-12))))
+            entropy += stationary[s] * row_ent
+
+        return float(entropy)
+
 
 class BalancedRFClassifier:
     """

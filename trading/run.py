@@ -24,11 +24,13 @@ from fetcher import fetch_fred_data, fetch_signal_prices
 from messenger import Messenger
 from portfolio import (
     apply_class_caps,
+    apply_dynamic_class_caps,
     apply_risk_controls,
     apply_synthetic_reallocation,
     apply_vol_targeting,
     blend_regime_targets,
     compute_drift,
+    compute_portfolio_ewma_vol,
     derive_account_weights,
     enforce_buffer_floor,
     merge_to_total_weights,
@@ -230,6 +232,10 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
         raw_regime = ensemble_regime(rule_regime, hmm_probs, override_thr)
         if raw_regime != rule_regime:
             print(f"    앙상블 조정: {rule_regime} → {raw_regime}")
+
+        trans_entropy = hmm_clf.get_transition_entropy()
+        if not (trans_entropy != trans_entropy):  # NaN 체크
+            print(f"    전환 엔트로피: {trans_entropy:.3f} (0=안정 / 높을수록 불안정)")
     elif hmm_enabled:
         print(f"    HMM        : 학습 데이터 부족 ({len(feature_matrix)}/{hmm_min}일), 규칙 기반 사용")
 
@@ -290,6 +296,7 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
         "regime_changed": regime_changed,
         "regime_filter": regime_filter,
         "avg_corr": avg_corr,
+        "prices": prices,
     }
 
 
@@ -299,14 +306,20 @@ def _compute_targets(
     config: dict,
     total_usd_krw: float,
     total_krw_only: float,
+    regime: str = "",
+    vix: float = 0.0,
 ) -> Tuple[dict, dict]:
     """
-    단계 5b-5d: vol targeting → class caps → 계좌별 종목 비중 도출.
+    단계 5b-5d: vol targeting → dynamic class caps → 계좌별 종목 비중 도출.
 
     Returns (target_usd, target_krw)
     """
-    blended = apply_vol_targeting(blended_targets, realized_vol, config)
-    blended = apply_class_caps(blended, config.get("class_max_weight", {}))
+    blended = apply_vol_targeting(blended_targets, realized_vol, config, regime=regime)
+    class_max = config.get("class_max_weight", {})
+    if vix > 0:
+        blended = apply_dynamic_class_caps(blended, class_max, vix)
+    else:
+        blended = apply_class_caps(blended, class_max)
     target_usd, target_krw = derive_account_weights(blended, config, total_usd_krw, total_krw_only)
     return target_usd, target_krw
 
@@ -333,16 +346,19 @@ def _apply_risk_controls(
         if meta["asset_class"] in equity_classes
     }
     risk_thresholds = config["risk"]["drawdown_thresholds"]
+    equity_floor = float(risk_thresholds.get("equity_floor_pct", 0.10))
 
     target_usd = apply_risk_controls(
-        target_usd, drawdown, risk_thresholds, equity_tickers & set(target_usd)
+        target_usd, drawdown, risk_thresholds, equity_tickers & set(target_usd),
+        equity_floor_pct=equity_floor,
     )
     target_krw = apply_risk_controls(
-        target_krw, drawdown, risk_thresholds, equity_tickers & set(target_krw)
+        target_krw, drawdown, risk_thresholds, equity_tickers & set(target_krw),
+        equity_floor_pct=equity_floor,
     )
 
     if drawdown <= risk_thresholds["severe"]:
-        print(f"    ⚠ SEVERE 드로우다운 ({drawdown:.1%}): equity → 0 (채권·금 유지)")
+        print(f"    ⚠ SEVERE 드로우다운 ({drawdown:.1%}): equity → floor {equity_floor:.0%} (채권·금 유지)")
     elif drawdown <= risk_thresholds["moderate"]:
         print(f"    ⚠ MODERATE 드로우다운 ({drawdown:.1%}): equity ×0.40")
     elif drawdown <= risk_thresholds["mild"]:
@@ -421,12 +437,28 @@ def run_monitor(config: dict, state: dict, messenger: Messenger, args) -> None:
     )
     print(f"    [블렌딩] {cls_str}")
 
+    # portfolio EWMA vol 사용 여부 결정
+    vol_cfg = config.get("vol_targeting", {})
+    prices = market["prices"]
+    if vol_cfg.get("use_portfolio_vol", True) and prices is not None:
+        lam = float(vol_cfg.get("ewma_lambda", 0.94))
+        ticker_w = {t: blended_targets.get(m["asset_class"], 0.0)
+                    for t, m in config["universe"].items()
+                    if m["asset_class"] in blended_targets}
+        port_vol = compute_portfolio_ewma_vol(prices, ticker_w, lam=lam)
+        print(f"    포트폴리오 EWMA vol: {port_vol:.2%} (λ={lam})")
+        eff_vol = port_vol if port_vol > 0 else market["features"]["realized_vol"]
+    else:
+        eff_vol = market["features"]["realized_vol"]
+
     target_usd, target_krw = _compute_targets(
         blended_targets,
-        market["features"]["realized_vol"],
+        eff_vol,
         config,
         total_usd_krw,
         total_krw_only,
+        regime=market["regime"],
+        vix=market["features"]["vix"],
     )
 
     print("[6] 트리거 계산 중...")
@@ -456,6 +488,7 @@ def run_monitor(config: dict, state: dict, messenger: Messenger, args) -> None:
         "trigger_set_at":         datetime.now().isoformat(),
         "saved_blended_targets":  blended_targets,
         "saved_realized_vol":     features["realized_vol"],
+        "saved_eff_vol":          round(eff_vol, 6),
         "saved_regime":           market["regime"],
         "saved_confidence":       round(market["combined_conf"], 4),
         "saved_features": {
@@ -513,10 +546,11 @@ def run_execution(config: dict, state: dict, messenger: Messenger, args) -> None
     print(f"[{side.upper()}] 트리거 확인: {reason}")
 
     blended_targets = state.get("saved_blended_targets")
-    realized_vol = float(state.get("saved_realized_vol", 0.0))
+    eff_vol = float(state.get("saved_eff_vol", state.get("saved_realized_vol", 0.0)))
     regime = state.get("saved_regime", DEFAULT_REGIME)
     combined_conf = float(state.get("saved_confidence", 0.0))
     saved_features: dict = state.get("saved_features", {})
+    saved_vix = float(saved_features.get("vix", 0.0))
 
     if not blended_targets:
         print("[오류] 저장된 모니터링 결과 없음 → --mode monitor 먼저 실행 필요")
@@ -554,7 +588,8 @@ def run_execution(config: dict, state: dict, messenger: Messenger, args) -> None
 
     print("[5] 목표 비중 산출 중...")
     target_usd, target_krw = _compute_targets(
-        blended_targets, realized_vol, config, total_usd_krw, total_krw_only
+        blended_targets, eff_vol, config, total_usd_krw, total_krw_only,
+        regime=regime, vix=saved_vix,
     )
 
     print("[6] 결제 상태 점검 중...")
