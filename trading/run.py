@@ -415,10 +415,6 @@ def run_monitor(config: dict, state: dict, messenger: Messenger, args) -> None:
 
     print("[5] 목표 비중 산출 중...")
     blended_targets = blend_regime_targets(market["blend_probs"], config)
-    avg_corr = market.get("avg_corr", 0.0)
-    if avg_corr > 0.8:
-        blended_targets = {k: v * 0.60 for k, v in blended_targets.items()}
-        print(f"    [경고] 평균 상관계수 {avg_corr:.2f} → 비중 ×60% 적용")
     cls_str = "  ".join(
         f"{k}:{v:.0%}" for k, v in sorted(blended_targets.items(), key=lambda x: -x[1])
         if v >= 0.005
