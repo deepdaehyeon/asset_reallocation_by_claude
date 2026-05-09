@@ -14,6 +14,8 @@ def blend_regime_targets(regime_probs: Dict[str, float], config: dict) -> dict:
       Goldilocks 70% / Slowdown 30% → 비중도 7:3 가중 평균
     이를 통해 레짐 오판·지연에 의한 양방향 슬리피지를 완화한다.
     """
+    from regime import DEFAULT_REGIME
+
     all_classes: Set[str] = set()
     for targets in config["regime_targets"].values():
         all_classes |= set(targets.keys())
@@ -24,7 +26,9 @@ def blend_regime_targets(regime_probs: Dict[str, float], config: dict) -> dict:
         if r in config["regime_targets"]
     )
     if total_prob <= 0:
-        return blended
+        # 알 수 없는 레짐(예: Neutral)이 입력된 경우 DEFAULT_REGIME 타겟으로 폴백
+        fallback = config["regime_targets"].get(DEFAULT_REGIME, {})
+        return {cls: fallback.get(cls, 0.0) for cls in all_classes}
 
     for regime, prob in regime_probs.items():
         if regime not in config["regime_targets"]:

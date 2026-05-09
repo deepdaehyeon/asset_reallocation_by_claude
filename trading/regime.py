@@ -85,7 +85,9 @@ class RegimeFilter:
         self._confirm_n: int = cfg.get("confirmation_count", 3)
         self._cooldown: int = cfg.get("cooldown_days", 5)
 
-        self._confirmed: str | None = state.get("confirmed_regime")
+        confirmed = state.get("confirmed_regime")
+        # 알 수 없는 레짐(예: 구버전의 "Neutral")은 None으로 처리 → 첫 raw 즉시 확정
+        self._confirmed: str | None = confirmed if confirmed in REGIMES else None
         self._candidate: str | None = state.get("candidate_regime")
         self._count: int = state.get("candidate_count", 0)
         self._last_switch: str | None = state.get("last_switch_date")
