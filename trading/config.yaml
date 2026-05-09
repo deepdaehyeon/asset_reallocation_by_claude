@@ -26,12 +26,10 @@ universe:
   "379800":
     name: "KODEX S&P500"
     currency: KRW
-    exec_account: KRW_1
     asset_class: equity_etf
   "379810":
     name: "KODEX 나스닥100"
     currency: KRW
-    exec_account: KRW_2
     asset_class: equity_etf
   # ── Equity Factor (USD) — Value / 소형가치 팩터 ──────────────────────────
   "VTV":
@@ -76,13 +74,11 @@ universe:
   "305080":
     name: "TIGER 미국채10년"
     currency: KRW
-    exec_account: KRW_2
     asset_class: bond_krw
   # ── Gold (KRW) ──────────────────────────────────────────────────────────
   "411060":
     name: "ACE KRX금현물"
     currency: KRW
-    exec_account: KRW_1
     asset_class: gold
   # ── Commodities (USD) ────────────────────────────────────────────────────
   "DBC":
@@ -100,13 +96,11 @@ universe:
   "469830":
     name: "SOL 초단기채권"
     currency: KRW
-    exec_account: KRW_2
     asset_class: cash
   # ── Synthetic Bridge (KRW) — T+2 합성 노출 전용, regime_targets 미포함 ────
   "261220":
     name: "KODEX WTI원유선물(H)"
     currency: KRW
-    exec_account: KRW_2
     asset_class: commodity_krw
 
 # ────────────────────────────────────────────────────────────────────────────
