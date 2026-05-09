@@ -65,8 +65,16 @@ def _append_order_log(
 
 def load_state() -> dict:
     if STATE_FILE.exists():
-        with open(STATE_FILE) as f:
-            return json.load(f)
+        try:
+            with open(STATE_FILE) as f:
+                state = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            print(f"  [경고] state.json 로드 실패 ({e}) → 기본값 사용")
+            return {"peak_krw": 0.0}
+        if not isinstance(state.get("peak_krw"), (int, float)):
+            print("  [경고] state.json: peak_krw 누락 또는 타입 오류 → 0.0 설정")
+            state["peak_krw"] = 0.0
+        return state
     return {"peak_krw": 0.0}
 
 
@@ -131,11 +139,26 @@ class KisRebalancer:
 
     @staticmethod
     def _fetch_usd_krw(fallback: float) -> float:
-        """실시간 USD/KRW 환율을 조회한다. 실패 시 fallback 사용."""
+        """실시간 USD/KRW 환율 조회. state.json 캐시가 1시간 이내이면 재사용."""
+        state = load_state()
+        cached_rate = state.get("usd_krw_rate")
+        cached_at = state.get("usd_krw_at")
+        if cached_rate and cached_at:
+            try:
+                age = (datetime.now() - datetime.fromisoformat(cached_at)).total_seconds()
+                if age < 3600:
+                    print(f"    USD/KRW: {cached_rate:,.1f} (캐시, {age/60:.0f}분 전)")
+                    return float(cached_rate)
+            except Exception:
+                pass
+
         try:
             from fetcher import fetch_usd_krw
             rate = fetch_usd_krw(fallback)
             print(f"    USD/KRW: {rate:,.1f} (실시간)")
+            state["usd_krw_rate"] = rate
+            state["usd_krw_at"] = datetime.now().isoformat()
+            save_state(state)
             return rate
         except Exception:
             print(f"    USD/KRW: {fallback:,.1f} (폴백)")
@@ -278,8 +301,7 @@ class KisRebalancer:
         total_all_krw = sum(holdings_krw.values()) + sum(cash_by_currency.values())
         state = load_state()
         peak = max(state.get("peak_krw", 0.0), total_all_krw)
-        state["peak_krw"] = peak
-        save_state(state)
+        self._peak_krw = peak  # 호출 측(run.py)이 state에 저장
         drawdown = (total_all_krw / peak - 1.0) if peak > 0 else 0.0
 
         return universe_total_krw, total_usd_krw, total_krw_only, current_weights, drawdown
@@ -325,6 +347,18 @@ class KisRebalancer:
                 return [], []
 
         all_orders = self._build_orders(current_weights, target_usd, target_krw, total_usd_krw, total_krw_only)
+
+        # 월간 회전율 상한 체크 (매수+매도 합산 / 포트폴리오 총액)
+        max_turnover = float(self.config.get("rebalancing", {}).get("max_monthly_turnover", 0.30))
+        if total_value_krw > 0 and max_turnover > 0:
+            total_order_krw = sum(abs(a) for _, _, a, _ in all_orders)
+            turnover_rate = total_order_krw / total_value_krw
+            if turnover_rate > max_turnover:
+                print(
+                    f"  [경고] 월간 회전율 초과: {turnover_rate:.1%} > {max_turnover:.1%} "
+                    f"(주문 {total_order_krw:,.0f}원 / 포트폴리오 {total_value_krw:,.0f}원) → 실행 차단"
+                )
+                return [], []
 
         # side 필터: 해당 계좌 종목만
         if side == "krw":
@@ -481,20 +515,24 @@ class KisRebalancer:
         qty: int,
         price: float,
         currency: str,
+        max_retries: int = 10,
+        retry_interval: int = 100,
     ) -> Tuple[bool, float]:
-        """미체결 주문 대기 루프. 100초마다 가격 조정 재주문, 1000초 초과 시 타임아웃."""
+        """미체결 주문 대기 루프. retry_interval초마다 가격 조정, max_retries회 초과 시 타임아웃."""
         rate = 1.001 if action == "buy" else 0.999
         cnt = 0
+        retries = 0
         while order.pending:
             time.sleep(1)
             cnt += 1
-            if cnt % 100 == 0:
+            if cnt % retry_interval == 0:
                 price = _adjust_tick(price * rate, currency)
                 order = reorder(price)
-            if cnt >= 1000:
-                print(f"  [timeout] {ticker}: 주문 시간 초과")
-                _append_order_log(ticker, action, qty, price, currency, self.usd_krw, "timeout")
-                return False, price
+                retries += 1
+                if retries >= max_retries:
+                    print(f"  [timeout] {ticker}: 주문 시간 초과 ({max_retries}회 재시도)")
+                    _append_order_log(ticker, action, qty, price, currency, self.usd_krw, "timeout")
+                    return False, price
         return True, price
 
     def sell_orphans(self, side: str) -> List[str]:

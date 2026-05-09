@@ -19,7 +19,7 @@ from typing import Dict, List, Optional, Tuple
 import yaml
 
 from executor import KisRebalancer, load_state, save_state
-from features import compute_feature_matrix, compute_features
+from features import compute_feature_matrix, compute_features, compute_rolling_correlation
 from fetcher import fetch_fred_data, fetch_signal_prices
 from messenger import Messenger
 from portfolio import (
@@ -179,6 +179,12 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
     if "curve_10y2y" in features:
         print(f"    10Y-2Y 커브 : {features['curve_10y2y']:+.2f}% (FRED)")
 
+    avg_corr = compute_rolling_correlation(prices)
+    if avg_corr > 0.8:
+        print(f"    [경고] 자산 간 평균 상관계수 {avg_corr:.2f} > 0.8 → 포지션 60% 축소 적용")
+    else:
+        print(f"    자산 간 상관계수: {avg_corr:.2f}")
+
     print("[3] 레짐 감지 중...")
     rule_regime = detect_regime(features)
     hmm_min = hmm_cfg.get("min_samples", 100)
@@ -283,6 +289,7 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
         "combined_conf": combined_conf,
         "regime_changed": regime_changed,
         "regime_filter": regime_filter,
+        "avg_corr": avg_corr,
     }
 
 
@@ -400,6 +407,7 @@ def run_monitor(config: dict, state: dict, messenger: Messenger, args) -> None:
     total_krw, total_usd_krw, total_krw_only, current_weights, drawdown = (
         rebalancer.get_portfolio_state()
     )
+    state["peak_krw"] = rebalancer._peak_krw
     usd_pct = total_usd_krw / total_krw * 100 if total_krw else 0
     krw_pct = total_krw_only / total_krw * 100 if total_krw else 0
     print(f"    총 자산: {total_krw:,.0f} 원  │  USD {usd_pct:.1f}% / KRW {krw_pct:.1f}%")
@@ -407,6 +415,10 @@ def run_monitor(config: dict, state: dict, messenger: Messenger, args) -> None:
 
     print("[5] 목표 비중 산출 중...")
     blended_targets = blend_regime_targets(market["blend_probs"], config)
+    avg_corr = market.get("avg_corr", 0.0)
+    if avg_corr > 0.8:
+        blended_targets = {k: v * 0.60 for k, v in blended_targets.items()}
+        print(f"    [경고] 평균 상관계수 {avg_corr:.2f} → 비중 ×60% 적용")
     cls_str = "  ".join(
         f"{k}:{v:.0%}" for k, v in sorted(blended_targets.items(), key=lambda x: -x[1])
         if v >= 0.005
@@ -520,6 +532,7 @@ def run_execution(config: dict, state: dict, messenger: Messenger, args) -> None
     total_krw, total_usd_krw, total_krw_only, current_weights, drawdown = (
         rebalancer.get_portfolio_state()
     )
+    state["peak_krw"] = rebalancer._peak_krw
     usd_pct = total_usd_krw / total_krw * 100 if total_krw else 0
     krw_pct = total_krw_only / total_krw * 100 if total_krw else 0
     print(f"    총 자산: {total_krw:,.0f} 원  │  USD {usd_pct:.1f}% / KRW {krw_pct:.1f}%")
@@ -643,8 +656,16 @@ def main() -> None:
     args = parse_args()
     messenger = Messenger()
 
-    with open(args.config) as f:
-        config = yaml.safe_load(f)
+    try:
+        with open(args.config) as f:
+            config = yaml.safe_load(f)
+    except FileNotFoundError:
+        print(f"[오류] 설정 파일을 찾을 수 없습니다: {args.config}")
+        print("  --config 옵션으로 경로를 지정하거나 trading/config.yaml을 생성하세요.")
+        sys.exit(1)
+    except yaml.YAMLError as e:
+        print(f"[오류] 설정 파일 파싱 실패: {e}")
+        sys.exit(1)
 
     state = load_state()
 

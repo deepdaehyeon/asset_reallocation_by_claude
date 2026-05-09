@@ -117,6 +117,27 @@ def compute_features(prices: pd.DataFrame, fred_data: dict | None = None) -> dic
 
 # ── 히스토리 피처 행렬 계산 (backtest / HMM 학습) ────────────────────────────
 
+def compute_rolling_correlation(prices: pd.DataFrame, window: int = 60) -> float:
+    """
+    주요 자산 간 평균 롤링 상관계수를 계산한다.
+
+    window: 롤링 기간 (영업일). 0.8 초과 시 포지션 축소 경고 기준.
+    반환: 자산 쌍 평균 상관계수 (데이터 부족 시 0.0)
+    """
+    candidates = [c for c in ["SPY", "TLT", "HYG", "GLD", "DJP"] if c in prices.columns]
+    if len(candidates) < 2:
+        return 0.0
+    rets = prices[candidates].pct_change(fill_method=None).dropna()
+    if len(rets) < window:
+        return 0.0
+    corr = rets.tail(window).corr()
+    n = len(candidates)
+    pairs = [(i, j) for i in range(n) for j in range(i + 1, n)]
+    if not pairs:
+        return 0.0
+    return float(sum(corr.iloc[i, j] for i, j in pairs) / len(pairs))
+
+
 def compute_feature_matrix(
     prices: pd.DataFrame,
     fred_history: pd.DataFrame | None = None,
