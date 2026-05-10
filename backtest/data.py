@@ -17,6 +17,7 @@ PROXY_MAP: Dict[str, str] = {
     "305080": "IEF",   # TIGER 미국채10년 → IEF (동일 기초자산)
     "411060": "GLD",   # ACE KRX금현물 → GLD
     "469830": "BIL",   # SOL 초단기채 → BIL (1-3M T-Bill)
+    "261220": "USO",   # KODEX WTI원유선물(H) → USO (WTI crude oil proxy)
 }
 
 # 실제 상장 전 구간은 NaN → 해당 티커 비중을 available 자산에 비례 재배분

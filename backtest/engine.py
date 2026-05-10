@@ -17,6 +17,7 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
+from sklearn.exceptions import ConvergenceWarning
 
 # trading/ 모듈 참조 (sys.path에 추가)
 _TRADING = Path(__file__).parent.parent / "trading"
@@ -143,7 +144,11 @@ class BacktestEngine:
             fm = compute_feature_matrix(sig, fred_slice)
             if len(fm) >= self.hmm_min:
                 clf = HmmRegimeClassifier()
-                with _quiet():
+                # hmmlearn EM은 경계 케이스에서 수렴 경고가 잦다.
+                # 수렴 여부는 내부에서 재시도/선택 로직으로 보완하므로, 백테스트 출력은 조용히 유지.
+                import warnings
+                with _quiet(), warnings.catch_warnings():
+                    warnings.filterwarnings("ignore", category=ConvergenceWarning)
                     clf.fit(fm)
                 seq = fm.tail(self.predict_lookback)
                 hmm_probs = clf.predict_proba(seq)

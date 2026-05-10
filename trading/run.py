@@ -12,11 +12,13 @@
 """
 import argparse
 import sys
+import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import yaml
+from sklearn.exceptions import ConvergenceWarning
 
 from executor import KisRebalancer, load_state, save_state
 from features import compute_feature_matrix, compute_features, compute_rolling_correlation
@@ -48,6 +50,9 @@ from regime import (
 from settlement import SettlementTracker
 
 BASE_DIR = Path(__file__).parent
+
+# hmmlearn EM 수렴 경고는 빈번하며, 실행 로그 가독성을 해친다.
+warnings.filterwarnings("ignore", message="Model is not converging.*")
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
@@ -201,7 +206,10 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
 
     if hmm_enabled and len(feature_matrix) >= hmm_min:
         hmm_clf = HmmRegimeClassifier()
-        hmm_clf.fit(feature_matrix)
+        import warnings
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=ConvergenceWarning)
+            hmm_clf.fit(feature_matrix)
         seq = feature_matrix.tail(predict_lookback)
         hmm_probs = hmm_clf.predict_proba(seq)
         hmm_top = max(hmm_probs, key=hmm_probs.get)

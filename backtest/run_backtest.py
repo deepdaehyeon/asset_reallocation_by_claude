@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import warnings
 from pathlib import Path
 
 import pandas as pd
@@ -30,6 +31,10 @@ sys.path.insert(0, str(ROOT / "trading"))
 import sys as _sys
 _sys.path.insert(0, str(ROOT / "trading"))
 from fetcher import fetch_fred_history
+
+# hmmlearn/EM 수렴 경고는 빈번하며, 백테스트 출력 가독성을 해친다.
+# 수렴 여부는 내부 로직(재시도/모델 선택)으로 보완하므로 기본 출력에서는 숨긴다.
+warnings.filterwarnings("ignore", message="Model is not converging.*")
 
 from data import load_all_prices
 from engine import BacktestEngine

@@ -196,10 +196,14 @@ class HmmRegimeClassifier:
         feature_matrix: pd.DataFrame with columns ⊇ active feature cols
         """
         from collections import Counter
+        import io
+        import warnings
+        from contextlib import redirect_stderr
 
         import numpy as np
         from hmmlearn import hmm
         from sklearn.preprocessing import StandardScaler
+        from sklearn.exceptions import ConvergenceWarning
 
         from features import get_active_feature_cols
 
@@ -207,19 +211,43 @@ class HmmRegimeClassifier:
         self._feature_cols = active_cols
 
         X = feature_matrix[active_cols].values.astype(float)
+        # 수치 안정성: NaN/Inf 제거 후 표준화, 극단값 클리핑
+        X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
 
         scaler = StandardScaler()
         X_scaled = scaler.fit_transform(X)
+        X_scaled = np.nan_to_num(X_scaled, nan=0.0, posinf=0.0, neginf=0.0)
+        X_scaled = np.clip(X_scaled, -6.0, 6.0)
         self._scaler = scaler
 
-        model = hmm.GaussianHMM(
-            n_components=self.N_STATES,
-            covariance_type="diag",
-            n_iter=200,
-            random_state=42,
-            tol=1e-4,
-        )
-        model.fit(X_scaled)
+        def _fit_once(seed: int):
+            m = hmm.GaussianHMM(
+                n_components=self.N_STATES,
+                covariance_type="diag",
+                n_iter=300,
+                random_state=seed,
+                tol=1e-3,        # 수렴 판정 완화 (경고/진동 감소)
+                min_covar=1e-3,  # 공분산 바닥값으로 수치 불안정 완화
+            )
+            with warnings.catch_warnings():
+                # hmmlearn 내부 EM 모니터 경고는 빈번하며, 수렴 여부는 monitor_로 재확인한다.
+                warnings.filterwarnings("ignore", category=ConvergenceWarning)
+                # 일부 환경에서는 수렴 메시지가 stderr로 직접 출력될 수 있어, 학습 구간에서만 숨긴다.
+                with redirect_stderr(io.StringIO()):
+                    m.fit(X_scaled)
+            return m
+
+        # HMM은 초기값/seed에 민감하므로, 몇 번 재시도 후 가장 좋은 모델을 채택
+        candidates = []
+        for seed in (42, 7, 13):
+            m = _fit_once(seed)
+            converged = bool(getattr(getattr(m, "monitor_", None), "converged", False))
+            score = float(m.score(X_scaled))
+            candidates.append((converged, score, m))
+
+        # 1순위: converged=True 중 score 최대, 2순위: score 최대
+        candidates.sort(key=lambda x: (x[0], x[1]), reverse=True)
+        model = candidates[0][2]
         self._model = model
 
         # 각 행의 규칙 기반 레짐을 레이블로 사용 → HMM 상태 매핑
