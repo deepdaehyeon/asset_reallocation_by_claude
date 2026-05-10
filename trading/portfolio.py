@@ -330,6 +330,7 @@ def apply_risk_controls(
     thresholds: dict,
     equity_tickers: Optional[Set[str]] = None,
     equity_floor_pct: float = 0.10,
+    cash_tickers: Optional[List[str]] = None,
 ) -> dict:
     """
     드로우다운 수준에 따라 비중을 단계적으로 조정한다.
@@ -347,29 +348,54 @@ def apply_risk_controls(
     mild = thresholds["mild"]
     floor = float(thresholds.get("equity_floor_pct", equity_floor_pct))
 
+    def _add_reduction_to_cash(adjusted: dict, reduction: float) -> dict:
+        if reduction <= 0:
+            return adjusted
+        prefs = cash_tickers or []
+        # 우선순위 티커가 있으면 그쪽으로 이동, 없으면 '미할당 현금'을 허용
+        for t in prefs:
+            adjusted[t] = adjusted.get(t, 0.0) + reduction
+            return adjusted
+        return adjusted
+
     if drawdown <= severe:
-        # equity를 floor 비율까지만 축소 — 채권·금·현금은 그대로 유지
+        # equity를 floor 비율까지만 축소 — 축소분은 cash_tickers로 이동 (없으면 미할당 현금)
+        adjusted = dict(weights)
+        reduction = 0.0
         if equity_tickers:
-            return {
-                t: (w * floor if t in equity_tickers else w)
-                for t, w in weights.items()
-            }
-        return {t: w * floor for t, w in weights.items()}
+            for t in list(adjusted.keys()):
+                if t in equity_tickers:
+                    old = adjusted[t]
+                    adjusted[t] = old * floor
+                    reduction += old - adjusted[t]
+        else:
+            # equity_tickers 미지정이면 전체를 축소하는 레거시 동작을 유지하되,
+            # 축소분을 특정 티커로 이동시키지 않는다.
+            return {t: w * floor for t, w in weights.items()}
+        return _add_reduction_to_cash(adjusted, reduction)
 
     if drawdown <= moderate:
+        adjusted = dict(weights)
+        reduction = 0.0
         if equity_tickers:
-            return {
-                t: (w * 0.40 if t in equity_tickers else w)
-                for t, w in weights.items()
-            }
+            for t in list(adjusted.keys()):
+                if t in equity_tickers:
+                    old = adjusted[t]
+                    adjusted[t] = old * 0.40
+                    reduction += old - adjusted[t]
+            return _add_reduction_to_cash(adjusted, reduction)
         return {t: w * 0.50 for t, w in weights.items()}
 
     if drawdown <= mild:
+        adjusted = dict(weights)
+        reduction = 0.0
         if equity_tickers:
-            return {
-                t: (w * 0.75 if t in equity_tickers else w)
-                for t, w in weights.items()
-            }
+            for t in list(adjusted.keys()):
+                if t in equity_tickers:
+                    old = adjusted[t]
+                    adjusted[t] = old * 0.75
+                    reduction += old - adjusted[t]
+            return _add_reduction_to_cash(adjusted, reduction)
         return {t: w * 0.80 for t, w in weights.items()}
 
     return dict(weights)

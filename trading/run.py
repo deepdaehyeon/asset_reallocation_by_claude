@@ -351,10 +351,12 @@ def _apply_risk_controls(
     target_usd = apply_risk_controls(
         target_usd, drawdown, risk_thresholds, equity_tickers & set(target_usd),
         equity_floor_pct=equity_floor,
+        cash_tickers=["SHY"],  # USD 안전자산(단기채)로 축소분 재배치
     )
     target_krw = apply_risk_controls(
         target_krw, drawdown, risk_thresholds, equity_tickers & set(target_krw),
         equity_floor_pct=equity_floor,
+        cash_tickers=buffer_tickers or ["469830"],  # KRW 버퍼/현금성 자산으로 재배치
     )
 
     if drawdown <= risk_thresholds["severe"]:
