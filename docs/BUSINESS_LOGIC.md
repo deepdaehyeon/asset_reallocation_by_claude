@@ -1,5 +1,6 @@
 # 포트폴리오 철학 및 운용 원칙
-_최종 갱신: 2026-05-10_
+
+*최종 갱신: 2026-05-10*
 
 ---
 
@@ -17,15 +18,17 @@ _최종 갱신: 2026-05-10_
 
 ## 2. 자산군 구성 (5축 포트폴리오)
 
-| 축 | 자산군 | 역할 |
-|----|--------|------|
-| 1 | Equity ETF (KODEX S&P500·나스닥100) | 장기 성장 엔진 — KRW 계좌 효율 활용 |
-| 1 | Equity Factor (VTV·AVUV) | Value·소형가치 팩터 분산 — USD 계좌 |
-| 1 | Equity Sector (XLE) | 에너지 섹터 — Reflation·Stagflation 수혜 |
-| 1 | Equity Individual (TSLA·PLTR) | 고베타 성장주 Satellite — 레짐별 비중 자동 조정 |
-| 2 | Bond (IEF·SHY·305080) + Gold (411060) | 리스크-오프 완충, 인플레 헤지 |
-| 3 | Commodities (DBC) | 인플레이션 베타 확보 |
-| 4 | Managed Futures (DBMF) | 추세추종 CTA, 주식·채권 모두와 낮은 상관 |
+
+| 축   | 자산군                                   | 역할                                |
+| --- | ------------------------------------- | --------------------------------- |
+| 1   | Equity ETF (KODEX S&P500·나스닥100)      | 장기 성장 엔진 — KRW 계좌 효율 활용           |
+| 1   | Equity Factor (VTV·AVUV)              | Value·소형가치 팩터 분산 — USD 계좌         |
+| 1   | Equity Sector (XLE)                   | 에너지 섹터 — Reflation·Stagflation 수혜 |
+| 1   | Equity Individual (TSLA·PLTR)         | 고베타 성장주 Satellite — 레짐별 비중 자동 조정  |
+| 2   | Bond (IEF·SHY·305080) + Gold (411060) | 리스크-오프 완충, 인플레 헤지                 |
+| 3   | Commodities (DBC)                     | 인플레이션 베타 확보                       |
+| 4   | Managed Futures (DBMF)                | 추세추종 CTA, 주식·채권 모두와 낮은 상관         |
+
 
 **Commodities와 Managed Futures를 추가한 이유:**
 전통적 주식-채권 포트폴리오는 인플레이션·스태그플레이션 국면에서 동시에 하락한다. 원자재는 인플레이션 국면에서 양(+)의 베타를, Managed Futures는 방향과 무관하게 추세에서 수익을 추구하므로, 이 두 자산이 있으면 어떤 레짐에서도 최소 하나의 방어 축이 작동한다.
@@ -49,11 +52,13 @@ USD 예산이 부족할 때 자동 조정된다.
 
 ### 비율 변화에 따른 자동 조정 (Goldilocks 레짐, 전체 200M 기준)
 
-| KRW:USD | Equity ETF | Equity Indiv. | DBC+DBMF | 특이사항 |
-|---------|-----------|---------------|----------|---------|
-| 14:6 | 40% | ~12% | ~13% | TSLA+PLTR 목표 20% → ~11% (USD 한도) |
-| 12:8 | 38% | ~16% | ~16% | Satellite 근접 배정, CM+MF 증가 |
-| 10:10 | 36% | ~20% | ~20% | Satellite 풀 포지션, CM+MF 최대화 |
+
+| KRW:USD | Equity ETF | Equity Indiv. | DBC+DBMF | 특이사항                             |
+| ------- | ---------- | ------------- | -------- | -------------------------------- |
+| 14:6    | 40%        | ~12%          | ~13%     | TSLA+PLTR 목표 20% → ~11% (USD 한도) |
+| 12:8    | 38%        | ~16%          | ~16%     | Satellite 근접 배정, CM+MF 증가        |
+| 10:10   | 36%        | ~20%          | ~20%     | Satellite 풀 포지션, CM+MF 최대화       |
+
 
 **핵심:** USD 비중이 커질수록 대체자산(CM+MF) 비중이 자동으로 늘고, KRW 비중 감소분은 equity_etf(KODEX)가 흡수한다. config 수정 없이 비율 변화에 대응된다.
 
@@ -68,19 +73,21 @@ KRW 대체재 있음 → KRW 계좌에서 처리 (환전 불필요)
 KRW 대체재 없음 → USD 계좌 전용
 ```
 
-| 자산 | 계좌 | 이유 |
-|------|------|------|
-| KODEX S&P500 (379800) | KRW_1 | SPY 완전 대체재. USD 소모 불필요 |
-| KODEX 나스닥100 (379810) | KRW_2 | QQQ 완전 대체재 |
-| TIGER 미국채10년 (305080) | KRW_2 | IEF·TLT의 KRW 대체재 |
-| ACE KRX금현물 (411060) | KRW_1 | 금 현물 연동 |
-| SOL 초단기채권 (469830) | KRW_2 | 유동성 버퍼, T+2 결제 대응 |
-| **VTV, AVUV** | **USD** | Value·소형가치 팩터 ETF, KRW 대체재 없음 |
-| **XLE** | **USD** | 에너지 섹터, KRX에 동등 ETF 없음 |
-| **TSLA, PLTR** | **USD** | 개별주, KRW 대체재 없음 |
-| **DBC** | **USD** | KRX에 동등 원자재 바스켓 없음 |
-| **DBMF** | **USD** | KRX에 CTA 복제 ETF 없음 |
-| IEF, SHY | USD | 방어 레짐에서 USD 계좌 내 채권 비중 |
+
+| 자산                    | 계좌      | 이유                            |
+| --------------------- | ------- | ----------------------------- |
+| KODEX S&P500 (379800) | KRW_1   | SPY 완전 대체재. USD 소모 불필요        |
+| KODEX 나스닥100 (379810) | KRW_2   | QQQ 완전 대체재                    |
+| TIGER 미국채10년 (305080) | KRW_2   | IEF·TLT의 KRW 대체재              |
+| ACE KRX금현물 (411060)   | KRW_1   | 금 현물 연동                       |
+| SOL 초단기채권 (469830)    | KRW_2   | 유동성 버퍼, T+2 결제 대응             |
+| **VTV, AVUV**         | **USD** | Value·소형가치 팩터 ETF, KRW 대체재 없음 |
+| **XLE**               | **USD** | 에너지 섹터, KRX에 동등 ETF 없음        |
+| **TSLA, PLTR**        | **USD** | 개별주, KRW 대체재 없음               |
+| **DBC**               | **USD** | KRX에 동등 원자재 바스켓 없음            |
+| **DBMF**              | **USD** | KRX에 CTA 복제 ETF 없음            |
+| IEF, SHY              | USD     | 방어 레짐에서 USD 계좌 내 채권 비중        |
+
 
 ---
 
@@ -88,13 +95,15 @@ KRW 대체재 없음 → USD 계좌 전용
 
 ### 레짐 전략 (5개)
 
-| 레짐 | 시장 특성 | 전략 요약 |
-|------|-----------|-----------|
-| **Goldilocks** | 성장↑ + 인플레 안정 | Equity 최대화, TSLA+PLTR 풀 포지션 |
-| **Reflation** | 성장↑ + 인플레↑ | DBC·XLE·Gold·VTV·AVUV 강화, Satellite 10%로 축소 |
-| **Slowdown** | 성장↓ (인플레 낮음) | Bond·DBMF·Gold 방어 |
-| **Stagflation** | 성장↓ + 인플레↑ | DBC·XLE·Gold·Cash 집중, 장기채 회피 |
-| **Crisis** | 유동성 쇼크 | Cash 40%, DBMF·Bond·Gold; Equity 최소 |
+
+| 레짐              | 시장 특성        | 전략 요약                                       |
+| --------------- | ------------ | ------------------------------------------- |
+| **Goldilocks**  | 성장↑ + 인플레 안정 | Equity 최대화, TSLA+PLTR 풀 포지션                 |
+| **Reflation**   | 성장↑ + 인플레↑   | DBC·XLE·Gold·VTV·AVUV 강화, Satellite 10%로 축소 |
+| **Slowdown**    | 성장↓ (인플레 낮음) | Bond·DBMF·Gold 방어                           |
+| **Stagflation** | 성장↓ + 인플레↑   | DBC·XLE·Gold·Cash 집중, 장기채 회피                |
+| **Crisis**      | 유동성 쇼크       | Cash 40%, DBMF·Bond·Gold; Equity 최소         |
+
 
 레짐별 자산군 목표 비중(수치)은 `SYSTEM_ARCHITECTURE.md` 참고.
 
@@ -118,24 +127,31 @@ KRW 대체재 없음 → USD 계좌 전용
 ## 7. 종목 선택 이유
 
 ### TSLA (Tesla)
+
 AI·자율주행·에너지 저장이 교차하는 기술주. 단순 자동차 회사가 아닌 에너지 플랫폼으로의 전환을 베팅한다.
 
 ### PLTR (Palantir)
+
 AI 기반 데이터 분석 플랫폼. 국방·정부·민간 대형 고객 기반으로 구조적 성장 기대. TSLA와 상관관계가 낮아 Satellite 내 분산 효과도 있다.
 
 ### VTV (Vanguard Value ETF)
+
 Value 팩터를 추구하는 광범위 미국 대형가치주 ETF. 성장주 중심의 나스닥·TSLA·PLTR과 팩터 분산. Reflation(금리 상승) 환경에서 상대적 강점.
 
 ### AVUV (Avantis US Small Cap Value)
+
 소형가치 팩터 ETF. Fama-French 소형가치 프리미엄 추구. VTV(대형가치)와 결합해 팩터 커버리지를 확장하며 Value 내 규모 분산 효과를 더한다.
 
 ### XLE (Energy Select Sector SPDR)
+
 에너지 섹터 ETF. Reflation·Stagflation 환경에서 에너지 가격 상승으로 양(+)의 수익률 기대. 인플레이션 헤지의 두 번째 레이어(DBC와 보완).
 
 ### DBC (Invesco DB Commodity Index)
+
 에너지·금속·농산물 광범위 원자재 바스켓. 단일 상품 리스크 없이 인플레이션 베타를 확보.
 
 ### DBMF (iMGP DBi Managed Futures)
+
 기관 CTA 추세추종 전략 복제 ETF. 주식이 오를 때도 내릴 때도 추세를 따라가므로 어떤 레짐에서도 일부 역할 수행.
 
 ---
@@ -146,13 +162,16 @@ Value 팩터를 추구하는 광범위 미국 대형가치주 ETF. 성장주 중
 
 채권·금·현금을 유지하고 equity만 단계적 축소 (바닥에서 전량 현금화 방지).
 
-| 드로우다운 | 조치 |
-|-----------|------|
-| -10% ~ -20% | equity × 0.75 |
-| -20% ~ -30% | equity × 0.40 |
-| -30% 초과 | equity × floor (기본 10%) + 축소분 현금성 자산으로 이동 |
+
+| 드로우다운       | 조치                                        |
+| ----------- | ----------------------------------------- |
+| -10% ~ -20% | equity × 0.75                             |
+| -20% ~ -30% | equity × 0.40                             |
+| -30% 초과     | equity × floor (기본 10%) + 축소분 현금성 자산으로 이동 |
+
 
 **중요(실거래 구현):**
+
 - drawdown으로 equity를 줄일 때, 줄어든 비중(미할당)을 방치하지 않고 **현금성 자산으로 재배분**한다.
   - KRW: `settlement.buffer_tickers`(기본 `469830`)
   - USD: `SHY`
@@ -190,3 +209,4 @@ equity × scale → 잉여분 cash 이동 (레버리지 없음)
 - **환율 헤지** — KRW/USD 환노출은 분산 효과의 일부로 수용
 - **레버리지** — 모든 포지션은 현금 매수 기준
 - **상관 기반 자동 축소** — 자산 간 상관 > 0.8 시 경고 출력에 그침. 포지션 강제 조정 없음.
+

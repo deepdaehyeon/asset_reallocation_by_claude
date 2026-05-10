@@ -1,33 +1,40 @@
 # CHANGE LOG
-_최종 갱신: 2026-05-10_
+
+*최종 갱신: 2026-05-10*
 
 ## 2026-05-10
 
 ### 실거래 리스크 제어 일치
+
 - **드로우다운 스케일다운 “현금 재배분” 반영**: drawdown 구간에서 equity 축소분을 현금성 티커로 재배치해 타깃 합이 무너지는 문제를 방지.
   - KRW: `settlement.buffer_tickers`(기본 `469830`)로 이동
   - USD: `SHY`로 이동
 
 ### 백테스트 데이터 품질
-- **`261220` 프록시 매핑**: KRX `261220`(원유선물) 데이터 404로 인한 공백 제거를 위해 `USO`로 프록시 매핑 (`backtest/data.py`)
+
+- `**261220` 프록시 매핑**: KRX `261220`(원유선물) 데이터 404로 인한 공백 제거를 위해 `USO`로 프록시 매핑 (`backtest/data.py`)
 
 ### 레짐 모델 안정화
+
 - **HMM 학습 안정성 개선**: 표준화 후 클리핑, `min_covar`로 정규화, seed 재시도 후 최선 모델 선택.
 - **HMM 수렴 로그 정리**: 학습 구간에서 stderr 출력 억제(수렴 스팸 로그로 인한 가독성 저하 방지).
 
 ## 2026-05-09
 
 ### 리스크·안정성
+
 - **Turnover 상한**: `rebalance()` 앞 월간 회전율 30% 초과 시 경고·차단 (`max_monthly_turnover` config 키)
 - **자산 상관 모니터링**: `features.py`에 `compute_rolling_correlation()` 추가. 평균 상관 > 0.8 시 경고 출력 (비중 축소 없음)
 - **공휴일 처리**: `_next_business_day()`에 `holidays` 라이브러리 적용 — 한·미 공휴일 스킵
 
 ### 실행 레이어
+
 - **지연 매수 TTL**: `deferred_buys` 항목에 5영업일 만료일(`expires`) 추가. `get_deferred()`에서 만료 항목 자동 정리
 - **환율 캐싱**: `_fetch_usd_krw()`가 `state.json`에 1시간 캐시 (`usd_krw_rate`, `usd_krw_at` 키)
 - **주문 재시도 파라미터**: `_wait_for_fill(max_retries=10, retry_interval=100)` 명시적 분리
 
 ### 설계
+
 - **peak 사이드 이펙트 분리**: `get_portfolio_state()` 내 `save_state()` 제거 → `self._peak_krw`로 노출, `run.py`에서 저장
 - **state.json 스키마 검증**: `load_state()`에 `JSONDecodeError` 포착 + `peak_krw` 타입 검증 추가
 - **config 오류 처리**: `main()`에 `FileNotFoundError`·`YAMLError` catch + 안내 메시지
@@ -47,12 +54,14 @@ _최종 갱신: 2026-05-10_
 ## 2026-05-07
 
 ### 유니버스 변경
+
 - `equity_individual`: USMV 제거, TSLA 36% + PLTR 64% 유지
 - `equity_factor`: VTV(60%) + AVUV(40%) 추가
 - `equity_sector`: XLE 신규 추가 (Reflation·Stagflation 수혜)
 - `managed_futures`: base 비중 12% → 레짐별 5~12%로 세분화
 
 ### 레짐 체계 전환
+
 - Risk-On / Risk-Off / Neutral / High-Vol 4레짐 → **Goldilocks · Reflation · Slowdown · Stagflation · Crisis 5레짐**
 - 레짐 분류 품질 메트릭 추가: MCC / Macro-F1 / Balanced Accuracy / 위험 레짐 오판 비용 (`backtest/metrics.py`)
 
