@@ -35,6 +35,23 @@ _ORDER_LOG_HEADERS = [
     "datetime", "ticker", "action", "qty", "price", "currency", "amount_krw", "status"
 ]
 
+def _looks_like_insufficient_funds(msg: str) -> bool:
+    """
+    브로커/라이브러리별로 에러 메시지가 다르므로 휴리스틱으로 '현금/매수가능금액 부족'만 판별한다.
+    (USD 주문 실패를 전부 합성노출로 처리하면, 유동성/호가/세션 문제까지 잘못 흡수될 수 있음)
+    """
+    if not msg:
+        return False
+    m = msg.lower()
+    keywords = [
+        # Korean
+        "예수금", "현금", "잔고", "주문가능", "매수가능", "가용", "증거금", "부족", "초과",
+        # English-ish
+        "insufficient", "not enough", "insuff", "balance", "fund", "cash",
+        "buying power", "orderable", "available",
+    ]
+    return any(k.lower() in m for k in keywords)
+
 
 # ── SQLite 상태 관리 ─────────────────────────────────────────────────────────
 
@@ -437,14 +454,32 @@ class KisRebalancer:
         print(f"→{side_label} 즉시 실행 {len(immediate)}건 (매도 {sell_cnt}, 매수 {buy_cnt}), 지연 매수 {len(deferred)}건")
 
         order_log: List[str] = []
+        failed_usd_buys: List[dict] = []
         for ticker, currency, amount_diff_krw, acc_name in immediate:
             result = self._execute_order(ticker, currency, amount_diff_krw, acc_name)
             if result:
                 order_log.append(result)
                 if tracker and amount_diff_krw < 0:
                     tracker.record_sell(ticker, abs(amount_diff_krw), currency)
+                # USD 매수 실패 중 "현금/매수가능금액 부족"으로 보이는 케이스만 deferred로 기록
+                # (timeout/기타 오류는 유동성/세션/가격갱신 문제일 수 있어 합성노출로 자동 흡수하지 않음)
+                if amount_diff_krw > 0 and currency == "USD" and result.startswith("[오류]"):
+                    if _looks_like_insufficient_funds(result):
+                        failed_usd_buys.append(
+                            {
+                                "ticker": ticker,
+                                "amount_krw": abs(amount_diff_krw),
+                                "currency": "USD",
+                            }
+                        )
+            else:
+                # result가 None이면 'skip'일 수 있어(수량 0 등) 기본적으로 deferred로 기록하지 않는다.
+                pass
 
-        return order_log, deferred
+        # 기존 버퍼 초과로 인한 deferred + USD 매수 실패분 deferred를 합쳐 반환
+        if failed_usd_buys:
+            print(f"    [USD 실패] 매수 {len(failed_usd_buys)}건 → 다음 KRW 실행에서 합성 노출로 대체")
+        return order_log, deferred + failed_usd_buys
 
     def _split_buy_orders(
         self,
