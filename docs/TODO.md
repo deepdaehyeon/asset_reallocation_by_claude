@@ -1,5 +1,5 @@
 # TODO
-_최종 갱신: 2026-05-09_
+_최종 갱신: 2026-05-10_
 
 > **방향 원칙** — 뉴스 NLP·LLM·Transformer·Deep Learning 추가는 현 단계에서 독이 될 가능성이 크다. 해당 방향은 보류.
 
@@ -27,13 +27,13 @@ _최종 갱신: 2026-05-09_
 ## 리스크 & 포트폴리오 구성 개선
 
 ### 변동성 타게팅
-- [ ] **Portfolio-Level EWMA Volatility** — 현재 `SPY.std(21)` 대신 `Σ(weight_i * return_i)`의 EWMA(λ=0.94) 포트폴리오 변동성으로 교체. `engine.py` `vol_targeting` 로직 수정.
-- [ ] **Dynamic Risk Budget** — 레짐별 목표 변동성 차등 적용.
+- [x] **Portfolio-Level EWMA Volatility** — `compute_portfolio_ewma_vol()` 기반 EWMA(λ=0.94) 포트폴리오 변동성 적용 (실거래 `run.py`, 백테스트 `engine.py`)
+- [x] **Dynamic Risk Budget** — 레짐별 목표 변동성 차등 적용 (`config.yaml: vol_targeting.regime_target_vol`)
   - Goldilocks: 12~14%, Reflation: 10~12%, Slowdown: 8~10%, Crisis: 5~7%
 
 ### 비중 한도
-- [ ] **Equity Floor 수정** — 현재 드로다운 -30% 시 `equity = 0` → `equity floor = 5~10%` 로 변경. 코드(`engine.py`)와 문서 일치.
-- [ ] **Dynamic Caps** — `if VIX > 30: commodity cap ↓, individual stock cap ↓` 로직 추가.
+- [x] **Equity Floor 수정** — severe drawdown에서도 equity 최소 비중 유지 (`config.yaml: risk.drawdown_thresholds.equity_floor_pct`)
+- [x] **Dynamic Caps** — VIX 기반 동적 상한(`apply_dynamic_class_caps`): VIX>25/30 구간에서 `commodity`/`equity_individual` 상한 축소
 - [ ] **DBMF Volatility-Relative Cap** — DBMF trailing vol > threshold 시 비중 상한 자동 축소.
 
 ---
@@ -81,7 +81,7 @@ _최종 갱신: 2026-05-09_
 
 ## Phase 4 — 상태 영속성 강화
 
-- [ ] **SQLite 마이그레이션** — `state.json` → SQLite 전환. atomic transaction으로 파일 corruption 방지.
+- [x] **SQLite 마이그레이션** — `state.json` → SQLite(`state.db`) 전환. atomic transaction으로 corruption 방지.
   - 테이블: `state_current`, `state_history`, `executions`, `fills`, `regime_history`, `metrics`
   - `sqlite3` 직접 사용 (SQLAlchemy 불필요).
   - 최소 단계: write-temp + atomic rename 패턴 우선 적용 가능.
