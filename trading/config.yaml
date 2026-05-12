@@ -281,6 +281,7 @@ rebalancing:
   min_order_krw: 10000
   usd_krw_fallback: 1380.0
   min_rebalance_interval_days: 7     # 마지막 리밸런싱 후 최소 7일 쿨다운 (드로우다운 비상 시 무시)
+  max_monthly_turnover: 1.0          # 첫 리밸런싱 이후 0.30으로 복구 예정
 
 # 리스크 제어
 # severe: equity를 floor(10%)까지 축소, 채권·금·현금 유지 — 반등 구간 미스 방지
