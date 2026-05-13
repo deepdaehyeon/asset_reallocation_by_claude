@@ -122,7 +122,7 @@ Reflation   : 성장↑(≥2) + 인플레↑(≥1)
 - `apply_vol_targeting(targets, realized_vol, config)` — scale = clip(target_vol/rvol, 0.65, 1.0) → equity 축소분 cash 이동
 - `apply_class_caps(targets, class_max)` — 자산군 상한 초과분 cash로 이동
 - `derive_account_weights(targets, config, total_usd_krw, total_krw_only)` — USD/KRW 계좌별 종목 비중 계산
-  **USD 배정 우선순위:**
+**USD 배정 우선순위:**
   ```
   1순위 — commodity + managed_futures (전액 보장)
   2순위 — equity_factor + equity_sector + equity_individual (예산 내 비례)
@@ -248,32 +248,32 @@ USD 주문: `universe[ticker].exec_account` 단일 계좌
 ## state.json 키 목록
 
 
-| 키                        | 타입         | 설명                          |
-| ------------------------ | ---------- | --------------------------- |
-| `peak_krw`               | float      | 직전 고점 (드로우다운 계산 기준)         |
-| `confirmed_regime`       | str | null | 히스테리시스 확정 레짐                |
-| `candidate_regime`       | str | null | 전환 대기 중인 후보 레짐              |
-| `candidate_count`        | int        | 후보 레짐 연속 확인 횟수              |
-| `last_switch_date`       | str (ISO)  | 마지막 레짐 전환 확정일               |
-| `trigger_krw`            | bool       | KRW 실행 트리거 (monitor→krw 전달) |
-| `trigger_usd`            | bool       | USD 실행 트리거 (monitor→usd 전달) |
-| `trigger_reason_krw/usd` | str        | 트리거 사유                      |
-| `trigger_set_at`         | str (ISO)  | 트리거 설정 시각                   |
-| `saved_blended_targets`  | dict       | 실행 run이 재사용할 자산군 블렌딩 비중     |
-| `saved_realized_vol`     | float      | 변동성 타겟팅 재사용                 |
-| `saved_regime`           | str        | 모니터링 run의 확정 레짐             |
-| `saved_confidence`       | float      | 레짐 신뢰도                      |
-| `saved_features`         | dict       | 주요 피처 값 (Slack 표시용)         |
-| `last_rebalanced_krw_at` | str (ISO)  | 마지막 KRW 리밸런싱 시각 (쿨다운)       |
-| `last_rebalanced_usd_at` | str (ISO)  | 마지막 USD 리밸런싱 시각 (쿨다운)       |
-| `last_run_at`            | str (ISO)  | 마지막 실행 시각                   |
-| `last_drawdown`          | float      | 마지막 드로우다운                   |
-| `last_total_krw`         | float      | 마지막 포트폴리오 총액                |
-| `last_drift_krw/usd`     | float      | 마지막 계좌별 drift               |
-| `pending_sells`          | list       | T+2 미결제 매도 기록               |
-| `deferred_buys`          | list       | 지연 매수 대기열 (expires 포함)      |
-| `usd_krw_rate`           | float      | 캐시된 USD/KRW 환율              |
-| `usd_krw_at`             | str (ISO)  | 환율 캐시 저장 시각 (1시간 TTL)       |
+| 키                        | 타입        | 설명                          |
+| ------------------------ | --------- | --------------------------- |
+| `peak_krw`               | float     | 직전 고점 (드로우다운 계산 기준)         |
+| `confirmed_regime`       | str       | null                        |
+| `candidate_regime`       | str       | null                        |
+| `candidate_count`        | int       | 후보 레짐 연속 확인 횟수              |
+| `last_switch_date`       | str (ISO) | 마지막 레짐 전환 확정일               |
+| `trigger_krw`            | bool      | KRW 실행 트리거 (monitor→krw 전달) |
+| `trigger_usd`            | bool      | USD 실행 트리거 (monitor→usd 전달) |
+| `trigger_reason_krw/usd` | str       | 트리거 사유                      |
+| `trigger_set_at`         | str (ISO) | 트리거 설정 시각                   |
+| `saved_blended_targets`  | dict      | 실행 run이 재사용할 자산군 블렌딩 비중     |
+| `saved_realized_vol`     | float     | 변동성 타겟팅 재사용                 |
+| `saved_regime`           | str       | 모니터링 run의 확정 레짐             |
+| `saved_confidence`       | float     | 레짐 신뢰도                      |
+| `saved_features`         | dict      | 주요 피처 값 (Slack 표시용)         |
+| `last_rebalanced_krw_at` | str (ISO) | 마지막 KRW 리밸런싱 시각 (쿨다운)       |
+| `last_rebalanced_usd_at` | str (ISO) | 마지막 USD 리밸런싱 시각 (쿨다운)       |
+| `last_run_at`            | str (ISO) | 마지막 실행 시각                   |
+| `last_drawdown`          | float     | 마지막 드로우다운                   |
+| `last_total_krw`         | float     | 마지막 포트폴리오 총액                |
+| `last_drift_krw/usd`     | float     | 마지막 계좌별 drift               |
+| `pending_sells`          | list      | T+2 미결제 매도 기록               |
+| `deferred_buys`          | list      | 지연 매수 대기열 (expires 포함)      |
+| `usd_krw_rate`           | float     | 캐시된 USD/KRW 환율              |
+| `usd_krw_at`             | str (ISO) | 환율 캐시 저장 시각 (1시간 TTL)       |
 
 
 ---
