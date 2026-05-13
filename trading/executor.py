@@ -35,6 +35,36 @@ _ORDER_LOG_HEADERS = [
     "datetime", "ticker", "action", "qty", "price", "currency", "amount_krw", "status"
 ]
 
+def _append_order_log(
+    ticker: str,
+    action: str,
+    qty: int,
+    price: float,
+    currency: str,
+    usd_krw: float,
+    status: str,
+) -> None:
+    """주문 결과를 logs/orders.csv에 누적 기록한다."""
+    ORDER_LOG_FILE.parent.mkdir(exist_ok=True)
+    amount_krw = qty * price * (usd_krw if currency == "USD" else 1.0)
+    row = {
+        "datetime": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "ticker": ticker,
+        "action": action,
+        "qty": qty,
+        "price": price,
+        "currency": currency,
+        "amount_krw": round(amount_krw),
+        "status": status,
+    }
+    write_header = not ORDER_LOG_FILE.exists()
+    with open(ORDER_LOG_FILE, "a", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=_ORDER_LOG_HEADERS)
+        if write_header:
+            writer.writeheader()
+        writer.writerow(row)
+
+
 def _looks_like_insufficient_funds(msg: str) -> bool:
     """
     브로커/라이브러리별로 에러 메시지가 다르므로 휴리스틱으로 '현금/매수가능금액 부족'만 판별한다.
