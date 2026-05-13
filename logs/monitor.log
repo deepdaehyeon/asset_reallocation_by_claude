@@ -1,0 +1,111 @@
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[1] 시장 데이터 수집 중...
+    수집 기간  : 502일
+[2] 피처 계산 중...
+    momentum_1m : +8.49%
+    momentum_3m : +6.58%
+    realized_vol: 10.32% (연환산)
+    VIX         : 17.2
+    credit_signal: +0.70%
+    자산 간 상관계수: 0.06
+[3] 레짐 감지 중...
+    규칙 기반  : Goldilocks
+    HMM 예측   : Goldilocks (100%) | Goldilocks:100% / Slowdown:0% / Crisis:0% / Reflation:0% / Stagflation:0%
+    RF(balanced): Goldilocks (99%) | crisis=0%  stag=0%
+    전환 엔트로피: 0.218 (0=안정 / 높을수록 불안정)
+    신뢰도     : 75%  (규칙기반 50% | HMM 100%)
+    전환 대기  : Goldilocks (7/3회 확인, 쿨다운 2일 남음)
+    확정 레짐  : Slowdown (유지)
+    연속 노출  : Goldilocks 100%
+[4] 계좌 잔고 조회 중...
+    USD/KRW: 1,461.5 (실시간)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[1] 시장 데이터 수집 중...
+    수집 기간  : 503일
+[2] 피처 계산 중...
+    momentum_1m : +8.49%
+    momentum_3m : +6.58%
+    realized_vol: 10.32% (연환산)
+    VIX         : 17.2
+    credit_signal: +0.70%
+    자산 간 상관계수: 0.06
+[3] 레짐 감지 중...
+    규칙 기반  : Goldilocks
+    HMM 예측   : Goldilocks (100%) | Goldilocks:100% / Slowdown:0% / Crisis:0% / Reflation:0% / Stagflation:0%
+    RF(balanced): Goldilocks (99%) | crisis=0%  stag=0%
+    전환 엔트로피: 0.218 (0=안정 / 높을수록 불안정)
+    신뢰도     : 75%  (규칙기반 50% | HMM 100%)
+    전환 대기  : Goldilocks (7/3회 확인, 쿨다운 1일 남음)
+    확정 레짐  : Slowdown (유지)
+    연속 노출  : Goldilocks 100%
+[4] 계좌 잔고 조회 중...
+    USD/KRW: 1,461.4 (실시간)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[1] 시장 데이터 수집 중...
+    수집 기간  : 502일
+[2] 피처 계산 중...
+    momentum_1m : +8.81%
+    momentum_3m : +7.11%
+    realized_vol: 10.20% (연환산)
+    VIX         : 18.4
+    credit_signal: +1.26%
+    자산 간 상관계수: 0.07
+[3] 레짐 감지 중...
+    규칙 기반  : Goldilocks
+    HMM 예측   : Goldilocks (100%) | Goldilocks:100% / Slowdown:0% / Crisis:0% / Reflation:0% / Stagflation:0%
+    RF(balanced): Goldilocks (93%) | crisis=0%  stag=0%
+    전환 엔트로피: 0.209 (0=안정 / 높을수록 불안정)
+    신뢰도     : 74%  (규칙기반 50% | HMM 97%)
+    → 레짐 전환 확정: Slowdown → Goldilocks ★
+    연속 노출  : Goldilocks 97%
+[4] 계좌 잔고 조회 중...
+    USD/KRW: 1,460.6 (실시간)
+  [정리 예정] 유니버스 외 보유 종목 (리밸런싱 시 자동 전량 매도):
+    TLT: 6,123,268 KRW (2.8%)
+    IAU: 9,235,438 KRW (4.3%)
+    TSLY: 14,478,476 KRW (6.7%)
+    총 자산: 185,924,539 원  │  USD 20.1% / KRW 79.9%
+    드로우다운: +0.00%
+[5] 목표 비중 산출 중...
+    [블렌딩] equity_etf:39%  equity_individual:20%  cash:15%  gold:10%  managed_futures:5%  equity_factor:5%  commodity:5%
+    포트폴리오 EWMA vol: 0.00% (λ=0.94)
+    [USD 예산 조정] equity(factor+sector+individual) 24.7% → 9.9% (USD 비중 20% 한도)
+[6] 트리거 계산 중...
+    [KRW] drift=43.0%  →  ✓ 트리거  (regime_change)
+    [USD] drift=114.9%  →  ✓ 트리거  (regime_change)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+모니터링 완료
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[1] 시장 데이터 수집 중...
+    수집 기간  : 502일
+[2] 피처 계산 중...
+    momentum_1m : +7.59%
+    momentum_3m : +6.97%
+    realized_vol: 10.15% (연환산)
+    VIX         : 18.0
+    credit_signal: +1.70%
+    자산 간 상관계수: 0.07
+[3] 레짐 감지 중...
+    규칙 기반  : Goldilocks
+    HMM 예측   : Goldilocks (100%) | Goldilocks:100% / Slowdown:0% / Crisis:0% / Reflation:0% / Stagflation:0%
+    RF(balanced): Goldilocks (96%) | crisis=0%  stag=0%
+    전환 엔트로피: 0.244 (0=안정 / 높을수록 불안정)
+    신뢰도     : 82%  (규칙기반 67% | HMM 98%)
+    → 레짐: Goldilocks
+    연속 노출  : Goldilocks 98%
+[4] 계좌 잔고 조회 중...
+    USD/KRW: 1,474.4 (실시간)
+  [정리 예정] 유니버스 외 보유 종목 (리밸런싱 시 자동 전량 매도):
+    IAU: 9,286,690 KRW (4.3%)
+    TSLY: 14,312,987 KRW (6.6%)
+    총 자산: 193,358,503 원  │  USD 22.5% / KRW 77.5%
+    드로우다운: -0.22%
+[5] 목표 비중 산출 중...
+    [블렌딩] equity_etf:40%  equity_individual:20%  cash:15%  gold:10%  managed_futures:5%  commodity:5%  equity_factor:5%
+    포트폴리오 EWMA vol: 0.00% (λ=0.94)
+    [USD 예산 조정] equity(factor+sector+individual) 24.8% → 12.4% (USD 비중 23% 한도)
+[6] 트리거 계산 중...
+    [KRW] drift=43.4%  →  ✗ 스킵  (cooldown(0d/7d))
+    [USD] drift=92.6%  →  ✓ 트리거  (drift(92.6%))
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+모니터링 완료

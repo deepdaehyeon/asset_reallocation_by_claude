@@ -1,0 +1,2 @@
+shell-init: error retrieving current directory: getcwd: cannot access parent directories: Operation not permitted
+/bin/bash: /Users/kimdhyeon/Desktop/asset_reallocation_by_claude/scripts/push_logs.sh: Operation not permitted
