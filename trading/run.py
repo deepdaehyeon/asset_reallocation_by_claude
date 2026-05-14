@@ -693,7 +693,31 @@ def _print_targets(
 
 # ── 진입점 ────────────────────────────────────────────────────────────────────
 
+class _TSStream:
+    """모든 print 출력 앞에 [MM/DD HH:MM:SS] 타임스탬프를 자동으로 붙인다."""
+    def __init__(self, stream):
+        self._stream = stream
+        self._at_line_start = True
+
+    def write(self, text: str) -> None:
+        if not text:
+            return
+        out = []
+        for ch in text:
+            if self._at_line_start and ch not in ("\n", "\r"):
+                out.append(datetime.now().strftime("[%m/%d %H:%M:%S] "))
+                self._at_line_start = False
+            out.append(ch)
+            if ch == "\n":
+                self._at_line_start = True
+        self._stream.write("".join(out))
+
+    def flush(self) -> None:
+        self._stream.flush()
+
+
 def main() -> None:
+    sys.stdout = _TSStream(sys.stdout)
     args = parse_args()
     messenger = Messenger()
 
