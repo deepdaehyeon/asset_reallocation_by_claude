@@ -652,6 +652,14 @@ def run_execution(config: dict, state: dict, messenger: Messenger, args) -> None
     state[f"trigger_reason_{side}"] = None
     state["last_run_at"] = datetime.now().isoformat()
     state.update(tracker.to_dict())
+
+    # 월간 누적 회전율 기록 (매월 1일 자동 초기화)
+    current_ym = datetime.now().strftime("%Y-%m")
+    if state.get("monthly_ym") != current_ym:
+        state["monthly_ym"] = current_ym
+        state["monthly_traded_krw"] = 0.0
+    state["monthly_traded_krw"] = float(state.get("monthly_traded_krw", 0.0)) + rebalancer._last_run_traded_krw
+
     save_state(state)
 
     if new_deferred:

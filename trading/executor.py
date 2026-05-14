@@ -234,6 +234,8 @@ class KisRebalancer:
         self._krw_acc_holdings: Dict[str, Dict[str, float]] = {}
         # KRW 계좌별 총액: {acc_name: total_krw}
         self._krw_acc_totals: Dict[str, float] = {}
+        # 이번 실행에서 주문된 금액(원화 환산) — run.py에서 월간 누적에 합산
+        self._last_run_traded_krw: float = 0.0
 
     @staticmethod
     def _fetch_usd_krw(fallback: float) -> float:
@@ -446,14 +448,14 @@ class KisRebalancer:
 
         all_orders = self._build_orders(current_weights, target_usd, target_krw, total_usd_krw, total_krw_only)
 
-        # 월간 회전율 상한 체크 (매수+매도 합산 / 포트폴리오 총액)
-        max_turnover = float(self.config.get("rebalancing", {}).get("max_monthly_turnover", 0.30))
-        if total_value_krw > 0 and max_turnover > 0:
+        # 단일 실행 회전율 상한 체크 (매수+매도 합산 / 포트폴리오 총액)
+        max_run = float(self.config.get("rebalancing", {}).get("max_run_turnover", 0.0))
+        if total_value_krw > 0 and max_run > 0:
             total_order_krw = sum(abs(a) for _, _, a, _ in all_orders)
-            turnover_rate = total_order_krw / total_value_krw
-            if turnover_rate > max_turnover:
+            run_rate = total_order_krw / total_value_krw
+            if run_rate > max_run:
                 print(
-                    f"  [경고] 월간 회전율 초과: {turnover_rate:.1%} > {max_turnover:.1%} "
+                    f"  [경고] 단일 실행 회전율 초과: {run_rate:.1%} > {max_run:.1%} "
                     f"(주문 {total_order_krw:,.0f}원 / 포트폴리오 {total_value_krw:,.0f}원) → 실행 차단"
                 )
                 return [], []
@@ -463,6 +465,27 @@ class KisRebalancer:
             all_orders = [(t, c, a, acc) for t, c, a, acc in all_orders if c == "KRW"]
         elif side == "usd":
             all_orders = [(t, c, a, acc) for t, c, a, acc in all_orders if c == "USD"]
+
+        # 월간 누적 회전율 상한 체크 (side 필터 이후 — 실제 집행 예정 금액 기준)
+        side_order_krw = sum(abs(a) for _, _, a, _ in all_orders)
+        max_monthly = float(self.config.get("rebalancing", {}).get("max_monthly_turnover", 0.0))
+        if max_monthly > 0 and total_value_krw > 0:
+            current_ym = datetime.now().strftime("%Y-%m")
+            _s = load_state()
+            if _s.get("monthly_ym") != current_ym:
+                monthly_traded = 0.0
+            else:
+                monthly_traded = float(_s.get("monthly_traded_krw", 0.0))
+            monthly_rate = (monthly_traded + side_order_krw) / total_value_krw
+            if monthly_rate > max_monthly:
+                print(
+                    f"  [경고] 월간 누적 회전율 초과: 누적 {monthly_traded/total_value_krw:.1%}"
+                    f" + 이번 {side_order_krw/total_value_krw:.1%}"
+                    f" = {monthly_rate:.1%} > {max_monthly:.1%} → 실행 차단"
+                )
+                return [], []
+
+        self._last_run_traded_krw = side_order_krw
 
         buffer_tickers = self.config.get("settlement", {}).get("buffer_tickers", [])
         # USD 단독 실행 시 KRW 버퍼 로직 불필요

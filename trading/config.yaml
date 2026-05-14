@@ -280,8 +280,9 @@ rebalancing:
   per_ticker_drift_threshold: 0.05   # 개별 종목 목표 대비 ±5% 이탈 시만 주문 생성
   min_order_krw: 10000
   usd_krw_fallback: 1380.0
-  min_rebalance_interval_days: 7     # 마지막 리밸런싱 후 최소 7일 쿨다운 (드로우다운 비상 시 무시)
-  max_monthly_turnover: 1.0          # 첫 리밸런싱 이후 0.30으로 복구 예정
+  min_rebalance_interval_days: 1     # 마지막 리밸런싱 후 최소 7일 쿨다운 (드로우다운 비상 시 무시) 찻 리밸런싱 이후 7일로 복구 예정.
+  max_run_turnover: 1.0              # 단일 실행 회전율 상한 (주문 합산 / 포트폴리오) — 첫 리밸런싱 이후 0.30으로 복구 예정
+  max_monthly_turnover: 0.30         # 월간 누적 회전율 상한 (매월 1일 자동 초기화)
 
 # 리스크 제어
 # severe: equity를 floor(10%)까지 축소, 채권·금·현금 유지 — 반등 구간 미스 방지
