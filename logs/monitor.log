@@ -109,3 +109,34 @@
     [USD] drift=92.6%  →  ✓ 트리거  (drift(92.6%))
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 모니터링 완료
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[1] 시장 데이터 수집 중...
+    수집 기간  : 502일
+[2] 피처 계산 중...
+    momentum_1m : +6.89%
+    momentum_3m : +9.26%
+    realized_vol: 9.69% (연환산)
+    VIX         : 17.9
+    credit_signal: +2.19%
+    자산 간 상관계수: 0.07
+[3] 레짐 감지 중...
+    규칙 기반  : Goldilocks
+    HMM 예측   : Goldilocks (100%) | Goldilocks:100% / Slowdown:0% / Crisis:0% / Reflation:0% / Stagflation:0%
+    RF(balanced): Goldilocks (97%) | crisis=0%  stag=0%
+    전환 엔트로피: 0.207 (0=안정 / 높을수록 불안정)
+    신뢰도     : 83%  (규칙기반 67% | HMM 99%)
+    → 레짐: Goldilocks
+    연속 노출  : Goldilocks 99%
+[4] 계좌 잔고 조회 중...
+    USD/KRW: 1,493.0 (실시간)
+    총 자산: 218,006,742 원  │  USD 31.0% / KRW 69.0%
+    드로우다운: -0.00%
+[5] 목표 비중 산출 중...
+    [블렌딩] equity_etf:40%  equity_individual:20%  cash:15%  gold:10%  managed_futures:5%  commodity:5%  equity_factor:5%
+    포트폴리오 EWMA vol: 0.00% (λ=0.94)
+    [USD 예산 조정] equity(factor+sector+individual) 24.9% → 20.9% (USD 비중 31% 한도)
+[6] 트리거 계산 중...
+    [KRW] drift=43.1%  →  ✗ 스킵  (cooldown(1d/7d))
+    [USD] drift=57.0%  →  ✗ 스킵  (cooldown(0d/7d))
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+모니터링 완료
