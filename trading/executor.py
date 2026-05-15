@@ -395,6 +395,27 @@ class KisRebalancer:
         )
         total_usd_krw = usd_holdings + cash_by_currency.get("USD", 0.0)
         total_krw_only = krw_holdings + cash_by_currency.get("KRW", 0.0)
+
+        # T+2 미결제 매도대금 보정
+        # 체결된 매도 주식은 이미 잔고에서 빠졌지만 현금은 결제일까지 미입금.
+        # 보정하지 않으면 총자산이 낮게 잡혀 드로우다운·목표비중이 왜곡된다.
+        state = load_state()
+        _tmp_tracker = SettlementTracker(state)
+        pending_krw = _tmp_tracker.pending_krw("KRW")
+        pending_usd = _tmp_tracker.pending_krw("USD")
+
+        if pending_krw > 0:
+            total_krw_only += pending_krw
+            # KRW 계좌별 총액도 보정 (비율 유지로 비례 배분)
+            if self._krw_acc_totals:
+                krw_before = sum(self._krw_acc_totals.values())
+                if krw_before > 0:
+                    for acc in self._krw_acc_totals:
+                        self._krw_acc_totals[acc] += pending_krw * (self._krw_acc_totals[acc] / krw_before)
+
+        if pending_usd > 0:
+            total_usd_krw += pending_usd
+
         universe_total_krw = total_usd_krw + total_krw_only
 
         if universe_total_krw == 0:
@@ -403,12 +424,15 @@ class KisRebalancer:
         # 현재 비중 = 전체 대비 (drift·출력용)
         current_weights = {t: v / universe_total_krw for t, v in universe_krw.items()}
 
-        # 드로우다운은 전체 자산(orphan 포함)으로 계산
+        # 드로우다운은 전체 자산(orphan 포함, 미결제 보정)으로 계산
         total_all_krw = sum(holdings_krw.values()) + sum(cash_by_currency.values())
-        state = load_state()
-        peak = max(state.get("peak_krw", 0.0), total_all_krw)
+        total_all_krw_adj = total_all_krw + pending_krw + pending_usd
+        if pending_krw + pending_usd > 0:
+            print(f"    T+2 미결제 보정: +{pending_krw + pending_usd:,.0f}원 → 실질 총자산 {total_all_krw_adj:,.0f}원")
+
+        peak = max(state.get("peak_krw", 0.0), total_all_krw_adj)
         self._peak_krw = peak  # 호출 측(run.py)이 state에 저장
-        drawdown = (total_all_krw / peak - 1.0) if peak > 0 else 0.0
+        drawdown = (total_all_krw_adj / peak - 1.0) if peak > 0 else 0.0
 
         return universe_total_krw, total_usd_krw, total_krw_only, current_weights, drawdown
 
