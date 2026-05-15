@@ -517,6 +517,9 @@ def run_monitor(config: dict, state: dict, messenger: Messenger, args) -> None:
     ]
     has_deferred_krw = any(d.get("currency") == "KRW" for d in active_deferred)
     has_deferred_usd = any(d.get("currency") == "USD" for d in active_deferred)
+    # USD 지연 매수의 합성 노출은 KRW 실행에서 처리되므로, KRW도 함께 트리거해야 한다.
+    if has_deferred_usd:
+        has_deferred_krw = True
 
     trigger_krw, reason_krw = _compute_trigger(
         drift_krw, market["regime_changed"], drawdown,

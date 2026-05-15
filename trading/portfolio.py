@@ -454,13 +454,21 @@ def apply_synthetic_reallocation(
         return dict(target)
 
     adjusted = dict(target)
+    added_any = False
     for item in deferred_buys:
         syn = synthetic_pairs.get(item["ticker"])
         if not syn or item.get("currency") != "USD":
             continue
         extra = item["amount_krw"] / total_krw
         adjusted[syn] = adjusted.get(syn, 0.0) + extra
+        added_any = True
         print(
             f"    [합성] {item['ticker']} 지연 → {syn} +{extra:.1%} 임시 반영"
         )
+
+    if added_any:
+        total = sum(adjusted.values())
+        if total > 0:
+            adjusted = {k: v / total for k, v in adjusted.items()}
+
     return adjusted
