@@ -236,9 +236,6 @@ class KisRebalancer:
         self._krw_acc_totals: Dict[str, float] = {}
         # 이번 실행에서 주문된 금액(원화 환산) — run.py에서 월간 누적에 합산
         self._last_run_traded_krw: float = 0.0
-        # 버퍼 계산용: 계좌별 현금, T+2 D+1 이후 사용 가능한 KRW 매도 대금
-        self._krw_acc_cash: Dict[str, float] = {}
-        self._pending_krw_available: float = 0.0
 
     @staticmethod
     def _fetch_usd_krw(fallback: float) -> float:
@@ -370,7 +367,6 @@ class KisRebalancer:
 
         # KRW 계좌별 총액 저장 (주식 + 현금)
         self._krw_acc_holdings = krw_acc_holdings
-        self._krw_acc_cash = krw_acc_cash
         self._krw_acc_totals = {
             acc: sum(krw_acc_holdings.get(acc, {}).values()) + krw_acc_cash.get(acc, 0.0)
             for acc in krw_acc_holdings
@@ -417,9 +413,6 @@ class KisRebalancer:
 
         if pending_usd > 0:
             total_usd_krw += pending_usd
-
-        # D+1 재투자 가능한 KRW 매도 대금 저장 (버퍼 계산에 활용)
-        self._pending_krw_available = pending_krw
 
         universe_total_krw = total_usd_krw + total_krw_only
 
@@ -522,105 +515,38 @@ class KisRebalancer:
 
         self._last_run_traded_krw = side_order_krw
 
-        buffer_tickers = self.config.get("settlement", {}).get("buffer_tickers", [])
-        # USD 단독 실행 시 KRW 버퍼 로직 불필요
-        if side == "usd":
-            immediate, deferred = all_orders, []
-        elif tracker and buffer_tickers:
-            immediate, deferred = self._split_buy_orders(
-                all_orders, current_weights, total_value_krw, buffer_tickers
-            )
-        else:
-            immediate, deferred = all_orders, []
+        # 매도 우선 정렬 — KIS 매수가능금액은 당일 매도대금 포함 → 매도 먼저 실행하면 당일 재투자 가능
+        all_orders.sort(key=lambda x: x[2])
 
-        # 매도 우선 정렬 (amount_diff_krw 기준 — 음수가 앞)
-        immediate.sort(key=lambda x: x[2])
-
-        sell_cnt = sum(1 for _, _, a, _ in immediate if a < 0)
-        buy_cnt = sum(1 for _, _, a, _ in immediate if a > 0)
+        sell_cnt = sum(1 for _, _, a, _ in all_orders if a < 0)
+        buy_cnt = sum(1 for _, _, a, _ in all_orders if a > 0)
         side_label = f" [{side.upper()}]" if side != "all" else ""
-        print(f"→{side_label} 즉시 실행 {len(immediate)}건 (매도 {sell_cnt}, 매수 {buy_cnt}), 지연 매수 {len(deferred)}건")
+        print(f"→{side_label} 실행 {len(all_orders)}건 (매도 {sell_cnt}, 매수 {buy_cnt})")
 
         order_log: List[str] = []
-        failed_usd_buys: List[dict] = []
-        for ticker, currency, amount_diff_krw, acc_name in immediate:
+        failed_buys: List[dict] = []
+        for ticker, currency, amount_diff_krw, acc_name in all_orders:
             result = self._execute_order(ticker, currency, amount_diff_krw, acc_name)
             if result:
                 order_log.append(result)
                 if tracker and amount_diff_krw < 0:
                     tracker.record_sell(ticker, abs(amount_diff_krw), currency)
-                # USD 매수 실패 중 "현금/매수가능금액 부족"으로 보이는 케이스만 deferred로 기록
+                # 매수 실패 중 "현금/매수가능금액 부족"으로 보이는 케이스만 deferred로 기록
                 # (timeout/기타 오류는 유동성/세션/가격갱신 문제일 수 있어 합성노출로 자동 흡수하지 않음)
-                if amount_diff_krw > 0 and currency == "USD" and result.startswith("[오류]"):
+                if amount_diff_krw > 0 and result.startswith("[오류]"):
                     if _looks_like_insufficient_funds(result):
-                        failed_usd_buys.append(
-                            {
-                                "ticker": ticker,
-                                "amount_krw": abs(amount_diff_krw),
-                                "currency": "USD",
-                            }
-                        )
-            else:
-                # result가 None이면 'skip'일 수 있어(수량 0 등) 기본적으로 deferred로 기록하지 않는다.
-                pass
+                        failed_buys.append({
+                            "ticker": ticker,
+                            "amount_krw": abs(amount_diff_krw),
+                            "currency": currency,
+                        })
 
-        # 기존 버퍼 초과로 인한 deferred + USD 매수 실패분 deferred를 합쳐 반환
-        if failed_usd_buys:
-            print(f"    [USD 실패] 매수 {len(failed_usd_buys)}건 → 다음 KRW 실행에서 합성 노출로 대체")
-        return order_log, deferred + failed_usd_buys
-
-    def _split_buy_orders(
-        self,
-        orders: List[Tuple[str, str, float, str]],
-        current_weights: Dict[str, float],
-        total_krw: float,
-        buffer_tickers: List[str],
-    ) -> Tuple[List[Tuple[str, str, float, str]], List[dict]]:
-        """
-        매수 주문을 버퍼 여유 내 즉시 실행과 지연 실행으로 분류한다.
-
-        버퍼(469830) 가용액은 계좌별로 독립 계산한다.
-        계좌 A의 버퍼는 계좌 B의 매수에 쓸 수 없다 (계좌 간 현금 이동 없음).
-        큰 매수부터 greedy하게 할당한다.
-        """
-        sells = [(t, c, a, acc) for t, c, a, acc in orders if a < 0]
-        buys = [(t, c, a, acc) for t, c, a, acc in orders if a > 0]
-
-        # 계좌별 버퍼 가용액: buffer_tickers 보유금액 + 정산 현금 + D+1 사용 가능 매도 대금
-        # pending_krw_available: 전날 매도로 D+1에 입금 예정인 KRW (계좌 비율로 배분)
-        total_krw_acc = sum(self._krw_acc_totals.values()) or 1.0
-        acc_buffer: Dict[str, float] = {
-            acc: (
-                sum(self._krw_acc_holdings.get(acc, {}).get(bt, 0.0) for bt in buffer_tickers)
-                + self._krw_acc_cash.get(acc, 0.0)
-                + self._pending_krw_available * (self._krw_acc_totals.get(acc, 0.0) / total_krw_acc)
-            )
-            for acc in self._krw_acc_totals
-        }
-
-        immediate = list(sells)
-        deferred: List[dict] = []
-        acc_used: Dict[str, float] = {}
-
-        for ticker, currency, amount, acc_name in sorted(buys, key=lambda x: -abs(x[2])):
-            buy_krw = abs(amount)
-            buf_available = acc_buffer.get(acc_name, 0.0)
-            used = acc_used.get(acc_name, 0.0)
-            if used + buy_krw <= buf_available:
-                immediate.append((ticker, currency, amount, acc_name))
-                acc_used[acc_name] = used + buy_krw
-            else:
-                deferred.append({"ticker": ticker, "amount_krw": buy_krw, "currency": currency})
-
-        if deferred:
-            total_buf = sum(acc_buffer.values())
-            total_buy = sum(abs(a) for _, _, a, _ in buys)
-            print(f"    버퍼 가용액: {total_buf:,.0f}원 / 전체 매수: {total_buy:,.0f}원")
-            for acc, buf in acc_buffer.items():
-                used = acc_used.get(acc, 0.0)
-                print(f"      {acc}: 버퍼 {buf:,.0f}원 (사용 {used:,.0f}원)")
-
-        return immediate, deferred
+        if failed_buys:
+            cnt_krw = sum(1 for d in failed_buys if d["currency"] == "KRW")
+            cnt_usd = sum(1 for d in failed_buys if d["currency"] == "USD")
+            parts = [f"{c} {n}건" for c, n in [("KRW", cnt_krw), ("USD", cnt_usd)] if n > 0]
+            print(f"    [매수 실패] {', '.join(parts)} → 다음 실행 시 합성 노출로 대체")
+        return order_log, failed_buys
 
     def _build_orders(
         self,
