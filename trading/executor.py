@@ -317,18 +317,22 @@ class KisRebalancer:
         krw_acc_cash: Dict[str, float] = {}  # acc_name → cash
 
         processed_acc: set = set()
+        balance_cache: Dict[str, object] = {}  # acc_no → balance (API 중복 호출 방지)
         for acc_name, acc_cfg in self.config["accounts"].items():
             acc_no = acc_cfg["acc_no"]
             currency = acc_cfg["currency"]
             client = self._clients[acc_name]
 
-            # 동일 acc_no + currency 조합은 한 번만 조회
+            # 동일 acc_no + currency 조합은 한 번만 처리
             key = (acc_no, currency)
             if key in processed_acc:
                 continue
             processed_acc.add(key)
 
-            balance = client.account().balance()
+            # 같은 acc_no는 이미 조회한 balance 재사용 (KRW_1/USD가 acc_no 공유할 때 중복 방지)
+            if acc_no not in balance_cache:
+                balance_cache[acc_no] = client.account().balance()
+            balance = balance_cache[acc_no]
             acc_stock_holdings: Dict[str, float] = {}
 
             for stock in balance.stocks:
@@ -686,6 +690,9 @@ class KisRebalancer:
             for s in client.account().balance().stocks:
                 if s.symbol != ticker:
                     continue
+                # 같은 symbol이라도 다른 시장(KRX vs NASDAQ 등)이면 스킵
+                if MARKET_TO_CURRENCY.get(s.market, "KRW") != currency:
+                    continue
                 # orderable = 매도가능수량 (잠긴 주식·미결제 수량 제외) — 가장 안전한 기준
                 orderable_val = getattr(s, "orderable", None)
                 if orderable_val is not None:
@@ -693,11 +700,9 @@ class KisRebalancer:
                 qty_val = getattr(s, "qty", None)
                 if qty_val is not None:
                     return int(float(qty_val))
-                # orderable/qty 필드가 없으면 평가금액 ÷ 현재가로 추정
-                amt = float(s.current_amount)
-                if currency == "USD":
-                    amt /= self.usd_krw
-                return math.floor(amt / price) if price > 0 else 0
+                # orderable/qty 없으면 평가금액(native currency) ÷ 현재가(native currency)로 추정
+                # current_amount는 USD 종목이면 USD, KRX 종목이면 KRW — price도 같은 단위
+                return math.floor(float(s.current_amount) / price) if price > 0 else 0
             return 0  # 잔고에 없음
         except Exception as e:
             raise RuntimeError(f"{ticker} 보유 수량 조회 실패: {e}") from e
