@@ -236,6 +236,9 @@ class KisRebalancer:
         self._krw_acc_totals: Dict[str, float] = {}
         # 이번 실행에서 주문된 금액(원화 환산) — run.py에서 월간 누적에 합산
         self._last_run_traded_krw: float = 0.0
+        # 버퍼 계산용: 계좌별 현금, T+2 D+1 이후 사용 가능한 KRW 매도 대금
+        self._krw_acc_cash: Dict[str, float] = {}
+        self._pending_krw_available: float = 0.0
 
     @staticmethod
     def _fetch_usd_krw(fallback: float) -> float:
@@ -367,6 +370,7 @@ class KisRebalancer:
 
         # KRW 계좌별 총액 저장 (주식 + 현금)
         self._krw_acc_holdings = krw_acc_holdings
+        self._krw_acc_cash = krw_acc_cash
         self._krw_acc_totals = {
             acc: sum(krw_acc_holdings.get(acc, {}).values()) + krw_acc_cash.get(acc, 0.0)
             for acc in krw_acc_holdings
@@ -413,6 +417,9 @@ class KisRebalancer:
 
         if pending_usd > 0:
             total_usd_krw += pending_usd
+
+        # D+1 재투자 가능한 KRW 매도 대금 저장 (버퍼 계산에 활용)
+        self._pending_krw_available = pending_krw
 
         universe_total_krw = total_usd_krw + total_krw_only
 
@@ -579,9 +586,15 @@ class KisRebalancer:
         sells = [(t, c, a, acc) for t, c, a, acc in orders if a < 0]
         buys = [(t, c, a, acc) for t, c, a, acc in orders if a > 0]
 
-        # 계좌별 버퍼 가용액: 각 계좌 내 buffer_tickers의 실제 보유금액
+        # 계좌별 버퍼 가용액: buffer_tickers 보유금액 + 정산 현금 + D+1 사용 가능 매도 대금
+        # pending_krw_available: 전날 매도로 D+1에 입금 예정인 KRW (계좌 비율로 배분)
+        total_krw_acc = sum(self._krw_acc_totals.values()) or 1.0
         acc_buffer: Dict[str, float] = {
-            acc: sum(self._krw_acc_holdings.get(acc, {}).get(bt, 0.0) for bt in buffer_tickers)
+            acc: (
+                sum(self._krw_acc_holdings.get(acc, {}).get(bt, 0.0) for bt in buffer_tickers)
+                + self._krw_acc_cash.get(acc, 0.0)
+                + self._pending_krw_available * (self._krw_acc_totals.get(acc, 0.0) / total_krw_acc)
+            )
             for acc in self._krw_acc_totals
         }
 
