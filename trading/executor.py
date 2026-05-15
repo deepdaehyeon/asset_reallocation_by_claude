@@ -301,19 +301,6 @@ class KisRebalancer:
     # 포트폴리오 상태 조회
     # ──────────────────────────────────────────────
 
-    def _get_cash_krw(self, client: pykis.PyKis, currency: str) -> float:
-        """orderable_amount 프록시로 현금 잔고를 조회한다 (asset_allocator 방식).
-
-        조회 실패 시 0을 반환하지 않고 예외를 발생시킨다.
-        현금을 0으로 처리하면 총자산·드로우다운·목표비중 전체가 왜곡되기 때문이다.
-        """
-        proxy = "379800" if currency == "KRW" else "QQQ"
-        try:
-            amount = float(client.stock(proxy).orderable_amount(price=1).amount)
-            return amount * self.usd_krw if currency == "USD" else amount
-        except Exception as e:
-            raise RuntimeError(f"현금 잔고 조회 실패 ({currency}): {e}") from e
-
     def get_portfolio_state(self) -> Tuple[float, float, float, Dict[str, float], float]:
         """
         전 계좌를 합산하여 (total_krw, total_usd_krw, total_krw_only, 현재비중, 드로우다운) 반환.
@@ -349,7 +336,7 @@ class KisRebalancer:
                 mkt_currency = MARKET_TO_CURRENCY.get(stock.market, "KRW")
                 if mkt_currency != currency:
                     continue
-                amt = float(stock.amount)
+                amt = float(stock.current_amount)
                 krw_amt = amt * self.usd_krw if currency == "USD" else amt
                 holdings_krw[ticker] = holdings_krw.get(ticker, 0.0) + krw_amt
 
@@ -364,7 +351,10 @@ class KisRebalancer:
                         "amount_krw": krw_amt,
                     }
 
-            cash = self._get_cash_krw(client, currency)
+            deposit = balance.deposits.get(currency)
+            if deposit is None:
+                raise RuntimeError(f"예수금 조회 실패 ({acc_name}/{currency}): deposit is None")
+            cash = float(deposit.amount) * self.usd_krw if currency == "USD" else float(deposit.amount)
             cash_by_currency[currency] = cash_by_currency.get(currency, 0.0) + cash
 
             if currency == "KRW":
@@ -696,11 +686,15 @@ class KisRebalancer:
             for s in client.account().balance().stocks:
                 if s.symbol != ticker:
                     continue
+                # orderable = 매도가능수량 (잠긴 주식·미결제 수량 제외) — 가장 안전한 기준
+                orderable_val = getattr(s, "orderable", None)
+                if orderable_val is not None:
+                    return int(float(orderable_val))
                 qty_val = getattr(s, "qty", None)
                 if qty_val is not None:
                     return int(float(qty_val))
-                # qty 필드가 없으면 평가금액 ÷ 현재가로 추정
-                amt = float(s.amount)
+                # orderable/qty 필드가 없으면 평가금액 ÷ 현재가로 추정
+                amt = float(s.current_amount)
                 if currency == "USD":
                     amt /= self.usd_krw
                 return math.floor(amt / price) if price > 0 else 0
