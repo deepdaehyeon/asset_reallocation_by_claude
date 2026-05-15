@@ -621,6 +621,14 @@ def run_execution(config: dict, state: dict, messenger: Messenger, args) -> None
     print(f"    총 자산: {total_krw:,.0f} 원  │  USD {usd_pct:.1f}% / KRW {krw_pct:.1f}%")
     print(f"    드로우다운: {drawdown:+.2%}")
 
+    # tracker를 sell_orphans 전에 초기화: orphan 매도도 T+2 추적 대상
+    if args.dry_run:
+        tracker = SettlementTracker({})
+        _purged = 0
+    else:
+        tracker = SettlementTracker(state)
+        _purged = tracker.purge_settled()
+
     print("[4b] 유니버스 외 종목 자동 정리 중...")
     if args.dry_run:
         orphans = rebalancer._orphan_holdings
@@ -631,7 +639,7 @@ def run_execution(config: dict, state: dict, messenger: Messenger, args) -> None
         else:
             print("    정리 대상 없음")
     else:
-        orphan_log = rebalancer.sell_orphans(side)
+        orphan_log = rebalancer.sell_orphans(side, tracker=tracker)
         if orphan_log:
             print(f"    처리 완료 {len(orphan_log)}건:")
             for entry in orphan_log:
@@ -647,15 +655,12 @@ def run_execution(config: dict, state: dict, messenger: Messenger, args) -> None
 
     print("[6] 결제 상태 점검 중...")
     if args.dry_run:
-        tracker = SettlementTracker({})
         prev_deferred: list = []
     else:
-        tracker = SettlementTracker(state)
-        purged = tracker.purge_settled()
+        if _purged:
+            print(f"    결제 완료 {_purged}건 정리")
         prev_deferred = tracker.get_deferred()
-        tracker.clear_deferred()
-        if purged:
-            print(f"    결제 완료 {purged}건 정리")
+        # clear_deferred는 rebalance 성공 후 실행 (실패 시 deferred_buys 보존)
         if prev_deferred:
             print(f"    이전 지연 매수 {len(prev_deferred)}건 → 합성 노출 반영")
             for d in prev_deferred:
@@ -676,34 +681,39 @@ def run_execution(config: dict, state: dict, messenger: Messenger, args) -> None
 
     messenger.send_start(regime, saved_features, confidence=combined_conf)
 
-    order_log, new_deferred = rebalancer.rebalance(
-        current_weights=current_weights,
-        target_usd=target_usd,
-        target_krw=target_krw,
-        total_usd_krw=total_usd_krw,
-        total_krw_only=total_krw_only,
-        threshold=0.0,   # 트리거 이미 확정 — drift 재확인 불필요
-        tracker=tracker,
-        side=side,
-    )
+    order_log, new_deferred = [], []
+    try:
+        order_log, new_deferred = rebalancer.rebalance(
+            current_weights=current_weights,
+            target_usd=target_usd,
+            target_krw=target_krw,
+            total_usd_krw=total_usd_krw,
+            total_krw_only=total_krw_only,
+            threshold=0.0,   # 트리거 이미 확정 — drift 재확인 불필요
+            tracker=tracker,
+            side=side,
+        )
 
-    for d in new_deferred:
-        tracker.add_deferred(d["ticker"], d["amount_krw"], d["currency"])
+        # 실행 성공 후 deferred_buys 교체 (성공 전 실패 시 이전 deferred_buys 보존)
+        tracker.clear_deferred()
+        for d in new_deferred:
+            tracker.add_deferred(d["ticker"], d["amount_krw"], d["currency"])
 
-    state[f"last_rebalanced_{side}_at"] = datetime.now().isoformat()
-    state[f"trigger_{side}"] = False
-    state[f"trigger_reason_{side}"] = None
-    state["last_run_at"] = datetime.now().isoformat()
-    state.update(tracker.to_dict())
+        state[f"last_rebalanced_{side}_at"] = datetime.now().isoformat()
+        state[f"trigger_{side}"] = False
+        state[f"trigger_reason_{side}"] = None
 
-    # 월간 누적 회전율 기록 (매월 1일 자동 초기화)
-    current_ym = datetime.now().strftime("%Y-%m")
-    if state.get("monthly_ym") != current_ym:
-        state["monthly_ym"] = current_ym
-        state["monthly_traded_krw"] = 0.0
-    state["monthly_traded_krw"] = float(state.get("monthly_traded_krw", 0.0)) + rebalancer._last_run_traded_krw
-
-    save_state(state)
+        # 월간 누적 회전율 기록 (매월 1일 자동 초기화)
+        current_ym = datetime.now().strftime("%Y-%m")
+        if state.get("monthly_ym") != current_ym:
+            state["monthly_ym"] = current_ym
+            state["monthly_traded_krw"] = 0.0
+        state["monthly_traded_krw"] = float(state.get("monthly_traded_krw", 0.0)) + rebalancer._last_run_traded_krw
+    finally:
+        # 부분 실행(예외) 포함, 항상 tracker 상태(pending_sells·deferred_buys) 저장
+        state["last_run_at"] = datetime.now().isoformat()
+        state.update(tracker.to_dict())
+        save_state(state)
 
     if new_deferred:
         print(f"    지연 매수 {len(new_deferred)}건 저장 → 다음 실행 시 합성 노출 반영")

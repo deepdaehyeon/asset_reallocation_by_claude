@@ -744,7 +744,7 @@ class KisRebalancer:
                     return False, price
         return True, price
 
-    def sell_orphans(self, side: str) -> List[str]:
+    def sell_orphans(self, side: str, tracker: Optional[SettlementTracker] = None) -> List[str]:
         """
         유니버스에 없는 보유 종목을 전량 매도한다.
 
@@ -776,9 +776,10 @@ class KisRebalancer:
                     mkt_cur = MARKET_TO_CURRENCY.get(s.market, "KRW")
                     if mkt_cur != currency or s.symbol in self.universe:
                         continue
-                    qty_val = getattr(s, "qty", None)
+                    orderable_val = getattr(s, "orderable", None)
+                    qty_val = orderable_val if orderable_val is not None else getattr(s, "qty", None)
                     if qty_val is not None:
-                        live_qtys[s.symbol] = int(qty_val)
+                        live_qtys[s.symbol] = int(float(qty_val))
             except Exception as e:
                 print(f"    [경고] {acc_name} 잔고 재조회 실패: {e}")
 
@@ -801,6 +802,8 @@ class KisRebalancer:
 
             if result:
                 results.append(result)
+                if tracker and not result.startswith("["):
+                    tracker.record_sell(ticker, info["amount_krw"], currency)
 
         return results
 
