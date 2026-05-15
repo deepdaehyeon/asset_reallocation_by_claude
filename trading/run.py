@@ -11,6 +11,7 @@
   23:00   python run.py --mode usd        # 미장 실행 (DST 무관 안전 시각)
 """
 import argparse
+import os
 import sys
 import warnings
 from datetime import datetime
@@ -50,9 +51,34 @@ from regime import (
 from settlement import SettlementTracker
 
 BASE_DIR = Path(__file__).parent
+LOCK_FILE = BASE_DIR / ".run.lock"
 
 # hmmlearn EM 수렴 경고는 빈번하며, 실행 로그 가독성을 해친다.
 warnings.filterwarnings("ignore", message="Model is not converging.*")
+
+
+# ── 프로세스 락 ───────────────────────────────────────────────────────────────
+
+def _acquire_lock() -> bool:
+    """락 파일 획득. 이미 실행 중이면 False 반환."""
+    if LOCK_FILE.exists():
+        try:
+            pid = int(LOCK_FILE.read_text().strip())
+            # PID가 살아있으면 충돌
+            os.kill(pid, 0)
+            return False
+        except (ValueError, ProcessLookupError, PermissionError):
+            # PID 파일이 stale하면 덮어쓴다
+            pass
+    LOCK_FILE.write_text(str(os.getpid()))
+    return True
+
+
+def _release_lock() -> None:
+    try:
+        LOCK_FILE.unlink(missing_ok=True)
+    except OSError:
+        pass
 
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
@@ -66,6 +92,7 @@ def parse_args() -> argparse.Namespace:
         help="monitor: 분석+트리거저장 / krw: 국장실행 / usd: 미장실행",
     )
     parser.add_argument("--dry-run", action="store_true", help="주문 없이 레짐/비중만 출력")
+    parser.add_argument("--force", action="store_true", help="쿨다운 무시하고 즉시 실행 (수동 보정용)")
     parser.add_argument("--config", default=str(BASE_DIR / "config.yaml"))
     return parser.parse_args()
 
@@ -549,6 +576,10 @@ def run_execution(config: dict, state: dict, messenger: Messenger, args) -> None
     trigger = state.get(f"trigger_{side}", False)
     reason = state.get(f"trigger_reason_{side}", "-")
 
+    if getattr(args, "force", False):
+        trigger = True
+        reason = "force"
+
     if not trigger:
         print(f"[{side.upper()}] 트리거 없음 ({reason}) → 실행 생략")
         return
@@ -572,6 +603,17 @@ def run_execution(config: dict, state: dict, messenger: Messenger, args) -> None
     total_krw, total_usd_krw, total_krw_only, current_weights, drawdown = (
         rebalancer.get_portfolio_state()
     )
+
+    # 잔고 조회 결과 정합성 검증: 직전 총자산 대비 30% 이상 차이나면 API 오류로 간주
+    last_total_krw = float(state.get("last_total_krw", 0.0))
+    if last_total_krw > 0 and total_krw > 0:
+        change_ratio = abs(total_krw - last_total_krw) / last_total_krw
+        if change_ratio > 0.30:
+            raise RuntimeError(
+                f"잔고 조회 결과 이상 (직전 {last_total_krw:,.0f}원 → 현재 {total_krw:,.0f}원, "
+                f"변화율 {change_ratio:.1%}). API 오류 가능성 → 실행 중단."
+            )
+
     state["peak_krw"] = rebalancer._peak_krw
     usd_pct = total_usd_krw / total_krw * 100 if total_krw else 0
     krw_pct = total_krw_only / total_krw * 100 if total_krw else 0
@@ -729,14 +771,20 @@ def main() -> None:
     args = parse_args()
     messenger = Messenger()
 
+    if not _acquire_lock():
+        print(f"[오류] 이미 실행 중인 프로세스가 있습니다 (PID: {LOCK_FILE.read_text().strip()}). 중단합니다.")
+        sys.exit(1)
+
     try:
         with open(args.config) as f:
             config = yaml.safe_load(f)
     except FileNotFoundError:
+        _release_lock()
         print(f"[오류] 설정 파일을 찾을 수 없습니다: {args.config}")
         print("  --config 옵션으로 경로를 지정하거나 trading/config.yaml을 생성하세요.")
         sys.exit(1)
     except yaml.YAMLError as e:
+        _release_lock()
         print(f"[오류] 설정 파일 파싱 실패: {e}")
         sys.exit(1)
 
@@ -751,6 +799,8 @@ def main() -> None:
     except Exception as e:
         messenger.send_system_error(e)
         raise
+    finally:
+        _release_lock()
 
 
 if __name__ == "__main__":
