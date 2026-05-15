@@ -566,7 +566,7 @@ class KisRebalancer:
                 deferred.append({"ticker": ticker, "amount_krw": buy_krw, "currency": currency})
 
         if deferred:
-            print(f"    버퍼 가용액: {buffer_available:,.0f}원 / 전체 매수: {sum(abs(a) for _,_,a in buys):,.0f}원")
+            print(f"    버퍼 가용액: {buffer_available:,.0f}원 / 전체 매수: {sum(abs(a) for _,_,a,_ in buys):,.0f}원")
 
         return immediate, deferred
 
