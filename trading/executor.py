@@ -302,13 +302,17 @@ class KisRebalancer:
     # ──────────────────────────────────────────────
 
     def _get_cash_krw(self, client: pykis.PyKis, currency: str) -> float:
-        """orderable_amount 프록시로 현금 잔고를 조회한다 (asset_allocator 방식)."""
+        """orderable_amount 프록시로 현금 잔고를 조회한다 (asset_allocator 방식).
+
+        조회 실패 시 0을 반환하지 않고 예외를 발생시킨다.
+        현금을 0으로 처리하면 총자산·드로우다운·목표비중 전체가 왜곡되기 때문이다.
+        """
         proxy = "379800" if currency == "KRW" else "QQQ"
         try:
             amount = float(client.stock(proxy).orderable_amount(price=1).amount)
             return amount * self.usd_krw if currency == "USD" else amount
-        except Exception:
-            return 0.0
+        except Exception as e:
+            raise RuntimeError(f"현금 잔고 조회 실패 ({currency}): {e}") from e
 
     def get_portfolio_state(self) -> Tuple[float, float, float, Dict[str, float], float]:
         """
@@ -686,6 +690,24 @@ class KisRebalancer:
             price = float(quote.high if action == "buy" else quote.low)
         return _adjust_tick(price, currency)
 
+    def _get_held_qty(self, client: pykis.PyKis, ticker: str, currency: str, price: float) -> int:
+        """매도 직전 실제 보유 수량을 조회한다. 조회 실패 시 RuntimeError를 발생시킨다."""
+        try:
+            for s in client.account().balance().stocks:
+                if s.symbol != ticker:
+                    continue
+                qty_val = getattr(s, "qty", None)
+                if qty_val is not None:
+                    return int(float(qty_val))
+                # qty 필드가 없으면 평가금액 ÷ 현재가로 추정
+                amt = float(s.amount)
+                if currency == "USD":
+                    amt /= self.usd_krw
+                return math.floor(amt / price) if price > 0 else 0
+            return 0  # 잔고에 없음
+        except Exception as e:
+            raise RuntimeError(f"{ticker} 보유 수량 조회 실패: {e}") from e
+
     def _wait_for_fill(
         self,
         order,
@@ -698,18 +720,31 @@ class KisRebalancer:
         max_retries: int = 10,
         retry_interval: int = 100,
     ) -> Tuple[bool, float]:
-        """미체결 주문 대기 루프. retry_interval초마다 가격 조정, max_retries회 초과 시 타임아웃."""
+        """미체결 주문 대기 루프. retry_interval초마다 가격 조정 후 재주문, max_retries회 초과 시 취소 후 타임아웃.
+
+        재주문 전 이전 주문을 반드시 취소한다.
+        취소하지 않으면 여러 주문이 동시에 시장에 열려 있다가 다음 날 일괄 체결될 수 있다.
+        """
         rate = 1.001 if action == "buy" else 0.999
         cnt = 0
         retries = 0
+
+        def _try_cancel(o) -> None:
+            try:
+                o.cancel()
+            except Exception as ce:
+                print(f"  [경고] {ticker} 주문 취소 실패: {ce}")
+
         while order.pending:
             time.sleep(1)
             cnt += 1
             if cnt % retry_interval == 0:
+                _try_cancel(order)
                 price = _adjust_tick(price * rate, currency)
                 order = reorder(price)
                 retries += 1
                 if retries >= max_retries:
+                    _try_cancel(order)
                     print(f"  [timeout] {ticker}: 주문 시간 초과 ({max_retries}회 재시도)")
                     _append_order_log(ticker, action, qty, price, currency, self.usd_krw, "timeout")
                     return False, price
@@ -838,6 +873,17 @@ class KisRebalancer:
             if qty <= 0:
                 print(f"  [skip] {ticker}: 수량 0")
                 return None
+
+            # 매도 시 실제 보유 수량으로 상한 설정
+            # 동시 실행이나 이전 주문의 부분 체결로 실제보다 많은 수량을 매도하는 것을 방지한다.
+            if action == "sell":
+                held_qty = self._get_held_qty(client, ticker, currency, price)
+                if held_qty == 0:
+                    print(f"  [skip] {ticker}: 실보유 수량 없음")
+                    return None
+                if qty > held_qty:
+                    print(f"  [경고] {ticker}: 주문 수량 {qty}주 → 실보유 {held_qty}주로 조정")
+                    qty = held_qty
 
             print(f"  {action} {ticker} {qty}주 @ {price:,.2f} {currency}")
 
