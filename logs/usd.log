@@ -50,3 +50,6 @@
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 USD 리밸런싱 완료
 [05/14 23:50:09] [USD] 트리거 없음 (cooldown(0d/7d)) → 실행 생략
+[main b4213c5] logs: auto-update 2026-05-14 23:50
+ 4 files changed, 6 insertions(+), 19 deletions(-)
+[push_logs] 완료: 2026-05-14 23:50

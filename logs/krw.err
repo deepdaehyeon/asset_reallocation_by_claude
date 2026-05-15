@@ -1,0 +1,14 @@
+Traceback (most recent call last):
+  File "/Users/kimdhyeon/Desktop/asset_reallocation_by_claude/trading/run.py", line 758, in <module>
+    main()
+  File "/Users/kimdhyeon/Desktop/asset_reallocation_by_claude/trading/run.py", line 749, in main
+    run_execution(config, state, messenger, args)
+  File "/Users/kimdhyeon/Desktop/asset_reallocation_by_claude/trading/run.py", line 636, in run_execution
+    order_log, new_deferred = rebalancer.rebalance(
+  File "/Users/kimdhyeon/Desktop/asset_reallocation_by_claude/trading/executor.py", line 495, in rebalance
+    immediate, deferred = self._split_buy_orders(
+  File "/Users/kimdhyeon/Desktop/asset_reallocation_by_claude/trading/executor.py", line 569, in _split_buy_orders
+    print(f"    버퍼 가용액: {buffer_available:,.0f}원 / 전체 매수: {sum(abs(a) for _,_,a in buys):,.0f}원")
+  File "/Users/kimdhyeon/Desktop/asset_reallocation_by_claude/trading/executor.py", line 569, in <genexpr>
+    print(f"    버퍼 가용액: {buffer_available:,.0f}원 / 전체 매수: {sum(abs(a) for _,_,a in buys):,.0f}원")
+ValueError: too many values to unpack (expected 3)
