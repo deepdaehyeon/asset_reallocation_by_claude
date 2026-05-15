@@ -6,9 +6,10 @@
   usd      — state.json의 trigger_usd 확인 → USD 계좌(미장)만 리밸런싱 실행
 
 권장 cron (KST):
-  08:50   python run.py --mode monitor    # 장 시작 전 분석
-  09:10   python run.py --mode krw        # 국장 실행 (09:00 개장 후)
-  23:00   python run.py --mode usd        # 미장 실행 (DST 무관 안전 시각)
+  09:30   python run.py --mode monitor    # 모닝 분석 (KRW 장 시작 30분 후)
+  10:00   python run.py --mode krw        # 국장 실행
+  23:00   python run.py --mode monitor    # 이브닝 분석 (US 장 시작 30분 후, DST 기준)
+  23:30   python run.py --mode usd        # 미장 실행
 """
 import argparse
 import os
