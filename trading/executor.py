@@ -269,25 +269,31 @@ class KisRebalancer:
     # ──────────────────────────────────────────────
 
     def _init_clients(self, auth_path: Path) -> Dict[str, pykis.PyKis]:
-        """config의 accounts 정의를 기반으로 pykis 클라이언트를 생성한다."""
+        """config의 accounts 정의를 기반으로 pykis 클라이언트를 생성한다.
+
+        acc_no가 같더라도 currency가 다르면 별도 인스턴스를 생성한다.
+        → KRW_1(KRW)과 USD(USD)는 동일 acc_no여도 독립 클라이언트를 가진다.
+        """
         with open(auth_path) as f:
             auth = yaml.safe_load(f)
 
         clients: Dict[str, pykis.PyKis] = {}
-        seen_acc: Dict[str, pykis.PyKis] = {}  # acc_no → 이미 생성된 클라이언트 재사용
+        seen_acc: Dict[tuple, pykis.PyKis] = {}  # (acc_no, currency) → client
 
         for acc_name, acc_cfg in self.config["accounts"].items():
             acc_no = acc_cfg["acc_no"]
-            if acc_no not in seen_acc:
+            currency = acc_cfg["currency"]
+            key = (acc_no, currency)
+            if key not in seen_acc:
                 creds = auth[acc_no]
-                seen_acc[acc_no] = pykis.PyKis(
+                seen_acc[key] = pykis.PyKis(
                     id=creds["id"],
                     appkey=creds["appkey"],
                     secretkey=creds["secretkey"],
                     account=acc_no,
                     keep_token=True,
                 )
-            clients[acc_name] = seen_acc[acc_no]
+            clients[acc_name] = seen_acc[key]
 
         return clients
 
@@ -544,29 +550,40 @@ class KisRebalancer:
         """
         매수 주문을 버퍼 여유 내 즉시 실행과 지연 실행으로 분류한다.
 
-        현재 버퍼 자산(469830) 평가금액을 즉시 가용 예산으로 사용.
+        버퍼(469830) 가용액은 계좌별로 독립 계산한다.
+        계좌 A의 버퍼는 계좌 B의 매수에 쓸 수 없다 (계좌 간 현금 이동 없음).
         큰 매수부터 greedy하게 할당한다.
         """
         sells = [(t, c, a, acc) for t, c, a, acc in orders if a < 0]
         buys = [(t, c, a, acc) for t, c, a, acc in orders if a > 0]
 
-        # 현재 버퍼 가용액 (KRW 환산)
-        buffer_available = sum(current_weights.get(bt, 0.0) for bt in buffer_tickers) * total_krw
+        # 계좌별 버퍼 가용액: 각 계좌 내 buffer_tickers의 실제 보유금액
+        acc_buffer: Dict[str, float] = {
+            acc: sum(self._krw_acc_holdings.get(acc, {}).get(bt, 0.0) for bt in buffer_tickers)
+            for acc in self._krw_acc_totals
+        }
 
         immediate = list(sells)
         deferred: List[dict] = []
-        used = 0.0
+        acc_used: Dict[str, float] = {}
 
         for ticker, currency, amount, acc_name in sorted(buys, key=lambda x: -abs(x[2])):
             buy_krw = abs(amount)
-            if used + buy_krw <= buffer_available:
+            buf_available = acc_buffer.get(acc_name, 0.0)
+            used = acc_used.get(acc_name, 0.0)
+            if used + buy_krw <= buf_available:
                 immediate.append((ticker, currency, amount, acc_name))
-                used += buy_krw
+                acc_used[acc_name] = used + buy_krw
             else:
                 deferred.append({"ticker": ticker, "amount_krw": buy_krw, "currency": currency})
 
         if deferred:
-            print(f"    버퍼 가용액: {buffer_available:,.0f}원 / 전체 매수: {sum(abs(a) for _,_,a,_ in buys):,.0f}원")
+            total_buf = sum(acc_buffer.values())
+            total_buy = sum(abs(a) for _, _, a, _ in buys)
+            print(f"    버퍼 가용액: {total_buf:,.0f}원 / 전체 매수: {total_buy:,.0f}원")
+            for acc, buf in acc_buffer.items():
+                used = acc_used.get(acc, 0.0)
+                print(f"      {acc}: 버퍼 {buf:,.0f}원 (사용 {used:,.0f}원)")
 
         return immediate, deferred
 
