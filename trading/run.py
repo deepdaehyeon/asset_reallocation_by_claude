@@ -106,19 +106,24 @@ def _compute_trigger(
     drawdown: float,
     last_rebalanced_at: Optional[str],
     config: dict,
+    has_deferred: bool = False,
 ) -> Tuple[bool, str]:
     """
     리밸런싱 트리거 여부를 결정한다.
 
     우선순위:
       1. 드로우다운 비상 (moderate 이하) → 쿨다운 무시하고 즉시 트리거
-      2. 쿨다운 미경과 → 스킵
-      3. 레짐 전환 확정
-      4. drift > drift_threshold
+      2. 미처리 지연 매수 존재 → 쿨다운 무시하고 즉시 트리거
+      3. 쿨다운 미경과 → 스킵
+      4. 레짐 전환 확정
+      5. drift > drift_threshold
     """
     thresholds = config["risk"]["drawdown_thresholds"]
     if drawdown <= thresholds["moderate"]:
         return True, f"drawdown_emergency({drawdown:.1%})"
+
+    if has_deferred:
+        return True, "deferred_buys"
 
     min_days = int(config.get("rebalancing", {}).get("min_rebalance_interval_days", 7))
     if last_rebalanced_at:
@@ -505,13 +510,23 @@ def run_monitor(config: dict, state: dict, messenger: Messenger, args) -> None:
         total_krw, total_usd_krw, total_krw_only, config,
     )
 
+    today_iso = datetime.now().date().isoformat()
+    active_deferred = [
+        d for d in state.get("deferred_buys", [])
+        if d.get("expires", "9999-12-31") > today_iso
+    ]
+    has_deferred_krw = any(d.get("currency") == "KRW" for d in active_deferred)
+    has_deferred_usd = any(d.get("currency") == "USD" for d in active_deferred)
+
     trigger_krw, reason_krw = _compute_trigger(
         drift_krw, market["regime_changed"], drawdown,
         state.get("last_rebalanced_krw_at"), config,
+        has_deferred=has_deferred_krw,
     )
     trigger_usd, reason_usd = _compute_trigger(
         drift_usd, market["regime_changed"], drawdown,
         state.get("last_rebalanced_usd_at"), config,
+        has_deferred=has_deferred_usd,
     )
 
     print(f"    [KRW] drift={drift_krw:.1%}  →  {'✓ 트리거' if trigger_krw else '✗ 스킵'}  ({reason_krw})")
