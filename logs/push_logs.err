@@ -2,3 +2,5 @@ shell-init: error retrieving current directory: getcwd: cannot access parent dir
 /bin/bash: /Users/kimdhyeon/Desktop/asset_reallocation_by_claude/scripts/push_logs.sh: Operation not permitted
 To github.com:deepdaehyeon/asset_reallocation_by_claude.git
    6298e4d..3b2b389  main -> main
+To github.com:deepdaehyeon/asset_reallocation_by_claude.git
+   b4213c5..8bd5865  main -> main
