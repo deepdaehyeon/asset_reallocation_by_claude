@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import date, timedelta
-from typing import List
+from typing import Dict, List, Optional
 
 try:
     import holidays as _holidays_lib
@@ -42,7 +42,7 @@ class SettlementTracker:
 
     # ── 매도 기록 ─────────────────────────────────────────────────────────
 
-    def record_sell(self, ticker: str, amount_krw: float, currency: str) -> None:
+    def record_sell(self, ticker: str, amount_krw: float, currency: str, acc_name: str = "") -> None:
         """매도 체결 후 결제 예정일과 함께 기록한다."""
         settle = _next_business_day(date.today(), self.T_PLUS).isoformat()
         self._sells.append(
@@ -51,18 +51,34 @@ class SettlementTracker:
                 "amount_krw": amount_krw,
                 "currency": currency,
                 "settle_date": settle,
+                "acc_name": acc_name,
             }
         )
 
-    def pending_krw(self, currency: str = "ALL") -> float:
-        """아직 결제되지 않은 매도 대금 (KRW 환산) 합계."""
+    def pending_krw(self, currency: str = "ALL", acc_name: Optional[str] = None) -> float:
+        """아직 결제되지 않은 매도 대금 (KRW 환산) 합계.
+
+        acc_name=None  → 전체 합계 (기존 동작)
+        acc_name="KRW_1" → 해당 계좌 항목만 합계 (acc_name 없는 구형 항목 제외)
+        """
         today = date.today().isoformat()
         return sum(
             s["amount_krw"]
             for s in self._sells
             if (currency == "ALL" or s["currency"] == currency)
             and s["settle_date"] > today
+            and (acc_name is None or s.get("acc_name", "") == acc_name)
         )
+
+    def pending_krw_by_account(self, currency: str = "KRW") -> Dict[str, float]:
+        """계좌별 미결제 매도 대금을 반환한다. acc_name이 없는 구형 항목은 "" 키로 묶인다."""
+        today = date.today().isoformat()
+        result: Dict[str, float] = {}
+        for s in self._sells:
+            if (currency == "ALL" or s["currency"] == currency) and s["settle_date"] > today:
+                key = s.get("acc_name", "")
+                result[key] = result.get(key, 0.0) + s["amount_krw"]
+        return result
 
     def purge_settled(self) -> int:
         """결제 완료된 항목을 정리하고 정리 건수를 반환한다."""

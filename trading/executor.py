@@ -449,12 +449,16 @@ class KisRebalancer:
 
         if pending_krw > 0:
             total_krw_only += pending_krw
-            # KRW 계좌별 총액도 보정 (비율 유지로 비례 배분)
+            # 계좌별 T+2 귀속: acc_name 있는 항목은 해당 계좌에 정확히 배정,
+            # acc_name 없는 구형 항목(마이그레이션 전 데이터)은 잔고 비율로 배분
             if self._krw_acc_totals:
+                by_acc = _tmp_tracker.pending_krw_by_account("KRW")
+                known_total = sum(v for k, v in by_acc.items() if k)  # acc_name 있는 항목 합계
+                unknown = by_acc.get("", 0.0)                         # acc_name 없는 구형 항목
                 krw_before = sum(self._krw_acc_totals.values())
-                if krw_before > 0:
-                    for acc in self._krw_acc_totals:
-                        self._krw_acc_totals[acc] += pending_krw * (self._krw_acc_totals[acc] / krw_before)
+                for acc in self._krw_acc_totals:
+                    proportional = unknown * self._krw_acc_totals[acc] / krw_before if krw_before > 0 else 0.0
+                    self._krw_acc_totals[acc] += by_acc.get(acc, 0.0) + proportional
 
         if pending_usd > 0:
             total_usd_krw += pending_usd
@@ -575,7 +579,7 @@ class KisRebalancer:
             if result:
                 order_log.append(result)
                 if tracker and amount_diff_krw < 0 and not result.startswith("["):
-                    tracker.record_sell(ticker, abs(amount_diff_krw), currency)
+                    tracker.record_sell(ticker, abs(amount_diff_krw), currency, acc_name=acc_name or "")
                 if amount_diff_krw > 0:
                     is_funds_error = result.startswith("[오류]") and _looks_like_insufficient_funds(result)
                     is_timeout = result.startswith("[timeout]")
@@ -810,7 +814,7 @@ class KisRebalancer:
             if result:
                 results.append(result)
                 if tracker and not result.startswith("["):
-                    tracker.record_sell(ticker, info["amount_krw"], currency)
+                    tracker.record_sell(ticker, info["amount_krw"], currency, acc_name=info.get("acc_name", ""))
 
         return results
 
