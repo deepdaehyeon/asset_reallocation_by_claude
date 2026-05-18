@@ -564,31 +564,59 @@ class KisRebalancer:
 
         self._last_run_traded_krw = side_order_krw
 
-        # 매도 우선 정렬 — KIS 매수가능금액은 당일 매도대금 포함 → 매도 먼저 실행하면 당일 재투자 가능
-        all_orders.sort(key=lambda x: x[2])
-
-        sell_cnt = sum(1 for _, _, a, _ in all_orders if a < 0)
-        buy_cnt = sum(1 for _, _, a, _ in all_orders if a > 0)
+        sell_orders = [(t, c, a, acc) for t, c, a, acc in all_orders if a < 0]
+        buy_orders  = [(t, c, a, acc) for t, c, a, acc in all_orders if a > 0]
+        sell_cnt, buy_cnt = len(sell_orders), len(buy_orders)
         side_label = f" [{side.upper()}]" if side != "all" else ""
         print(f"→{side_label} 실행 {len(all_orders)}건 (매도 {sell_cnt}, 매수 {buy_cnt})")
 
         order_log: List[str] = []
         failed_buys: List[dict] = []
-        for ticker, currency, amount_diff_krw, acc_name in all_orders:
+
+        # Phase 1: 매도 먼저 실행 — KIS는 체결 즉시 주문가능금액에 반영
+        for ticker, currency, amount_diff_krw, acc_name in sell_orders:
             result = self._execute_order(ticker, currency, amount_diff_krw, acc_name)
             if result:
                 order_log.append(result)
-                if tracker and amount_diff_krw < 0 and not result.startswith("["):
+                if tracker and not result.startswith("["):
                     tracker.record_sell(ticker, abs(amount_diff_krw), currency, acc_name=acc_name or "")
-                if amount_diff_krw > 0:
-                    is_funds_error = result.startswith("[오류]") and _looks_like_insufficient_funds(result)
-                    is_timeout = result.startswith("[timeout]")
-                    if is_funds_error or is_timeout:
-                        failed_buys.append({
-                            "ticker": ticker,
-                            "amount_krw": abs(amount_diff_krw),
-                            "currency": currency,
-                        })
+
+        # Phase 2: KRW 주문가능금액 조회 (매도 완료 후 → 당일 매도대금 반영)
+        krw_buys_by_acc: Dict[str, List[Tuple[str, float]]] = {}
+        for t, c, a, acc in buy_orders:
+            if c == "KRW":
+                krw_buys_by_acc.setdefault(acc, []).append((t, a))
+
+        scaled_buy_orders: List[Tuple[str, str, float, str]] = []
+        for acc_name, buys in krw_buys_by_acc.items():
+            ref_ticker = buys[0][0]
+            orderable = self._fetch_krw_orderable(acc_name, ref_ticker)
+            total_buy = sum(d for _, d in buys)
+            if orderable > 0 and total_buy > orderable:
+                scale = orderable / total_buy
+                print(f"  [주문가능 cap] {acc_name}: {total_buy:,.0f}원 → {orderable:,.0f}원 ({scale:.1%})")
+                buys = [(t, d * scale) for t, d in buys]
+            for t, d in buys:
+                if d >= self.min_order_krw:
+                    scaled_buy_orders.append((t, "KRW", d, acc_name))
+
+        for t, c, a, acc in buy_orders:
+            if c == "USD":
+                scaled_buy_orders.append((t, c, a, acc))
+
+        # Phase 3: 매수 실행
+        for ticker, currency, amount_diff_krw, acc_name in scaled_buy_orders:
+            result = self._execute_order(ticker, currency, amount_diff_krw, acc_name)
+            if result:
+                order_log.append(result)
+                is_funds_error = result.startswith("[오류]") and _looks_like_insufficient_funds(result)
+                is_timeout = result.startswith("[timeout]")
+                if is_funds_error or is_timeout:
+                    failed_buys.append({
+                        "ticker": ticker,
+                        "amount_krw": abs(amount_diff_krw),
+                        "currency": currency,
+                    })
 
         if failed_buys:
             cnt_krw = sum(1 for d in failed_buys if d["currency"] == "KRW")
@@ -620,7 +648,7 @@ class KisRebalancer:
             self.config["rebalancing"].get("per_ticker_drift_threshold", 0.0)
         )
         orders: List[Tuple[str, str, float, str]] = []
-        # KRW 매수 후보: 계좌별로 모아서 실현금 초과 여부를 확인 후 추가
+        # KRW 매수 후보: 계좌별로 수집 — 한도 체크는 매도 후 rebalance()에서 주문가능금액 기준 수행
         krw_buy_candidates: Dict[str, List[Tuple[str, float]]] = {}
 
         for ticker, meta in self.universe.items():
@@ -653,15 +681,7 @@ class KisRebalancer:
                         else:
                             krw_buy_candidates.setdefault(acc_name, []).append((ticker, diff))
 
-        # KRW 매수: 실제 현금(T+2 미결제 제외) 초과 시 비례 축소
-        # _krw_acc_totals는 T+2 보정 포함이라 목표금액이 실현금보다 클 수 있음
         for acc_name, buys in krw_buy_candidates.items():
-            total_buy = sum(d for _, d in buys)
-            actual_cash = self._krw_acc_cash.get(acc_name, float("inf"))
-            if actual_cash > 0 and total_buy > actual_cash:
-                scale = actual_cash / total_buy
-                print(f"  [매수 cap] {acc_name}: {total_buy:,.0f}원 → {actual_cash:,.0f}원 (실현금 한도, {scale:.1%} 조정)")
-                buys = [(t, d * scale) for t, d in buys]
             for ticker, diff in buys:
                 if diff >= self.min_order_krw:
                     orders.append((ticker, "KRW", diff, acc_name))
@@ -712,6 +732,31 @@ class KisRebalancer:
             return 0  # 잔고에 없음
         except Exception as e:
             raise RuntimeError(f"{ticker} 보유 수량 조회 실패: {e}") from e
+
+    def _fetch_krw_orderable(self, acc_name: str, ref_ticker: str) -> float:
+        """KRX 계좌의 주문가능금액을 KIS API로 조회한다 (매도 직후 호출 — 당일 매도대금 포함).
+
+        KIS는 매도 체결 즉시 주문가능금액에 반영하므로 T+2 현금 입금 전이라도 정확한 한도를 반환한다.
+        조회 실패 시 _krw_acc_cash (T+2 미결제 제외 현금) 폴백.
+        """
+        client = self._clients[acc_name]
+        try:
+            stock = client.stock(ref_ticker)
+            try:
+                price = float(stock.quote().close)
+            except Exception:
+                price = 1_000.0  # .amount는 가격과 무관한 계좌 레벨 값
+            oa = client.account().orderable_amount("KRX", ref_ticker, price=price)
+            amount = float(oa.amount)
+            print(f"    [주문가능금액] {acc_name}: {amount:,.0f}원 ({ref_ticker} 기준)")
+            return amount
+        except Exception as e:
+            fallback = self._krw_acc_cash.get(acc_name, float("inf"))
+            print(
+                f"  [경고] {acc_name} 주문가능금액 조회 실패: {type(e).__name__}: {e}"
+                f" → 현금 {fallback:,.0f}원 폴백"
+            )
+            return fallback
 
     def _wait_for_fill(
         self,
