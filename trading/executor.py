@@ -232,8 +232,10 @@ class KisRebalancer:
         self._orphan_holdings: Dict[str, dict] = {}
         # KRW 계좌별 보유액: {acc_name: {ticker: krw_amount}}  — _build_orders 용
         self._krw_acc_holdings: Dict[str, Dict[str, float]] = {}
-        # KRW 계좌별 총액: {acc_name: total_krw}
+        # KRW 계좌별 총액: {acc_name: total_krw}  (T+2 보정 포함, 비중 계산용)
         self._krw_acc_totals: Dict[str, float] = {}
+        # KRW 계좌별 실제 현금: {acc_name: cash}  (T+2 보정 전, 매수 cap용)
+        self._krw_acc_cash: Dict[str, float] = {}
         # 이번 실행에서 주문된 금액(원화 환산) — run.py에서 월간 누적에 합산
         self._last_run_traded_krw: float = 0.0
 
@@ -371,6 +373,7 @@ class KisRebalancer:
             acc: sum(krw_acc_holdings.get(acc, {}).values()) + krw_acc_cash.get(acc, 0.0)
             for acc in krw_acc_holdings
         }
+        self._krw_acc_cash = krw_acc_cash  # T+2 보정 전 실제 현금 (매수 cap용)
 
         # 유니버스 외 보유 종목 분리 및 안내
         universe_krw = {t: v for t, v in holdings_krw.items() if t in self.universe}
@@ -571,6 +574,8 @@ class KisRebalancer:
             self.config["rebalancing"].get("per_ticker_drift_threshold", 0.0)
         )
         orders: List[Tuple[str, str, float, str]] = []
+        # KRW 매수 후보: 계좌별로 모아서 실현금 초과 여부를 확인 후 추가
+        krw_buy_candidates: Dict[str, List[Tuple[str, float]]] = {}
 
         for ticker, meta in self.universe.items():
             currency = meta["currency"]
@@ -597,7 +602,23 @@ class KisRebalancer:
                     if abs(diff) >= self.min_order_krw and (
                         per_ticker_thr <= 0 or diff_frac >= per_ticker_thr
                     ):
-                        orders.append((ticker, "KRW", diff, acc_name))
+                        if diff < 0:
+                            orders.append((ticker, "KRW", diff, acc_name))
+                        else:
+                            krw_buy_candidates.setdefault(acc_name, []).append((ticker, diff))
+
+        # KRW 매수: 실제 현금(T+2 미결제 제외) 초과 시 비례 축소
+        # _krw_acc_totals는 T+2 보정 포함이라 목표금액이 실현금보다 클 수 있음
+        for acc_name, buys in krw_buy_candidates.items():
+            total_buy = sum(d for _, d in buys)
+            actual_cash = self._krw_acc_cash.get(acc_name, float("inf"))
+            if actual_cash > 0 and total_buy > actual_cash:
+                scale = actual_cash / total_buy
+                print(f"  [매수 cap] {acc_name}: {total_buy:,.0f}원 → {actual_cash:,.0f}원 (실현금 한도, {scale:.1%} 조정)")
+                buys = [(t, d * scale) for t, d in buys]
+            for ticker, diff in buys:
+                if diff >= self.min_order_krw:
+                    orders.append((ticker, "KRW", diff, acc_name))
 
         return orders
 
