@@ -65,6 +65,37 @@ def _append_order_log(
         writer.writerow(row)
 
 
+def _fetch_balance_with_retry(
+    client: "pykis.PyKis",
+    currency: str,
+    acc_name: str,
+    max_retries: int = 3,
+) -> object:
+    """
+    KIS 잔고를 currency별 국가 코드로 조회한다. 실패 시 지수 백오프로 재시도.
+
+    country="KR" / "US" 로 분리 호출해 pykis 내부 불필요한 다중 API 호출을 줄인다.
+    (country=None 통합 조회는 내부에서 5회 이상 API를 호출하므로 1개 실패 시 전체 실패)
+    """
+    country = "KR" if currency == "KRW" else "US"
+    last_err: Exception = RuntimeError("unknown")
+    for attempt in range(max_retries):
+        try:
+            return client.account().balance(country=country)
+        except Exception as e:
+            last_err = e
+            if attempt < max_retries - 1:
+                wait = 2 ** attempt  # 1s → 2s → 4s
+                print(
+                    f"  [재시도] {acc_name} 잔고 조회 실패 "
+                    f"({attempt + 1}/{max_retries}), {wait}s 후 재시도: {type(e).__name__}: {e}"
+                )
+                time.sleep(wait)
+    raise RuntimeError(
+        f"{acc_name} 잔고 조회 최종 실패 ({max_retries}회): {last_err}"
+    ) from last_err
+
+
 def _looks_like_insufficient_funds(msg: str) -> bool:
     """
     브로커/라이브러리별로 에러 메시지가 다르므로 휴리스틱으로 '현금/매수가능금액 부족'만 판별한다.
@@ -319,7 +350,8 @@ class KisRebalancer:
         krw_acc_cash: Dict[str, float] = {}  # acc_name → cash
 
         processed_acc: set = set()
-        balance_cache: Dict[str, object] = {}  # acc_no → balance (API 중복 호출 방지)
+        # (acc_no, currency) → balance  — currency별 국가 분리 조회로 API 호출 최소화
+        balance_cache: Dict[tuple, object] = {}
         for acc_name, acc_cfg in self.config["accounts"].items():
             acc_no = acc_cfg["acc_no"]
             currency = acc_cfg["currency"]
@@ -331,10 +363,10 @@ class KisRebalancer:
                 continue
             processed_acc.add(key)
 
-            # 같은 acc_no는 이미 조회한 balance 재사용 (KRW_1/USD가 acc_no 공유할 때 중복 방지)
-            if acc_no not in balance_cache:
-                balance_cache[acc_no] = client.account().balance()
-            balance = balance_cache[acc_no]
+            # 재시도 포함 잔고 조회 (country별 분리 — 통합 조회는 내부 API 5회)
+            if key not in balance_cache:
+                balance_cache[key] = _fetch_balance_with_retry(client, currency, acc_name)
+            balance = balance_cache[key]
             acc_stock_holdings: Dict[str, float] = {}
 
             for stock in balance.stocks:
@@ -342,7 +374,11 @@ class KisRebalancer:
                 mkt_currency = MARKET_TO_CURRENCY.get(stock.market, "KRW")
                 if mkt_currency != currency:
                     continue
-                amt = float(stock.current_amount)
+                try:
+                    amt = float(stock.current_amount)
+                except Exception as e:
+                    print(f"  [경고] {ticker} 평가금액 변환 실패: {e} — 0 처리")
+                    amt = 0.0
                 krw_amt = amt * self.usd_krw if currency == "USD" else amt
                 holdings_krw[ticker] = holdings_krw.get(ticker, 0.0) + krw_amt
 
@@ -359,8 +395,14 @@ class KisRebalancer:
 
             deposit = balance.deposits.get(currency)
             if deposit is None:
-                raise RuntimeError(f"예수금 조회 실패 ({acc_name}/{currency}): deposit is None")
-            cash = float(deposit.amount) * self.usd_krw if currency == "USD" else float(deposit.amount)
+                print(f"  [경고] {acc_name} 예수금 미반환 (currency={currency}) — 현금 0 처리")
+                cash = 0.0
+            else:
+                try:
+                    cash = float(deposit.amount) * self.usd_krw if currency == "USD" else float(deposit.amount)
+                except Exception as e:
+                    print(f"  [경고] {acc_name} 예수금 변환 실패: {e} — 0 처리")
+                    cash = 0.0
             cash_by_currency[currency] = cash_by_currency.get(currency, 0.0) + cash
 
             if currency == "KRW":
@@ -644,10 +686,10 @@ class KisRebalancer:
             price = float(quote.high if action == "buy" else quote.low)
         return _adjust_tick(price, currency)
 
-    def _get_held_qty(self, client: pykis.PyKis, ticker: str, currency: str, price: float) -> int:
+    def _get_held_qty(self, client: pykis.PyKis, ticker: str, currency: str, price: float, acc_name: str = "?") -> int:
         """매도 직전 실제 보유 수량을 조회한다. 조회 실패 시 RuntimeError를 발생시킨다."""
         try:
-            for s in client.account().balance().stocks:
+            for s in _fetch_balance_with_retry(client, currency, acc_name).stocks:
                 if s.symbol != ticker:
                     continue
                 # 같은 symbol이라도 다른 시장(KRX vs NASDAQ 등)이면 스킵
@@ -737,7 +779,7 @@ class KisRebalancer:
             fetched_keys.add(key)
             client = self._clients[acc_name]
             try:
-                for s in client.account().balance().stocks:
+                for s in _fetch_balance_with_retry(client, currency, acc_name).stocks:
                     mkt_cur = MARKET_TO_CURRENCY.get(s.market, "KRW")
                     if mkt_cur != currency or s.symbol in self.universe:
                         continue
@@ -746,7 +788,7 @@ class KisRebalancer:
                     if qty_val is not None:
                         live_qtys[s.symbol] = int(float(qty_val))
             except Exception as e:
-                print(f"    [경고] {acc_name} 잔고 재조회 실패: {e}")
+                print(f"    [경고] {acc_name} 잔고 재조회 최종 실패: {e}")
 
         results: List[str] = []
         for ticker, info in targets.items():
@@ -839,7 +881,7 @@ class KisRebalancer:
             # 매도 시 실제 보유 수량으로 상한 설정
             # 동시 실행이나 이전 주문의 부분 체결로 실제보다 많은 수량을 매도하는 것을 방지한다.
             if action == "sell":
-                held_qty = self._get_held_qty(client, ticker, currency, price)
+                held_qty = self._get_held_qty(client, ticker, currency, price, acc_name=acc_name or ticker)
                 if held_qty == 0:
                     print(f"  [skip] {ticker}: 실보유 수량 없음")
                     return None
