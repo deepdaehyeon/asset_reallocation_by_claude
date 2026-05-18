@@ -534,10 +534,10 @@ class KisRebalancer:
                 order_log.append(result)
                 if tracker and amount_diff_krw < 0 and not result.startswith("["):
                     tracker.record_sell(ticker, abs(amount_diff_krw), currency)
-                # 매수 실패 중 "현금/매수가능금액 부족"으로 보이는 케이스만 deferred로 기록
-                # (timeout/기타 오류는 유동성/세션/가격갱신 문제일 수 있어 합성노출로 자동 흡수하지 않음)
-                if amount_diff_krw > 0 and result.startswith("[오류]"):
-                    if _looks_like_insufficient_funds(result):
+                if amount_diff_krw > 0:
+                    is_funds_error = result.startswith("[오류]") and _looks_like_insufficient_funds(result)
+                    is_timeout = result.startswith("[timeout]")
+                    if is_funds_error or is_timeout:
                         failed_buys.append({
                             "ticker": ticker,
                             "amount_krw": abs(amount_diff_krw),
