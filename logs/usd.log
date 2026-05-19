@@ -113,3 +113,4 @@ USD 리밸런싱 완료
 [main 372bc1a] logs: auto-update 2026-05-18 23:30
  5 files changed, 101 insertions(+)
 [push_logs] 완료: 2026-05-18 23:30
+[05/19 23:30:06] [USD] 트리거 없음 (cooldown(0d/1d)) → 실행 생략
