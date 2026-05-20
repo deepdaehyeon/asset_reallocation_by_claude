@@ -738,6 +738,10 @@ class KisRebalancer:
 
         KIS는 매도 체결 즉시 주문가능금액에 반영하므로 T+2 현금 입금 전이라도 정확한 한도를 반환한다.
         조회 실패 시 _krw_acc_cash (T+2 미결제 제외 현금) 폴백.
+
+        주의: ord_psbl_cash(oa.amount)가 아닌 max_buy_qty × price 기준으로 cap을 결정한다.
+        KIS 주문 검증은 max_buy_qty를 기준으로 하며, 수수료 차감 후 ord_psbl_cash보다 낮을 수 있어
+        ord_psbl_cash 기준으로 주문하면 경계값에서 APBK0952가 발생한다.
         """
         client = self._clients[acc_name]
         try:
@@ -745,11 +749,18 @@ class KisRebalancer:
             try:
                 price = float(stock.quote().close)
             except Exception:
-                price = 1_000.0  # .amount는 가격과 무관한 계좌 레벨 값
+                price = 1_000.0
             oa = client.account().orderable_amount("KRX", ref_ticker, price=price)
-            amount = float(oa.amount)
-            print(f"    [주문가능금액] {acc_name}: {amount:,.0f}원 ({ref_ticker} 기준)")
-            return amount
+            cash = float(oa.amount)          # ord_psbl_cash
+            max_qty = int(oa.quantity)        # max_buy_qty — 수수료 포함 KIS 계산
+            qty_based = float(max_qty) * price
+            # KIS 주문 검증 기준(max_buy_qty × price)과 현금 한도 중 작은 값 사용
+            effective = min(qty_based, cash)
+            print(
+                f"    [주문가능금액] {acc_name}: {effective:,.0f}원"
+                f" (현금={cash:,.0f}, max_qty={max_qty}×{price:.0f}={qty_based:,.0f})"
+            )
+            return effective
         except Exception as e:
             fallback = self._krw_acc_cash.get(acc_name, float("inf"))
             print(
