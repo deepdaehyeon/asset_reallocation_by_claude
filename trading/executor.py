@@ -754,11 +754,11 @@ class KisRebalancer:
             cash = float(oa.amount)          # ord_psbl_cash
             max_qty = int(oa.quantity)        # max_buy_qty — 수수료 포함 KIS 계산
             qty_based = float(max_qty) * price
-            # KIS 주문 검증 기준(max_buy_qty × price)과 현금 한도 중 작은 값 사용
-            effective = min(qty_based, cash)
+            # 99%만 사용 — 수수료·슬리피지 여유분 확보
+            effective = min(qty_based, cash) * 0.99
             print(
                 f"    [주문가능금액] {acc_name}: {effective:,.0f}원"
-                f" (현금={cash:,.0f}, max_qty={max_qty}×{price:.0f}={qty_based:,.0f})"
+                f" (현금={cash:,.0f}, max_qty={max_qty}×{price:.0f}={qty_based:,.0f}, 99% 적용)"
             )
             return effective
         except Exception as e:
