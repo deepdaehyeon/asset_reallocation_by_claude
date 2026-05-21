@@ -2,7 +2,7 @@
 # 로그 파일을 git에 커밋하고 push — 원격 Claude 에이전트가 읽을 수 있도록
 set -euo pipefail
 
-REPO="/Users/kimdhyeon/Desktop/asset_reallocation_by_claude"
+REPO="/Users/kimdhyeon/asset_reallocation_by_claude"
 cd "$REPO"
 
 git add logs/

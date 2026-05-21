@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="/Users/kimdhyeon/Desktop/asset_reallocation_by_claude"
+REPO="/Users/kimdhyeon/asset_reallocation_by_claude"
 PYTHON="/opt/homebrew/Caskroom/miniforge/base/bin/python3"
 
 # launchd는 shell 환경변수를 상속받지 않으므로 .env를 직접 로드
