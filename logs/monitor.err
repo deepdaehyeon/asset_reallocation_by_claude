@@ -157,3 +157,56 @@ RuntimeError: USD 잔고 조회 최종 실패 (3회): HTTP 요청에 실패했�
 Headers: {'User-Agent': 'PyKis/2.1.6', 'Accept-Encoding': 'gzip, deflate, br', 'Accept': '*/*', 'Connection': 'keep-alive', 'Content-Length': '283', 'Content-Type': 'application/json'}
 Params: {}
 Body: [PROTECTED BODY]
+Traceback (most recent call last):
+  File "/Users/kimdhyeon/asset_reallocation_by_claude/trading/executor.py", line 84, in _fetch_balance_with_retry
+    return client.account().balance(country=country)
+  File "/opt/homebrew/Caskroom/miniforge/base/lib/python3.10/site-packages/pykis/api/account/balance.py", line 1204, in account_balance
+    return balance(
+  File "/opt/homebrew/Caskroom/miniforge/base/lib/python3.10/site-packages/pykis/api/account/balance.py", line 1182, in balance
+    return foreign_balance(self, account, country)
+  File "/opt/homebrew/Caskroom/miniforge/base/lib/python3.10/site-packages/pykis/api/account/balance.py", line 1118, in foreign_balance
+    result = self.fetch(
+  File "/opt/homebrew/Caskroom/miniforge/base/lib/python3.10/site-packages/pykis/kis.py", line 626, in fetch
+    response = self.request(
+  File "/opt/homebrew/Caskroom/miniforge/base/lib/python3.10/site-packages/pykis/kis.py", line 559, in request
+    (self.token if domain == "real" else self.primary_token).build(request_headers)
+  File "/opt/homebrew/Caskroom/miniforge/base/lib/python3.10/site-packages/pykis/utils/thread_safe.py", line 24, in wrapper
+    return fn(self, *args, **kwargs)
+  File "/opt/homebrew/Caskroom/miniforge/base/lib/python3.10/site-packages/pykis/kis.py", line 671, in token
+    self._token = token_issue(self, domain="real")
+  File "/opt/homebrew/Caskroom/miniforge/base/lib/python3.10/site-packages/pykis/api/auth/token.py", line 79, in token_issue
+    return self.fetch(
+  File "/opt/homebrew/Caskroom/miniforge/base/lib/python3.10/site-packages/pykis/kis.py", line 626, in fetch
+    response = self.request(
+  File "/opt/homebrew/Caskroom/miniforge/base/lib/python3.10/site-packages/pykis/kis.py", line 594, in request
+    raise KisHTTPError(response=resp)
+pykis.client.exceptions.KisHTTPError: HTTP 요청에 실패했습니다.
+(403) Forbidden
+{"error_code":"EGW00133","error_description":"접근토큰 발급 잠시 후 다시 시도하세요(1분당 1회)"}
+
+[  Request  ]: POST https://openapi.koreainvestment.com:9443/oauth2/tokenP
+Headers: {'User-Agent': 'PyKis/2.1.6', 'Accept-Encoding': 'gzip, deflate, br', 'Accept': '*/*', 'Connection': 'keep-alive', 'Content-Length': '283', 'Content-Type': 'application/json'}
+Params: {}
+Body: [PROTECTED BODY]
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/kimdhyeon/asset_reallocation_by_claude/trading/run.py", line 837, in <module>
+    main()
+  File "/Users/kimdhyeon/asset_reallocation_by_claude/trading/run.py", line 824, in main
+    run_monitor(config, state, messenger, args)
+  File "/Users/kimdhyeon/asset_reallocation_by_claude/trading/run.py", line 467, in run_monitor
+    rebalancer.get_portfolio_state()
+  File "/Users/kimdhyeon/asset_reallocation_by_claude/trading/executor.py", line 368, in get_portfolio_state
+    balance_cache[key] = _fetch_balance_with_retry(client, currency, acc_name)
+  File "/Users/kimdhyeon/asset_reallocation_by_claude/trading/executor.py", line 94, in _fetch_balance_with_retry
+    raise RuntimeError(
+RuntimeError: USD 잔고 조회 최종 실패 (3회): HTTP 요청에 실패했습니다.
+(403) Forbidden
+{"error_code":"EGW00133","error_description":"접근토큰 발급 잠시 후 다시 시도하세요(1분당 1회)"}
+
+[  Request  ]: POST https://openapi.koreainvestment.com:9443/oauth2/tokenP
+Headers: {'User-Agent': 'PyKis/2.1.6', 'Accept-Encoding': 'gzip, deflate, br', 'Accept': '*/*', 'Connection': 'keep-alive', 'Content-Length': '283', 'Content-Type': 'application/json'}
+Params: {}
+Body: [PROTECTED BODY]
