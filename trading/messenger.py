@@ -52,7 +52,6 @@ class Messenger:
         current_weights: Dict[str, float],
         order_log: List[str],
         deferred_buys: Optional[List[dict]] = None,
-        pending_sells: Optional[List[str]] = None,
         confidence: float = 0.0,
     ) -> None:
         weight_lines = "\n".join(
@@ -70,11 +69,6 @@ class Messenger:
             )
             deferred_section = f"\n*지연 매수 (합성 노출로 대체):*\n{lines}"
 
-        pending_section = ""
-        if pending_sells:
-            lines = "\n".join(f">   {s}" for s in pending_sells)
-            pending_section = f"\n*미결제 매도 (결제 대기):*\n{lines}"
-
         conf_str = f" | 신뢰도 `{confidence:.0%}`" if confidence > 0 else ""
         text = (
             f":white_check_mark: *리밸런싱 완료*\n"
@@ -82,7 +76,6 @@ class Messenger:
             f"*비중 변화:*\n{weight_lines}\n"
             f"*주문 내역:*\n{orders}"
             f"{deferred_section}"
-            f"{pending_section}"
         )
         self._send(text, mention=True)
 

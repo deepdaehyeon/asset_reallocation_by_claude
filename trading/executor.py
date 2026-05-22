@@ -552,8 +552,6 @@ class KisRebalancer:
             result = self._execute_order(ticker, currency, amount_diff_krw, acc_name)
             if result:
                 order_log.append(result)
-                if tracker and not result.startswith("["):
-                    tracker.record_sell(ticker, abs(amount_diff_krw), currency, acc_name=acc_name or "")
 
         # Phase 2: KRW 주문가능금액 조회 (매도 완료 후 → 당일 매도대금 반영)
         krw_buys_by_acc: Dict[str, List[Tuple[str, float]]] = {}
@@ -844,8 +842,6 @@ class KisRebalancer:
 
             if result:
                 results.append(result)
-                if tracker and not result.startswith("["):
-                    tracker.record_sell(ticker, info["amount_krw"], currency, acc_name=info.get("acc_name", ""))
 
         return results
 

@@ -639,13 +639,10 @@ def run_execution(config: dict, state: dict, messenger: Messenger, args) -> None
     print(f"    총 자산: {total_krw:,.0f} 원  │  USD {usd_pct:.1f}% / KRW {krw_pct:.1f}%")
     print(f"    드로우다운: {drawdown:+.2%}")
 
-    # tracker를 sell_orphans 전에 초기화: orphan 매도도 T+2 추적 대상
     if args.dry_run:
         tracker = SettlementTracker({})
-        _purged = 0
     else:
         tracker = SettlementTracker(state)
-        _purged = tracker.purge_settled()
 
     print("[4b] 유니버스 외 종목 자동 정리 중...")
     if args.dry_run:
@@ -675,8 +672,6 @@ def run_execution(config: dict, state: dict, messenger: Messenger, args) -> None
     if args.dry_run:
         prev_deferred: list = []
     else:
-        if _purged:
-            print(f"    결제 완료 {_purged}건 정리")
         prev_deferred = tracker.get_deferred()
         # clear_deferred는 rebalance 성공 후 실행 (실패 시 deferred_buys 보존)
         if prev_deferred:
@@ -728,7 +723,7 @@ def run_execution(config: dict, state: dict, messenger: Messenger, args) -> None
             state["monthly_traded_krw"] = 0.0
         state["monthly_traded_krw"] = float(state.get("monthly_traded_krw", 0.0)) + rebalancer._last_run_traded_krw
     finally:
-        # 부분 실행(예외) 포함, 항상 tracker 상태(pending_sells·deferred_buys) 저장
+        # 부분 실행(예외) 포함, 항상 tracker 상태(deferred_buys) 저장
         state["last_run_at"] = datetime.now().isoformat()
         state.update(tracker.to_dict())
         save_state(state)
@@ -744,7 +739,6 @@ def run_execution(config: dict, state: dict, messenger: Messenger, args) -> None
         current_weights=current_weights,
         order_log=order_log,
         deferred_buys=new_deferred,
-        pending_sells=tracker.pending_summary(),
         confidence=combined_conf,
     )
 

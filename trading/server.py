@@ -29,7 +29,6 @@ _g_confidence      = Gauge("asset_regime_confidence",    "Regime confidence scor
 _g_drawdown        = Gauge("asset_portfolio_drawdown",   "Portfolio drawdown ratio")
 _g_peak            = Gauge("asset_portfolio_peak_krw",   "Portfolio peak value KRW")
 _g_total           = Gauge("asset_portfolio_total_krw",  "Portfolio current total KRW")
-_g_pending_sells   = Gauge("asset_pending_sells_count",  "Pending sell settlements count")
 _g_deferred_buys   = Gauge("asset_deferred_buys_count",  "Deferred buy orders count")
 _g_last_run        = Gauge("asset_last_run_timestamp",   "Unix timestamp of last pipeline run")
 _g_candidate_count = Gauge("asset_regime_candidate_count", "Consecutive confirmation count for candidate regime")
@@ -43,7 +42,6 @@ def _update_metrics(state: dict, cfg: dict) -> None:
     _g_drawdown.set(state.get("last_drawdown", 0.0))
     _g_peak.set(state.get("peak_krw", 0.0))
     _g_total.set(state.get("last_total_krw", 0.0))
-    _g_pending_sells.set(len(state.get("pending_sells", [])))
     _g_deferred_buys.set(len(state.get("deferred_buys", [])))
     _g_candidate_count.set(state.get("candidate_count", 0))
 
