@@ -439,30 +439,6 @@ class KisRebalancer:
         total_usd_krw = usd_holdings + cash_by_currency.get("USD", 0.0)
         total_krw_only = krw_holdings + cash_by_currency.get("KRW", 0.0)
 
-        # T+2 미결제 매도대금 보정
-        # 체결된 매도 주식은 이미 잔고에서 빠졌지만 현금은 결제일까지 미입금.
-        # 보정하지 않으면 총자산이 낮게 잡혀 드로우다운·목표비중이 왜곡된다.
-        state = load_state()
-        _tmp_tracker = SettlementTracker(state)
-        pending_krw = _tmp_tracker.pending_krw("KRW")
-        pending_usd = _tmp_tracker.pending_krw("USD")
-
-        if pending_krw > 0:
-            total_krw_only += pending_krw
-            # 계좌별 T+2 귀속: acc_name 있는 항목은 해당 계좌에 정확히 배정,
-            # acc_name 없는 구형 항목(마이그레이션 전 데이터)은 잔고 비율로 배분
-            if self._krw_acc_totals:
-                by_acc = _tmp_tracker.pending_krw_by_account("KRW")
-                known_total = sum(v for k, v in by_acc.items() if k)  # acc_name 있는 항목 합계
-                unknown = by_acc.get("", 0.0)                         # acc_name 없는 구형 항목
-                krw_before = sum(self._krw_acc_totals.values())
-                for acc in self._krw_acc_totals:
-                    proportional = unknown * self._krw_acc_totals[acc] / krw_before if krw_before > 0 else 0.0
-                    self._krw_acc_totals[acc] += by_acc.get(acc, 0.0) + proportional
-
-        if pending_usd > 0:
-            total_usd_krw += pending_usd
-
         universe_total_krw = total_usd_krw + total_krw_only
 
         if universe_total_krw == 0:
@@ -471,15 +447,13 @@ class KisRebalancer:
         # 현재 비중 = 전체 대비 (drift·출력용)
         current_weights = {t: v / universe_total_krw for t, v in universe_krw.items()}
 
-        # 드로우다운은 전체 자산(orphan 포함, 미결제 보정)으로 계산
+        # 드로우다운: 전체 자산(orphan 포함) 기준
+        # deposit.amount = 주문가능금액(매도 즉시 반영)이므로 T+2 보정 불필요
+        state = load_state()
         total_all_krw = sum(holdings_krw.values()) + sum(cash_by_currency.values())
-        total_all_krw_adj = total_all_krw + pending_krw + pending_usd
-        if pending_krw + pending_usd > 0:
-            print(f"    T+2 미결제 보정: +{pending_krw + pending_usd:,.0f}원 → 실질 총자산 {total_all_krw_adj:,.0f}원")
-
-        peak = max(state.get("peak_krw", 0.0), total_all_krw_adj)
-        self._peak_krw = peak  # 호출 측(run.py)이 state에 저장
-        drawdown = (total_all_krw_adj / peak - 1.0) if peak > 0 else 0.0
+        peak = max(state.get("peak_krw", 0.0), total_all_krw)
+        self._peak_krw = peak
+        drawdown = (total_all_krw / peak - 1.0) if peak > 0 else 0.0
 
         return universe_total_krw, total_usd_krw, total_krw_only, current_weights, drawdown
 

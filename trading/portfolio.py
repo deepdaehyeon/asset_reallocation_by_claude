@@ -303,10 +303,12 @@ def derive_account_weights(
             for ticker, split in routing.get(cls, {}).items():
                 krw_w[ticker] = krw_w.get(ticker, 0.0) + frac * split
 
-    # KRW 합계 > 100% 시 비례 정규화 (계좌 예산 초과 방지)
+    # KRW 계좌 최소 현금 비율 확보 후 정규화 (수수료·거래 거절 여유분)
+    krw_cash_min = float(config.get("rebalancing", {}).get("krw_cash_min", 0.01))
+    krw_investable = 1.0 - krw_cash_min
     krw_total = sum(krw_w.values())
-    if krw_total > 1.0:
-        krw_w = {t: w / krw_total for t, w in krw_w.items()}
+    if krw_total > krw_investable:
+        krw_w = {t: w * krw_investable / krw_total for t, w in krw_w.items()}
 
     return usd_w, krw_w
 

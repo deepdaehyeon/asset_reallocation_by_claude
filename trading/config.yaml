@@ -284,6 +284,7 @@ rebalancing:
   max_run_turnover: 0                # 단일 실행 회전율 상한 (0=무제한) — 6월부터 0.30으로 복구 예정
   max_monthly_turnover: 0            # 월간 누적 회전율 상한 (0=무제한, 매월 1일 자동 초기화) — 6월부터 0.30으로 복구 예정
   usd_cash_min: 0.01                 # USD 계좌 최소 현금 비율 (1%) — 수수료·환전 여유분
+  krw_cash_min: 0.01                 # KRW 계좌 최소 현금 비율 (1%) — 수수료·거래 거절 방지
 
 # 리스크 제어
 # severe: equity를 floor(10%)까지 축소, 채권·금·현금 유지 — 반등 구간 미스 방지
