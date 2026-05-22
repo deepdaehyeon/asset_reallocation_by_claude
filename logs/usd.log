@@ -148,3 +148,4 @@ USD 리밸런싱 완료
 [main dc344c6] logs: auto-update 2026-05-21 23:30
  6 files changed, 149 insertions(+)
 [push_logs] 완료: 2026-05-21 23:30
+[05/22 23:30:07] [USD] 트리거 없음 (cooldown(0d/1d)) → 실행 생략

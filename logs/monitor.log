@@ -505,3 +505,39 @@
 [05/22 09:30:11]     [USD] drift=56.8%  →  ✗ 스킵  (cooldown(0d/1d))
 [05/22 09:30:12] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 [05/22 09:30:12] 모니터링 완료
+[05/22 23:00:05] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[05/22 23:00:05] [1] 시장 데이터 수집 중...
+[05/22 23:00:06]     수집 기간  : 502일
+[05/22 23:00:06] [2] 피처 계산 중...
+[05/22 23:00:06]     momentum_1m : +5.45%
+[05/22 23:00:06]     momentum_3m : +8.98%
+[05/22 23:00:06]     realized_vol: 10.28% (연환산)
+[05/22 23:00:06]     VIX         : 16.9
+[05/22 23:00:06]     credit_signal: +2.04%
+[05/22 23:00:06]     자산 간 상관계수: 0.09
+[05/22 23:00:06] [3] 레짐 감지 중...
+[05/22 23:00:07]     규칙 기반  : Goldilocks
+[05/22 23:00:07]     HMM 예측   : Goldilocks (100%) | Goldilocks:100% / Crisis:0% / Reflation:0% / Slowdown:0% / Stagflation:0%
+[05/22 23:00:08]     RF(balanced): Goldilocks (100%) | crisis=0%  stag=0%
+[05/22 23:00:08]     전환 엔트로피: 0.182 (0=안정 / 높을수록 불안정)
+[05/22 23:00:08]     신뢰도     : 83%  (규칙기반 67% | HMM 100%)
+[05/22 23:00:08]     → 레짐: Goldilocks
+[05/22 23:00:08]     연속 노출  : Goldilocks 100%
+[05/22 23:00:08] [4] 계좌 잔고 조회 중...
+[05/22 23:00:08]     USD/KRW: 1,515.9 (실시간)
+[05/22 23:00:09]   [재시도] USD 잔고 조회 실패 (1/3), 1s 후 재시도: KisHTTPError: HTTP 요청에 실패했습니다.
+[05/22 23:00:09] (403) Forbidden
+[05/22 23:00:09] {"error_code":"EGW00133","error_description":"접근토큰 발급 잠시 후 다시 시도하세요(1분당 1회)"}
+
+[05/22 23:00:09] [  Request  ]: POST https://openapi.koreainvestment.com:9443/oauth2/tokenP
+[05/22 23:00:09] Headers: {'User-Agent': 'PyKis/2.1.6', 'Accept-Encoding': 'gzip, deflate, br', 'Accept': '*/*', 'Connection': 'keep-alive', 'Content-Length': '283', 'Content-Type': 'application/json'}
+[05/22 23:00:09] Params: {}
+[05/22 23:00:09] Body: [PROTECTED BODY]
+[05/22 23:00:10]   [재시도] USD 잔고 조회 실패 (2/3), 2s 후 재시도: KisHTTPError: HTTP 요청에 실패했습니다.
+[05/22 23:00:10] (403) Forbidden
+[05/22 23:00:10] {"error_code":"EGW00133","error_description":"접근토큰 발급 잠시 후 다시 시도하세요(1분당 1회)"}
+
+[05/22 23:00:10] [  Request  ]: POST https://openapi.koreainvestment.com:9443/oauth2/tokenP
+[05/22 23:00:10] Headers: {'User-Agent': 'PyKis/2.1.6', 'Accept-Encoding': 'gzip, deflate, br', 'Accept': '*/*', 'Connection': 'keep-alive', 'Content-Length': '283', 'Content-Type': 'application/json'}
+[05/22 23:00:10] Params: {}
+[05/22 23:00:10] Body: [PROTECTED BODY]
