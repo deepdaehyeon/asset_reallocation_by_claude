@@ -640,8 +640,9 @@ class KisRebalancer:
         KRW 종목: 각 KRW 계좌의 잔고 비율에 비례해 분산 주문 생성.
           → KRW_1·KRW_2가 항상 동일 비중을 유지한다.
 
-        per_ticker_drift_threshold: 개별 종목의 전체 포트폴리오 대비 이탈이
+        per_ticker_drift_threshold: 개별 종목의 계좌 내 이탈이
         이 값 미만이면 거래 제외 (불필요한 소규모 거래 방지).
+        USD는 USD 계좌 총액, KRW는 해당 KRW 계좌 총액을 기준으로 비교.
         """
         total_krw = total_usd_krw + total_krw_only
         per_ticker_thr = float(
@@ -658,7 +659,7 @@ class KisRebalancer:
                 current_amt = current.get(ticker, 0.0) * total_krw
                 target_amt = target_usd.get(ticker, 0.0) * total_usd_krw
                 diff = target_amt - current_amt
-                diff_frac = abs(diff) / total_krw if total_krw > 0 else 0.0
+                diff_frac = abs(diff) / total_usd_krw if total_usd_krw > 0 else 0.0
                 if abs(diff) >= self.min_order_krw and (
                     per_ticker_thr <= 0 or diff_frac >= per_ticker_thr
                 ):
@@ -672,7 +673,7 @@ class KisRebalancer:
                     acc_current = self._krw_acc_holdings.get(acc_name, {}).get(ticker, 0.0)
                     acc_target = target_w * acc_total
                     diff = acc_target - acc_current
-                    diff_frac = abs(diff) / total_krw if total_krw > 0 else 0.0
+                    diff_frac = abs(diff) / acc_total if acc_total > 0 else 0.0
                     if abs(diff) >= self.min_order_krw and (
                         per_ticker_thr <= 0 or diff_frac >= per_ticker_thr
                     ):
