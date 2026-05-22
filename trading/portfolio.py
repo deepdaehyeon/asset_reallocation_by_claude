@@ -226,8 +226,12 @@ def derive_account_weights(
     krw_ratio = total_krw_only / total
 
     # ── USD 예산 배정 ────────────────────────────────────────────────────────
+    # USD 계좌 최소 현금 비율 (항상 이 비율 이상 현금 보유)
+    usd_cash_min = float(config.get("rebalancing", {}).get("usd_cash_min", 0.01))
+    usd_investable = total_usd_krw * (1.0 - usd_cash_min)
+
     usd_pool: dict = {}
-    usd_remaining = float(total_usd_krw)
+    usd_remaining = usd_investable
 
     for cls in ("commodity", "managed_futures"):
         amt = min(targets.get(cls, 0.0) * total, usd_remaining)
@@ -262,10 +266,10 @@ def derive_account_weights(
     usd_pool["bond_usd"] = bond_usd_actual
     usd_remaining -= bond_usd_actual
 
-    # 잔여 USD → 기배정 항목 비례 확대 (USD 계좌 100% 소진)
+    # 잔여 USD → 기배정 항목 비례 확대 (현금 usd_cash_min 보존, 나머지 소진)
     allocated = sum(usd_pool.values())
     if allocated > 0 and usd_remaining > 1.0:
-        scale = total_usd_krw / allocated
+        scale = usd_investable / allocated
         usd_pool = {k: v * scale for k, v in usd_pool.items()}
 
     # 계좌 비중으로 변환
