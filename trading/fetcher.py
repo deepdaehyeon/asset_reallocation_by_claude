@@ -12,24 +12,55 @@ def fetch_signal_prices(tickers: list[str], lookback_days: int = 130) -> pd.Data
     """
     레짐 감지에 필요한 가격 히스토리를 yfinance로 수집한다.
 
+    일부 ticker가 누락·부족해도 가용한 컬럼만으로 DataFrame 반환 (경고 출력).
+    compute_features에서 필수 ticker(SPY)만 검증하고 나머지는 fallback 처리.
+
     Returns:
-        종목별 조정 종가 DataFrame (columns = tickers)
+        종목별 조정 종가 DataFrame (columns ⊆ tickers)
+
+    Raises:
+        RuntimeError: yfinance API 호출 실패 또는 빈 응답
     """
-    df = yf.download(
-        tickers,
-        period=f"{lookback_days}d",
-        interval="1d",
-        auto_adjust=True,
-        progress=False,
-    )
+    try:
+        df = yf.download(
+            tickers,
+            period=f"{lookback_days}d",
+            interval="1d",
+            auto_adjust=True,
+            progress=False,
+        )
+    except Exception as e:
+        raise RuntimeError(
+            f"yfinance 일괄 다운로드 실패: {type(e).__name__}: {e}"
+        ) from e
+
+    if df is None or df.empty:
+        raise RuntimeError(f"yfinance 빈 응답 (요청 ticker: {tickers})")
 
     if isinstance(df.columns, pd.MultiIndex):
-        prices = df["Close"]
+        prices = df["Close"].copy()
     else:
-        prices = df[["Close"]]
-        prices.columns = tickers
+        # 단일 ticker일 때 yfinance는 OHLCV 단순 컬럼 반환
+        prices = df[["Close"]].copy()
+        if len(tickers) == 1:
+            prices.columns = tickers
 
-    return prices.dropna(how="all")
+    prices = prices.dropna(how="all")
+
+    # 누락·데이터 부족 ticker 명시적 경고
+    min_required = max(int(lookback_days * 0.5), 30)
+    issues: list[str] = []
+    for t in tickers:
+        if t not in prices.columns:
+            issues.append(f"{t}:컬럼없음")
+            continue
+        n = prices[t].dropna().shape[0]
+        if n < min_required:
+            issues.append(f"{t}:{n}/{min_required}일")
+    if issues:
+        print(f"    [yfinance 품질 경고] {' | '.join(issues)}")
+
+    return prices
 
 
 def fetch_usd_krw(fallback: float = 1380.0) -> float:
@@ -120,9 +151,12 @@ def fetch_fred_data() -> dict:
             if len(cpi) >= 13:
                 yoy = (cpi / cpi.shift(12) - 1) * 100
                 result["cpi_yoy"] = float(yoy.dropna().iloc[-1])
-            if len(cpi) >= 2:
+            if len(cpi) >= 18:   # 36개월 윈도우의 min_periods=18
                 mom = cpi.pct_change()
-                result["cpi_mom_zscore"] = float(_zscore_series(mom).dropna().iloc[-1])
+                # 월별 시리즈는 36개월 윈도우 사용 (영업일 756은 월별 데이터엔 부적합)
+                result["cpi_mom_zscore"] = float(
+                    _zscore_series(mom, window=36).dropna().iloc[-1]
+                )
         except Exception:
             pass
 
@@ -204,41 +238,46 @@ def fetch_fred_history(start: str, end: str) -> pd.DataFrame:
     result = pd.DataFrame(index=idx)
 
     # ── 변환 계산 ──────────────────────────────────────────────────────────
+    # 원칙: 시리즈는 native 빈도(월/주/일)에서 변환·z-score 계산 후 일별로 reindex.
+    # daily ffill된 시리즈에 shift(252)·pct_change()를 적용하면 의미 왜곡.
 
-    # CPI
+    # CPI (monthly)
     if "cpi_raw" in raw:
-        cpi = raw["cpi_raw"].reindex(idx, method="ffill", limit=45)
-        yoy = (cpi / cpi.shift(252) - 1) * 100   # 약 12개월
-        result["cpi_yoy"] = yoy
-        mom = cpi.pct_change()
-        result["cpi_mom_zscore"] = _zscore_series(mom)
+        cpi_m = raw["cpi_raw"]  # 월별 원본
+        yoy_m = (cpi_m / cpi_m.shift(12) - 1) * 100  # 12개월 YoY
+        mom_z_m = _zscore_series(cpi_m.pct_change(), window=36)  # 36개월 z-score
+        result["cpi_yoy"] = yoy_m.reindex(idx, method="ffill", limit=45)
+        result["cpi_mom_zscore"] = mom_z_m.reindex(idx, method="ffill", limit=45)
 
-    # 실업률
+    # 실업률 (monthly)
     if "unrate_raw" in raw:
-        ur = raw["unrate_raw"].reindex(idx, method="ffill", limit=45)
-        result["unrate_chg_3m"] = ur - ur.shift(63)   # 3개월 변화
+        ur_m = raw["unrate_raw"]
+        chg_m = ur_m - ur_m.shift(3)   # 3개월 변화
+        result["unrate_chg_3m"] = chg_m.reindex(idx, method="ffill", limit=45)
 
-    # Breakeven (이미 일별)
+    # Breakeven (daily)
     if "breakeven_5y" in raw:
         result["breakeven_5y"] = raw["breakeven_5y"].reindex(idx, method="ffill", limit=5)
 
-    # M2
+    # M2 (monthly)
     if "m2_raw" in raw:
-        m2 = raw["m2_raw"].reindex(idx, method="ffill", limit=45)
-        result["m2_yoy"] = (m2 / m2.shift(252) - 1) * 100
+        m2_m = raw["m2_raw"]
+        yoy_m = (m2_m / m2_m.shift(12) - 1) * 100  # 12개월 YoY
+        result["m2_yoy"] = yoy_m.reindex(idx, method="ffill", limit=45)
 
-    # Fed 자산규모
+    # Fed 자산규모 (weekly)
     if "fed_bs_raw" in raw:
-        bs = raw["fed_bs_raw"].reindex(idx, method="ffill", limit=10)
-        result["fed_bs_yoy"] = (bs / bs.shift(252) - 1) * 100
+        bs_w = raw["fed_bs_raw"]
+        yoy_w = (bs_w / bs_w.shift(52) - 1) * 100   # 52주 YoY
+        result["fed_bs_yoy"] = yoy_w.reindex(idx, method="ffill", limit=10)
 
-    # HY 스프레드
+    # HY 스프레드 (daily, z-score는 영업일 756)
     if "hy_raw" in raw:
-        hy = raw["hy_raw"].reindex(idx, method="ffill", limit=3)
-        result["hy_spread"] = hy
-        result["hy_spread_zscore"] = _zscore_series(hy)
+        hy_d = raw["hy_raw"]
+        result["hy_spread"] = hy_d.reindex(idx, method="ffill", limit=3)
+        result["hy_spread_zscore"] = _zscore_series(hy_d).reindex(idx, method="ffill", limit=3)
 
-    # 장단기 금리차
+    # 장단기 금리차 (daily)
     if "curve_10y2y" in raw:
         result["curve_10y2y"] = (
             raw["curve_10y2y"].reindex(idx, method="ffill", limit=3)

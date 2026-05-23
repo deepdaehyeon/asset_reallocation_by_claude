@@ -108,51 +108,28 @@
 
 ## 레짐 모델 점검 follow-up (2026-05-24)
 
-> 2026-05-24 일괄 수정에서 처리한 항목: `detect_regime`의 `curve_10y2y` → 성장 신호로 재분류 / `commodity_mom_1m` 인플레 신호 추가 / `compute_rule_confidence` 분모 통일(growth=4, infl=3) / `fetch_fred_data`에서 `credit_signal` 키 제거(가격기반만 사용) / `HmmRegimeClassifier` 미매핑 레짐 강제 매핑 / `compute_features` ticker 누락 폴백.
-> 아래는 같은 점검에서 식별됐으나 후속으로 미루는 항목.
+> 1차 수정 (Critical/High): `detect_regime`의 `curve_10y2y` → 성장 신호로 재분류 / `commodity_mom_1m` 인플레 신호 추가 / `compute_rule_confidence` 분모 통일(growth=4, infl=3) / `fetch_fred_data`에서 `credit_signal` 키 제거(가격기반만 사용) / `HmmRegimeClassifier` 미매핑 레짐 강제 매핑 / `compute_features` ticker 누락 폴백.
+>
+> 2차 수정 (Medium follow-up): `realized_vol` EWMA 통일(λ=0.94) / yfinance 데이터 품질 검증 강화 / FRED 월별 시리즈를 native 빈도에서 z-score·YoY 계산 후 일별 reindex / HMM 추론 시 누락 컬럼 0 폴백 / `ensemble_regime` 변수명 `combined_probs` 명확화 / `peak_krw` 입출금 보정에 30h 타임스탬프 가드 / `monthly_traded_krw`를 체결분 기준으로 변경.
+>
+> 아래는 남은 후속 항목.
 
-### HMM/RF 자기참조 학습 — `regime.py:fit`
+### HMM/RF 자기참조 학습 — `regime.py:fit` ⏸ 보류
+
+**현 상태**: HMM의 상태→레짐 매핑과 RF의 학습 레이블 둘 다 `detect_regime` 결과. 두 모델 모두 본질적으로 규칙기반의 smoothing 근사기.
+
+**보류 이유**: 진짜 해결책은 아키텍처 변경이 필요해 한 번에 처리하기 위험.
+  - 옵션 A: HMM을 완전 unsupervised로 두고, 학습 후 상태별 자산 수익률·변동성 분포로 사후 레짐 라벨링 함수 작성
+  - 옵션 B: NBER recession dates 등 외부 ground truth 데이터 소스 통합
+  - 옵션 C: RF를 IsolationForest 등 anomaly detector로 교체 + `ensemble_regime` 재설계
+
+어느 방향이든 backtest로 새로 검증해야 하며, 사용자의 방향 결정이 필요. 별도 세션에서 실험 후 적용 권장.
 
 - HMM의 상태→레짐 매핑과 RF의 학습 레이블 둘 다 `detect_regime` 결과. 두 모델 모두 본질적으로 규칙기반의 smoothing 근사기로 동작 → 진정한 앙상블 효과 미흡.
 - 보강 방향:
   - HMM은 unsupervised 그대로 두고, 학습 후 상태별 자산 수익률 분포 분석 → 사후 레짐 라벨링
   - 외부 ground truth 활용: NBER recession dates, 인플레 체제 라벨링 데이터셋
   - RF는 "현재가 과거 어떤 레짐과도 다름" 탐지용 anomaly detector로 역할 전환 (Phase 2에서 이미 후보로 등록됨)
-
-### `realized_vol` 21일 window — `features.py:compute_features`
-
-- 1개월 짧은 윈도우로 단기 noise 민감. vol_targeting은 portfolio EWMA를 따로 쓰는데, `detect_regime`의 Crisis 임계값(`rvol > 0.30`)은 이 단기 vol을 사용.
-- 보강: 60일 윈도우 추가 옵션 또는 EWMA 기반으로 통일.
-
-### yfinance multiindex 처리 robustness — `fetcher.py:fetch_signal_prices`
-
-- 일부 ticker 누락 시 `prices.dropna(how="all")`이 부분 누락을 안 잡음. `compute_features`의 폴백으로 보호되긴 하나, fetcher 레벨에서 명시적 검증 필요.
-- 보강: 각 ticker 별로 데이터 길이/최신성 검증, 부재 시 명확한 경고.
-
-### CPI z-score window 단위 혼란 — `fetcher.py:fetch_fred_data`
-
-- `CPIAUCSL`은 월별인데 `_zscore_series` window=756(영업일)으로 z-score 계산. 의미가 모호하고 결과가 사실상 0에 가까움.
-- 보강: 월별 시리즈는 window=36(3년 월), 일별은 756 등 단위별 분리.
-
-### `compute_feature_matrix` vs `compute_features` 불일치 — `features.py`
-
-- 학습 시 `dxy_mom_1m`·`commodity_mom_1m` 컬럼이 있고 추론 시 누락되면 `HmmRegimeClassifier.predict_proba`의 `feature_sequence[cols]`에서 KeyError 가능.
-- 보강: 추론 시 누락 컬럼은 0으로 채우는 폴백 (`BalancedRF`처럼).
-
-### `ensemble_regime` 변수명 가독성 — `regime.py:ensemble_regime`
-
-- `run.py`에서 RF+HMM 가중평균 결과를 `hmm_probs` 변수에 담아 전달. 함수 시그니처도 `hmm_probs`. 실제로는 combined probs라 가독성 저하.
-- 보강: 파라미터명을 `combined_probs`로 변경.
-
-### `peak_krw` multi-day gap 시 가짜 입출금 추정 — `executor.py:get_portfolio_state`
-
-- 직전 자산 대비 ±10% 변동을 입출금으로 추정해 peak 비례 조정하는 로직이 추가됨. 단, monitor가 며칠 크래시한 후 첫 실행이면 그 사이 시장 변동도 ±10% 넘을 수 있어 가짜 입출금 추정 위험.
-- 보강: `last_total_all_krw_at` 타임스탬프 저장 후 prev_total이 24시간 이상 오래되면 보정 스킵.
-
-### `monthly_traded_krw` 의도 금액 vs 체결 금액 차이 — `executor.py:rebalance`
-
-- `_last_run_traded_krw = side_order_krw`로 의도 금액 기록. 매수 일부 실패해도 의도 금액으로 누적 → 회전율 cap이 보수적으로 일찍 발동.
-- 보강: 실제 체결 금액(`order_log` 파싱 또는 별도 누적) 기준으로 변경. 단 cap 보호 측면에선 보수적이 안전하므로 우선순위 낮음.
 
 ---
 

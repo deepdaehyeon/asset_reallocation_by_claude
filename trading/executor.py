@@ -479,17 +479,33 @@ class KisRebalancer:
         total_all_krw = sum(holdings_krw.values()) + sum(cash_by_currency.values())
         peak = state.get("peak_krw", 0.0)
 
-        # 입출금 자동 보정: 직전 실행 대비 ±10% 이상 변화 시 시장 변동이 아닌 입출금으로 추정
+        # 입출금 자동 보정: 직전 실행 대비 ±10% 이상 변화 시 시장 변동이 아닌 입출금으로 추정.
+        # 단, prev_total이 30시간 이상 오래된 경우(monitor 다일 크래시 후 첫 실행 등)는
+        # 그 사이의 시장 변동도 포함될 수 있어 보정 스킵.
         prev_total = float(state.get("last_total_all_krw", 0.0))
-        if prev_total > 0 and peak > 0:
-            rel_change = (total_all_krw - prev_total) / prev_total
-            if abs(rel_change) > 0.10:
-                new_peak = peak * (1 + rel_change)
+        prev_total_at = state.get("last_total_all_krw_at")
+        if prev_total > 0 and peak > 0 and prev_total_at:
+            try:
+                age_h = (
+                    datetime.now() - datetime.fromisoformat(prev_total_at)
+                ).total_seconds() / 3600
+            except (ValueError, TypeError):
+                age_h = float("inf")
+            if age_h <= 30:
+                rel_change = (total_all_krw - prev_total) / prev_total
+                if abs(rel_change) > 0.10:
+                    new_peak = peak * (1 + rel_change)
+                    print(
+                        f"  [peak 보정] 자산 {prev_total:,.0f}→{total_all_krw:,.0f}원"
+                        f" ({rel_change:+.1%}, 직전 {age_h:.1f}h전)"
+                        f" → 입출금 추정, peak {peak:,.0f}→{new_peak:,.0f}원"
+                    )
+                    peak = new_peak
+            elif abs((total_all_krw - prev_total) / prev_total) > 0.10:
                 print(
-                    f"  [peak 보정] 자산 {prev_total:,.0f}→{total_all_krw:,.0f}원"
-                    f" ({rel_change:+.1%}) → 입출금 추정, peak {peak:,.0f}→{new_peak:,.0f}원"
+                    f"  [peak 보정 스킵] 직전 자산 기록이 {age_h:.0f}h 전 (>30h)"
+                    f" — 시장 변동 가능성, 입출금 보정 건너뜀"
                 )
-                peak = new_peak
 
         peak = max(peak, total_all_krw)
         self._peak_krw = peak
@@ -577,7 +593,9 @@ class KisRebalancer:
                 )
                 return [], []
 
-        self._last_run_traded_krw = side_order_krw
+        # 실제 체결된 의도 금액만 누적 (cap 보호 측면에선 보수적인 의도금액보다
+        # 약간 작아지지만, 실패한 주문이 회전율에 잡히는 왜곡 제거).
+        actual_traded_krw = 0.0
 
         sell_orders = [(t, c, a, acc) for t, c, a, acc in all_orders if a < 0]
         buy_orders  = [(t, c, a, acc) for t, c, a, acc in all_orders if a > 0]
@@ -593,6 +611,9 @@ class KisRebalancer:
             result = self._execute_order(ticker, currency, amount_diff_krw, acc_name)
             if result:
                 order_log.append(result)
+                # 성공 결과는 "매수 .../매도 ..." 접두, 실패는 "[timeout]/[오류]" 접두
+                if not result.startswith("["):
+                    actual_traded_krw += abs(amount_diff_krw)
 
         # Phase 2: KRW 주문가능금액 조회 (매도 완료 후 → 당일 매도대금 반영)
         krw_buys_by_acc: Dict[str, List[Tuple[str, float]]] = {}
@@ -622,6 +643,8 @@ class KisRebalancer:
             result = self._execute_order(ticker, currency, amount_diff_krw, acc_name)
             if result:
                 order_log.append(result)
+                if not result.startswith("["):
+                    actual_traded_krw += abs(amount_diff_krw)
                 is_funds_error = result.startswith("[오류]") and _looks_like_insufficient_funds(result)
                 is_timeout = result.startswith("[timeout]")
                 if is_funds_error or is_timeout:
@@ -630,6 +653,9 @@ class KisRebalancer:
                         "amount_krw": abs(amount_diff_krw),
                         "currency": currency,
                     })
+
+        # 체결분 기준으로 monthly_traded_krw 누적 — 실패한 주문은 회전율에 포함 안 됨
+        self._last_run_traded_krw = actual_traded_krw
 
         if failed_buys:
             cnt_krw = sum(1 for d in failed_buys if d["currency"] == "KRW")

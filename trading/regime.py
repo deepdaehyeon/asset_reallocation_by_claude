@@ -344,6 +344,15 @@ class HmmRegimeClassifier:
             from features import get_active_feature_cols
             cols = get_active_feature_cols(feature_sequence)
 
+        # 학습 시점에는 있던 컬럼이 추론 시 데이터 fetch 실패로 누락될 수 있음.
+        # 0으로 폴백 (BalancedRF.predict_proba와 동일한 방어 패턴).
+        missing = [c for c in cols if c not in feature_sequence.columns]
+        if missing:
+            feature_sequence = feature_sequence.copy()
+            for c in missing:
+                feature_sequence[c] = 0.0
+            print(f"    [HMM 추론] 누락 컬럼 {missing} → 0으로 폴백")
+
         X = feature_sequence[cols].values.astype(float)
         X_scaled = self._scaler.transform(X)
 
@@ -515,21 +524,22 @@ def compute_rule_confidence(features: dict, regime: str) -> float:
 
 def ensemble_regime(
     rule_regime: str,
-    hmm_probs: dict[str, float],
+    combined_probs: dict[str, float],
     override_threshold: float = 0.60,
 ) -> str:
     """
-    규칙 기반 레짐과 HMM 확률 분포를 결합해 최종 레짐을 반환한다.
+    규칙 기반 레짐과 (HMM+RF 가중평균) 확률 분포를 결합해 최종 레짐을 반환한다.
 
-    HMM이 rule-based와 다른 레짐을 override_threshold 이상 확률로 지지하고,
-    rule-based 레짐의 HMM 확률이 25% 미만인 경우에만 HMM 레짐을 채택한다.
+    combined_probs는 run.py에서 HMM 0.6 + RF 0.4 가중평균된 분포가 전달된다.
+    이 분포가 rule-based와 다른 레짐을 override_threshold 이상 확률로 지지하고,
+    rule-based 레짐의 확률이 25% 미만인 경우에만 다수 레짐을 채택한다.
     그 외에는 규칙 기반 레짐을 사용한다 (보수적 기본값).
     """
-    hmm_top = max(hmm_probs, key=hmm_probs.get)
+    top = max(combined_probs, key=combined_probs.get)
     if (
-        hmm_top != rule_regime
-        and hmm_probs[hmm_top] >= override_threshold
-        and hmm_probs.get(rule_regime, 0.0) < 0.25
+        top != rule_regime
+        and combined_probs[top] >= override_threshold
+        and combined_probs.get(rule_regime, 0.0) < 0.25
     ):
-        return hmm_top
+        return top
     return rule_regime

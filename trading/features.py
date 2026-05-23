@@ -55,6 +55,28 @@ def _safe_mom(series: pd.Series, window: int) -> float:
     return float(series.iloc[-1] / series.iloc[-window] - 1)
 
 
+# EWMA 변동성 — RiskMetrics 표준 (λ=0.94, half-life ≈ 11일).
+# vol_targeting의 compute_portfolio_ewma_vol과 동일 계산식 (sqrt of EWMA of r²).
+EWMA_VOL_LAMBDA = 0.94
+
+
+def _ewma_vol(rets: pd.Series, lam: float = EWMA_VOL_LAMBDA, annualize: int = 252) -> float:
+    """단일 시점 EWMA 연환산 변동성. 데이터 10일 미만이면 0.15 폴백."""
+    arr = rets.dropna().values
+    if len(arr) < 10:
+        return 0.15
+    var = float(np.var(arr[:10]))
+    for r in arr[10:]:
+        var = lam * var + (1 - lam) * r * r
+    return float(np.sqrt(var * annualize))
+
+
+def _ewma_vol_series(rets: pd.Series, lam: float = EWMA_VOL_LAMBDA, annualize: int = 252) -> pd.Series:
+    """각 시점의 EWMA 연환산 변동성 시리즈 (HMM/RF 학습용)."""
+    ewma_var_sq = (rets.fillna(0.0) ** 2).ewm(alpha=1 - lam, adjust=False).mean()
+    return (ewma_var_sq ** 0.5) * np.sqrt(annualize)
+
+
 # ── 단일 시점 피처 계산 (live trading) ───────────────────────────────────────
 
 def _safe_series(prices: pd.DataFrame, ticker: str) -> pd.Series:
@@ -84,7 +106,7 @@ def compute_features(prices: pd.DataFrame, fred_data: dict | None = None) -> dic
 
     momentum_1m = _safe_mom(spy, 22)
     momentum_3m = _safe_mom(spy, 63)
-    realized_vol = float(rets.tail(21).std() * np.sqrt(252)) if len(rets) >= 21 else 0.15
+    realized_vol = _ewma_vol(rets)
     vix_level = float(vix.iloc[-1]) if len(vix) > 0 else 20.0
 
     # credit_signal: HYG-TLT 모멘텀 차. 둘 다 22일치 있어야 의미 있음.
@@ -176,7 +198,7 @@ def compute_feature_matrix(
 
     mom_1m  = spy.pct_change(22, fill_method=None)
     mom_3m  = spy.pct_change(63, fill_method=None)
-    rvol    = spy.pct_change(fill_method=None).rolling(21).std() * np.sqrt(252)
+    rvol    = _ewma_vol_series(spy.pct_change(fill_method=None))
     credit  = hyg.pct_change(22, fill_method=None) - tlt.pct_change(22, fill_method=None)
 
     data: dict[str, pd.Series] = {

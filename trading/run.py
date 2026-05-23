@@ -469,6 +469,7 @@ def run_monitor(config: dict, state: dict, messenger: Messenger, args) -> None:
     )
     state["peak_krw"] = rebalancer._peak_krw
     state["last_total_all_krw"] = rebalancer._last_total_all_krw
+    state["last_total_all_krw_at"] = datetime.now().isoformat()
     usd_pct = total_usd_krw / total_krw * 100 if total_krw else 0
     krw_pct = total_krw_only / total_krw * 100 if total_krw else 0
     print(f"    총 자산: {total_krw:,.0f} 원  │  USD {usd_pct:.1f}% / KRW {krw_pct:.1f}%")
@@ -655,6 +656,7 @@ def run_execution(config: dict, state: dict, messenger: Messenger, args) -> None
 
     state["peak_krw"] = rebalancer._peak_krw
     state["last_total_all_krw"] = rebalancer._last_total_all_krw
+    state["last_total_all_krw_at"] = datetime.now().isoformat()
     usd_pct = total_usd_krw / total_krw * 100 if total_krw else 0
     krw_pct = total_krw_only / total_krw * 100 if total_krw else 0
     print(f"    총 자산: {total_krw:,.0f} 원  │  USD {usd_pct:.1f}% / KRW {krw_pct:.1f}%")
