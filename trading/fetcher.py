@@ -75,11 +75,10 @@ def fetch_fred_data() -> dict:
 
     환경변수 FRED_API_KEY가 없거나 fredapi 미설치 시 빈 dict 반환.
 
-    반환 키:
+    반환 키 (credit_signal은 더 이상 반환하지 않음 — 가격기반과 스케일이 달라 임계값 불일치):
         hy_spread          float  ICE BofA US HY OAS (%)
         hy_spread_zscore   float  HY 스프레드 3년 Z-score
         curve_10y2y        float  10년-2년 국채 금리 차 (%)
-        credit_signal      float  HY 스프레드 1M 변화의 역수
         cpi_yoy            float  CPI 전년비 (%)
         cpi_mom_zscore     float  CPI MoM 3년 Z-score
         unrate_chg_3m      float  실업률 3개월 변화
@@ -100,13 +99,12 @@ def fetch_fred_data() -> dict:
 
         if len(hy) > 0:
             result["hy_spread"] = float(hy.iloc[-1])
-        if len(hy) >= 22:
-            spread_chg = float(hy.iloc[-1] - hy.iloc[-22])
-            result["credit_signal"] = -spread_chg / 20.0
         if len(hy) >= 63:
             result["hy_spread_zscore"] = float(_zscore_series(hy).iloc[-1])
         if len(curve) > 0:
             result["curve_10y2y"] = float(curve.iloc[-1])
+        # credit_signal은 fetch_fred_data에서 제외 — compute_features의 가격기반 신호 사용
+        # (가격기반 HYG-TLT 모멘텀은 ±0.1 범위, FRED 기반은 ±0.25 범위로 임계값 0.01과 스케일 불일치)
 
         # ── 기대 인플레이션 (일별) ─────────────────────────────────────────
         try:

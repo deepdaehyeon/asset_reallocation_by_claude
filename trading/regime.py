@@ -14,6 +14,51 @@ REGIMES = ["Goldilocks", "Reflation", "Slowdown", "Stagflation", "Crisis"]
 DEFAULT_REGIME = "Slowdown"  # 신뢰도 미달 시 보수적 폴백
 
 
+def _growth_inflation_signals(features: dict) -> tuple[int, int, int, int]:
+    """
+    피처에서 성장·인플레 신호 카운트를 추출한다. detect_regime과 confidence 양쪽에서 사용.
+
+    성장 신호 (4점 만점):
+      momentum_1m, momentum_3m, credit_signal, yield_curve(10Y-2Y)
+      ※ yield curve inversion(curve<0)은 침체 신호, 가파른 커브(curve>1.0)는 확장 신호.
+
+    인플레 신호 (3점 만점):
+      hy_spread, vix, commodity_mom_1m
+      ※ curve는 인플레 지표가 아니므로 제외. 원자재 모멘텀이 더 직접적 인플레 시그널.
+    """
+    mom1m   = features["momentum_1m"]
+    mom3m   = features["momentum_3m"]
+    vix     = features["vix"]
+    credit  = features["credit_signal"]
+    hy_spr  = features.get("hy_spread", 4.5)         # 중립값
+    curve   = features.get("curve_10y2y", 0.5)       # 중립값
+    commod  = features.get("commodity_mom_1m", 0.0)  # 없으면 0
+
+    growth_bullish = sum([
+        mom1m > 0.02,
+        mom3m > 0.03,
+        credit > 0.01,
+        curve > 1.0,   # 가파른 커브 = 확장 신호
+    ])
+    growth_bearish = sum([
+        mom1m < -0.02,
+        mom3m < -0.03,
+        credit < -0.02,
+        curve < 0.0,   # 역전 = 침체 선행 신호
+    ])
+    infl_rising = sum([
+        hy_spr > 5.0,
+        vix > 25,
+        commod > 0.05,   # 원자재 +5% 모멘텀 = 인플레 압력
+    ])
+    infl_low = sum([
+        hy_spr < 4.0,
+        vix < 18,
+        commod < -0.05,
+    ])
+    return growth_bullish, growth_bearish, infl_rising, infl_low
+
+
 def detect_regime(features: dict) -> str:
     """
     피처 딕셔너리로부터 시장 레짐을 분류한다.
@@ -26,26 +71,17 @@ def detect_regime(features: dict) -> str:
       5. Reflation   — 성장↑ + 인플레↑
       6. 혼재        — 성장 방향성으로 보수적 판단
 
-    성장 proxy: momentum_1m / momentum_3m / credit_signal
-    인플레 proxy: hy_spread(FRED) / curve_10y2y(FRED) / vix
+    성장 proxy: momentum_1m / momentum_3m / credit_signal / yield_curve(역전)
+    인플레 proxy: hy_spread / vix / commodity_mom_1m
     """
-    vix    = features["vix"]
-    mom1m  = features["momentum_1m"]
-    mom3m  = features["momentum_3m"]
-    rvol   = features["realized_vol"]
-    credit = features["credit_signal"]
-    hy_spread = features.get("hy_spread", 4.5)   # 없으면 중립값
-    curve     = features.get("curve_10y2y", 0.5)  # 없으면 중립값
+    rvol = features["realized_vol"]
+    vix  = features["vix"]
 
     # 1. Crisis: 유동성 쇼크
     if rvol > 0.30 or vix > 40:
         return "Crisis"
 
-    growth_bullish = sum([mom1m > 0.02, mom3m > 0.03, credit > 0.01])
-    growth_bearish = sum([mom1m < -0.02, mom3m < -0.03, credit < -0.02])
-
-    infl_rising = sum([hy_spread > 5.0, curve > 1.5, vix > 25])
-    infl_low    = sum([hy_spread < 4.0, curve < 0.5,  vix < 18])
+    growth_bullish, growth_bearish, infl_rising, infl_low = _growth_inflation_signals(features)
 
     # 2. Stagflation: 성장↓ + 인플레↑
     if growth_bearish >= 2 and infl_rising >= 1:
@@ -257,13 +293,37 @@ class HmmRegimeClassifier:
             detect_regime(row)
             for row in feature_matrix.to_dict(orient="records")
         ]
+
+        # Step 1: 각 HMM state → 그 state에서 가장 흔한 rule label
+        mapping: dict[int, str] = {}
         for s in range(self.N_STATES):
             idxs = [i for i, st in enumerate(states) if st == s]
             if idxs:
                 labels = [rule_labels[i] for i in idxs]
-                self._state_to_regime[s] = Counter(labels).most_common(1)[0][0]
+                mapping[s] = Counter(labels).most_common(1)[0][0]
             else:
-                self._state_to_regime[s] = DEFAULT_REGIME
+                mapping[s] = DEFAULT_REGIME
+
+        # Step 2: 학습 데이터에는 존재하지만 어떤 state에도 매핑되지 않은 레짐을 구제.
+        # 그 레짐 시점들의 dominant HMM state를 찾아 강제 매핑 (가장 빈번한 state 덮어씀).
+        # 이 보강이 없으면 Crisis/Stagflation처럼 희귀한 레짐은 predict_proba에서 영구 0.
+        seen_regimes = set(rule_labels)
+        mapped_regimes = set(mapping.values())
+        unmapped = seen_regimes - mapped_regimes
+        for regime in unmapped:
+            regime_idxs = [i for i, lbl in enumerate(rule_labels) if lbl == regime]
+            if not regime_idxs:
+                continue
+            regime_states = [states[i] for i in regime_idxs]
+            dominant_state = Counter(regime_states).most_common(1)[0][0]
+            prev = mapping[dominant_state]
+            mapping[dominant_state] = regime
+            print(
+                f"    [HMM 매핑 보강] {regime} 미매핑 → state {dominant_state} "
+                f"({prev} → {regime}로 강제 매핑)"
+            )
+
+        self._state_to_regime = mapping
 
     def predict_proba(self, feature_sequence) -> dict[str, float]:
         """
@@ -432,32 +492,24 @@ def compute_rule_confidence(features: dict, regime: str) -> float:
     규칙 기반 레짐 판단의 신뢰도 [0.0, 1.0]을 반환한다.
 
     각 레짐에 기여하는 신호 수 / 최대 가능 신호 수로 계산한다.
-    - Crisis     : 1.0 (임계값 초과는 항상 명확)
-    - 기타 레짐  : (성장 신호 + 인플레 신호) / 최대 신호 수
+    성장 신호 max=4, 인플레 신호 max=3 — 일관된 분모 사용.
+    - Crisis: 1.0
+    - Slowdown: growth_bearish / 4 (인플레 무관)
+    - Goldilocks/Reflation/Stagflation: (growth + infl) / 7
     """
-    mom1m  = features["momentum_1m"]
-    mom3m  = features["momentum_3m"]
-    vix    = features["vix"]
-    credit = features["credit_signal"]
-    hy_spread = features.get("hy_spread", 4.5)
-    curve     = features.get("curve_10y2y", 0.5)
-
     if regime == "Crisis":
         return 1.0
 
-    growth_bullish = sum([mom1m > 0.02, mom3m > 0.03, credit > 0.01])
-    growth_bearish = sum([mom1m < -0.02, mom3m < -0.03, credit < -0.02])
-    infl_rising    = sum([hy_spread > 5.0, curve > 1.5, vix > 25])
-    infl_low       = sum([hy_spread < 4.0, curve < 0.5, vix < 18])
+    growth_bullish, growth_bearish, infl_rising, infl_low = _growth_inflation_signals(features)
 
     if regime == "Goldilocks":
-        return (growth_bullish + infl_low) / 6
+        return (growth_bullish + infl_low) / 7
     if regime == "Reflation":
-        return (growth_bullish + infl_rising) / 6
+        return (growth_bullish + infl_rising) / 7
     if regime == "Slowdown":
-        return growth_bearish / 3
+        return growth_bearish / 4
     if regime == "Stagflation":
-        return (growth_bearish + infl_rising) / 6
+        return (growth_bearish + infl_rising) / 7
     return 0.5
 
 

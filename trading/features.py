@@ -57,6 +57,13 @@ def _safe_mom(series: pd.Series, window: int) -> float:
 
 # ── 단일 시점 피처 계산 (live trading) ───────────────────────────────────────
 
+def _safe_series(prices: pd.DataFrame, ticker: str) -> pd.Series:
+    """ticker 데이터를 안전하게 가져온다. 없거나 비어있으면 빈 Series 반환."""
+    if ticker not in prices.columns:
+        return pd.Series(dtype=float)
+    return prices[ticker].dropna()
+
+
 def compute_features(prices: pd.DataFrame, fred_data: dict | None = None) -> dict:
     """
     레짐 감지에 쓰이는 수치 피처를 계산한다.
@@ -64,20 +71,27 @@ def compute_features(prices: pd.DataFrame, fred_data: dict | None = None) -> dic
     prices    : columns에 SPY / ^VIX / TLT / HYG / [DX-Y.NYB] / [DJP] 포함한 종가 DataFrame
     fred_data : fetch_fred_data() 반환값 (없으면 None)
 
-    반환: PRICE_FEATURE_COLS + (fred_data 제공 시) MACRO_FEATURE_COLS 일부
+    SPY는 필수. VIX/TLT/HYG가 누락되면 보수적 중립값(VIX 20, credit_signal 0)으로 폴백.
     """
-    spy = prices["SPY"].dropna()
-    vix = prices["^VIX"].dropna()
-    tlt = prices["TLT"].dropna()
-    hyg = prices["HYG"].dropna()
+    spy = _safe_series(prices, "SPY")
+    if len(spy) == 0:
+        raise ValueError("SPY 데이터 누락 — 시그널 계산 불가")
+    vix = _safe_series(prices, "^VIX")
+    tlt = _safe_series(prices, "TLT")
+    hyg = _safe_series(prices, "HYG")
 
     rets = spy.pct_change().dropna()
 
     momentum_1m = _safe_mom(spy, 22)
     momentum_3m = _safe_mom(spy, 63)
-    realized_vol = float(rets.tail(21).std() * np.sqrt(252))
-    vix_level   = float(vix.iloc[-1]) if len(vix) > 0 else 20.0
-    credit_signal = _safe_mom(hyg, 22) - _safe_mom(tlt, 22)
+    realized_vol = float(rets.tail(21).std() * np.sqrt(252)) if len(rets) >= 21 else 0.15
+    vix_level = float(vix.iloc[-1]) if len(vix) > 0 else 20.0
+
+    # credit_signal: HYG-TLT 모멘텀 차. 둘 다 22일치 있어야 의미 있음.
+    if len(hyg) > 22 and len(tlt) > 22:
+        credit_signal = _safe_mom(hyg, 22) - _safe_mom(tlt, 22)
+    else:
+        credit_signal = 0.0
 
     features: dict = {
         "momentum_1m":  momentum_1m,
@@ -87,21 +101,24 @@ def compute_features(prices: pd.DataFrame, fred_data: dict | None = None) -> dic
         "credit_signal": credit_signal,
     }
 
+    # 누락 ticker 경고 — 의도된 폴백인지 확인하기 위함
+    missing = [t for t, s in [("^VIX", vix), ("TLT", tlt), ("HYG", hyg)] if len(s) == 0]
+    if missing:
+        print(f"    [경고] 시그널 ticker 누락 {missing} — 중립값 폴백 (VIX=20, credit_signal=0)")
+
     # 달러 인덱스 모멘텀
-    if "DX-Y.NYB" in prices.columns:
-        dxy = prices["DX-Y.NYB"].dropna()
+    dxy = _safe_series(prices, "DX-Y.NYB")
+    if len(dxy) > 22:
         features["dxy_mom_1m"] = _safe_mom(dxy, 22)
 
     # 원자재 모멘텀
-    if "DJP" in prices.columns:
-        djp = prices["DJP"].dropna()
+    djp = _safe_series(prices, "DJP")
+    if len(djp) > 22:
         features["commodity_mom_1m"] = _safe_mom(djp, 22)
 
     if fred_data:
-        # FRED credit_signal 우선 사용
-        if "credit_signal" in fred_data:
-            features["credit_signal"] = fred_data["credit_signal"]
-        # FRED 피처 병합
+        # credit_signal은 항상 가격기반으로 유지 (FRED는 스케일 ±0.25라 임계값 불일치).
+        # FRED의 hy_spread/curve/CPI 등은 단위가 명확하므로 그대로 사용.
         for key in (
             "hy_spread", "hy_spread_zscore", "curve_10y2y",
             "cpi_yoy", "cpi_mom_zscore",
