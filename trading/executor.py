@@ -304,29 +304,27 @@ class KisRebalancer:
     def _init_clients(self, auth_path: Path) -> Dict[str, pykis.PyKis]:
         """config의 accounts 정의를 기반으로 pykis 클라이언트를 생성한다.
 
-        acc_no가 같더라도 currency가 다르면 별도 인스턴스를 생성한다.
-        → KRW_1(KRW)과 USD(USD)는 동일 acc_no여도 독립 클라이언트를 가진다.
+        acc_no가 같으면 currency에 관계없이 동일 인스턴스를 공유한다.
+        → 동일 계좌(KRW_1·USD 모두 64378890-01)는 토큰을 하나만 유지해 EGW00133 방지.
         """
         with open(auth_path) as f:
             auth = yaml.safe_load(f)
 
         clients: Dict[str, pykis.PyKis] = {}
-        seen_acc: Dict[tuple, pykis.PyKis] = {}  # (acc_no, currency) → client
+        seen_acc: Dict[str, pykis.PyKis] = {}  # acc_no → client
 
         for acc_name, acc_cfg in self.config["accounts"].items():
             acc_no = acc_cfg["acc_no"]
-            currency = acc_cfg["currency"]
-            key = (acc_no, currency)
-            if key not in seen_acc:
+            if acc_no not in seen_acc:
                 creds = auth[acc_no]
-                seen_acc[key] = pykis.PyKis(
+                seen_acc[acc_no] = pykis.PyKis(
                     id=creds["id"],
                     appkey=creds["appkey"],
                     secretkey=creds["secretkey"],
                     account=acc_no,
                     keep_token=True,
                 )
-            clients[acc_name] = seen_acc[key]
+            clients[acc_name] = seen_acc[acc_no]
 
         return clients
 
