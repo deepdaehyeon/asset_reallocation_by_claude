@@ -733,16 +733,23 @@ def run_execution(config: dict, state: dict, messenger: Messenger, args) -> None
         for d in new_deferred:
             tracker.add_deferred(d["ticker"], d["amount_krw"], d["currency"])
 
-        state[f"last_rebalanced_{side}_at"] = datetime.now().isoformat()
+        # trigger는 항상 클리어 — 다음 monitor가 drift·deferred·regime을 다시 평가하게 한다.
         state[f"trigger_{side}"] = False
         state[f"trigger_reason_{side}"] = None
 
-        # 월간 누적 회전율 기록 (매월 1일 자동 초기화)
-        current_ym = datetime.now().strftime("%Y-%m")
-        if state.get("monthly_ym") != current_ym:
-            state["monthly_ym"] = current_ym
-            state["monthly_traded_krw"] = 0.0
-        state["monthly_traded_krw"] = float(state.get("monthly_traded_krw", 0.0)) + rebalancer._last_run_traded_krw
+        # cooldown anchor·월간 회전율은 실제 주문이 시장에 나갔을 때만 갱신.
+        # 0건 실행(예: per_ticker_drift 필터로 전부 컷)에 cooldown이 시작되면
+        # 다음 N일 동안 drift가 남아있어도 트리거가 차단된다.
+        if order_log:
+            state[f"last_rebalanced_{side}_at"] = datetime.now().isoformat()
+
+            current_ym = datetime.now().strftime("%Y-%m")
+            if state.get("monthly_ym") != current_ym:
+                state["monthly_ym"] = current_ym
+                state["monthly_traded_krw"] = 0.0
+            state["monthly_traded_krw"] = float(state.get("monthly_traded_krw", 0.0)) + rebalancer._last_run_traded_krw
+        else:
+            print(f"  [cooldown skip] 실행된 주문 없음 — last_rebalanced·monthly_traded 미갱신")
     finally:
         # 부분 실행(예외) 포함, 항상 tracker 상태(deferred_buys) 저장
         state["last_run_at"] = datetime.now().isoformat()
