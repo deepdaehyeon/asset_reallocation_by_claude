@@ -76,6 +76,8 @@ def _fetch_balance_with_retry(
 
     country="KR" / "US" 로 분리 호출해 pykis 내부 불필요한 다중 API 호출을 줄인다.
     (country=None 통합 조회는 내부에서 5회 이상 API를 호출하므로 1개 실패 시 전체 실패)
+
+    EGW00133 (접근토큰 1분당 1회) 감지 시 60초 대기 — 일반 backoff(1→2→4s)로는 모두 실패.
     """
     country = "KR" if currency == "KRW" else "US"
     last_err: Exception = RuntimeError("unknown")
@@ -85,15 +87,32 @@ def _fetch_balance_with_retry(
         except Exception as e:
             last_err = e
             if attempt < max_retries - 1:
-                wait = 2 ** attempt  # 1s → 2s → 4s
-                print(
-                    f"  [재시도] {acc_name} 잔고 조회 실패 "
-                    f"({attempt + 1}/{max_retries}), {wait}s 후 재시도: {type(e).__name__}: {e}"
-                )
+                msg = str(e)
+                if "EGW00133" in msg or "접근토큰" in msg:
+                    wait = 65  # 1분 제한 + 여유
+                    print(
+                        f"  [재시도] {acc_name} 토큰 1분 제한 EGW00133 "
+                        f"({attempt + 1}/{max_retries}), {wait}s 후 재시도"
+                    )
+                else:
+                    wait = 2 ** attempt  # 1s → 2s → 4s
+                    print(
+                        f"  [재시도] {acc_name} 잔고 조회 실패 "
+                        f"({attempt + 1}/{max_retries}), {wait}s 후 재시도: {type(e).__name__}: {e}"
+                    )
                 time.sleep(wait)
     raise RuntimeError(
         f"{acc_name} 잔고 조회 최종 실패 ({max_retries}회): {last_err}"
     ) from last_err
+
+
+def _label_ticker(ticker: str, universe: dict) -> str:
+    """티커 → 사람이 읽기 쉬운 라벨. 숫자 코드(KRX)는 name을 괄호에 표시."""
+    info = universe.get(ticker)
+    name = info.get("name") if info else None
+    if name and ticker.isdigit():
+        return f"{ticker}({name})"
+    return ticker
 
 
 def _looks_like_insufficient_funds(msg: str) -> bool:
@@ -369,7 +388,13 @@ class KisRebalancer:
 
             for stock in balance.stocks:
                 ticker = stock.symbol
-                mkt_currency = MARKET_TO_CURRENCY.get(stock.market, "KRW")
+                mkt_currency = MARKET_TO_CURRENCY.get(stock.market)
+                if mkt_currency is None:
+                    print(
+                        f"  [경고] {ticker}: 알 수 없는 market 코드 '{stock.market}'"
+                        f" → 통화 분류 불가, 스킵"
+                    )
+                    continue
                 if mkt_currency != currency:
                     continue
                 try:
@@ -407,10 +432,13 @@ class KisRebalancer:
                 krw_acc_holdings[acc_name] = acc_stock_holdings
                 krw_acc_cash[acc_name] = cash
 
-        # KRW 계좌별 총액 저장 (주식 + 현금)
+        # KRW 계좌별 총액 저장 (주식 + 현금) — orphan은 제외 (target 비중 왜곡 방지)
         self._krw_acc_holdings = krw_acc_holdings
         self._krw_acc_totals = {
-            acc: sum(krw_acc_holdings.get(acc, {}).values()) + krw_acc_cash.get(acc, 0.0)
+            acc: sum(
+                v for t, v in krw_acc_holdings.get(acc, {}).items()
+                if t in self.universe
+            ) + krw_acc_cash.get(acc, 0.0)
             for acc in krw_acc_holdings
         }
         self._krw_acc_cash = krw_acc_cash  # T+2 보정 전 실제 현금 (매수 cap용)
@@ -446,11 +474,26 @@ class KisRebalancer:
         current_weights = {t: v / universe_total_krw for t, v in universe_krw.items()}
 
         # 드로우다운: 전체 자산(orphan 포함) 기준
-        # deposit.amount = 주문가능금액(매도 즉시 반영)이므로 T+2 보정 불필요
+        # KRW deposit.amount=dnca_tot_amt(매도 즉시 반영)이므로 T+2 보정 불필요
         state = load_state()
         total_all_krw = sum(holdings_krw.values()) + sum(cash_by_currency.values())
-        peak = max(state.get("peak_krw", 0.0), total_all_krw)
+        peak = state.get("peak_krw", 0.0)
+
+        # 입출금 자동 보정: 직전 실행 대비 ±10% 이상 변화 시 시장 변동이 아닌 입출금으로 추정
+        prev_total = float(state.get("last_total_all_krw", 0.0))
+        if prev_total > 0 and peak > 0:
+            rel_change = (total_all_krw - prev_total) / prev_total
+            if abs(rel_change) > 0.10:
+                new_peak = peak * (1 + rel_change)
+                print(
+                    f"  [peak 보정] 자산 {prev_total:,.0f}→{total_all_krw:,.0f}원"
+                    f" ({rel_change:+.1%}) → 입출금 추정, peak {peak:,.0f}→{new_peak:,.0f}원"
+                )
+                peak = new_peak
+
+        peak = max(peak, total_all_krw)
         self._peak_krw = peak
+        self._last_total_all_krw = total_all_krw
         drawdown = (total_all_krw / peak - 1.0) if peak > 0 else 0.0
 
         return universe_total_krw, total_usd_krw, total_krw_only, current_weights, drawdown
@@ -858,7 +901,7 @@ class KisRebalancer:
                 print(f"  [skip] {ticker}: 가격 조회 실패")
                 return None
 
-            print(f"  sell {ticker} {qty}주 @ {price:,.2f} {currency}  [유니버스 외 정리]")
+            print(f"  sell {_label_ticker(ticker, self.universe)} {qty}주 @ {price:,.2f} {currency}  [유니버스 외 정리]")
             order = stock.sell(qty=qty, price=price)
             filled, price = self._wait_for_fill(
                 order, lambda p: stock.sell(qty=qty, price=p),
@@ -868,7 +911,7 @@ class KisRebalancer:
                 return f"[timeout] 매도 {ticker} {qty}주"
 
             _append_order_log(ticker, "sell", qty, price, currency, self.usd_krw, "ok")
-            return f"매도 {ticker} {qty}주 @ {price:,.2f} {currency} [정리]"
+            return f"매도 {_label_ticker(ticker, self.universe)} {qty}주 @ {price:,.2f} {currency} [정리]"
 
         except Exception as e:
             print(f"  [error] {ticker}: {e}")
@@ -918,7 +961,7 @@ class KisRebalancer:
                     print(f"  [경고] {ticker}: 주문 수량 {qty}주 → 실보유 {held_qty}주로 조정")
                     qty = held_qty
 
-            print(f"  {action} {ticker} {qty}주 @ {price:,.2f} {currency}")
+            print(f"  {action} {_label_ticker(ticker, self.universe)} {qty}주 @ {price:,.2f} {currency}")
 
             order_fn = getattr(stock, action)
             order = order_fn(qty=qty, price=price)
@@ -931,7 +974,7 @@ class KisRebalancer:
 
             label = "매수" if action == "buy" else "매도"
             _append_order_log(ticker, action, qty, price, currency, self.usd_krw, "ok")
-            return f"{label} {ticker} {qty}주 @ {price:,.2f} {currency}"
+            return f"{label} {_label_ticker(ticker, self.universe)} {qty}주 @ {price:,.2f} {currency}"
 
         except Exception as e:
             print(f"  [error] {ticker}: {e}")

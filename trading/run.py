@@ -127,7 +127,8 @@ def _compute_trigger(
 
     min_days = int(config.get("rebalancing", {}).get("min_rebalance_interval_days", 7))
     if last_rebalanced_at:
-        days_since = (datetime.now() - datetime.fromisoformat(last_rebalanced_at)).days
+        # 달력일 기준 — "1일 쿨다운"은 "다음 달력일까지 대기"를 의미
+        days_since = (datetime.now().date() - datetime.fromisoformat(last_rebalanced_at).date()).days
         if days_since < min_days:
             return False, f"cooldown({days_since}d/{min_days}d)"
 
@@ -467,6 +468,7 @@ def run_monitor(config: dict, state: dict, messenger: Messenger, args) -> None:
         rebalancer.get_portfolio_state()
     )
     state["peak_krw"] = rebalancer._peak_krw
+    state["last_total_all_krw"] = rebalancer._last_total_all_krw
     usd_pct = total_usd_krw / total_krw * 100 if total_krw else 0
     krw_pct = total_krw_only / total_krw * 100 if total_krw else 0
     print(f"    총 자산: {total_krw:,.0f} 원  │  USD {usd_pct:.1f}% / KRW {krw_pct:.1f}%")
@@ -603,6 +605,24 @@ def run_execution(config: dict, state: dict, messenger: Messenger, args) -> None
         print(f"[{side.upper()}] 트리거 없음 ({reason}) → 실행 생략")
         return
 
+    # Stale trigger 차단 — 모니터 크래시 후 옛날 trigger·saved_targets로 실행되는 것 방지
+    trigger_set_at = state.get("trigger_set_at")
+    if trigger_set_at and not getattr(args, "force", False):
+        try:
+            age_h = (datetime.now() - datetime.fromisoformat(trigger_set_at)).total_seconds() / 3600
+        except (ValueError, TypeError):
+            age_h = 0.0
+        max_age_h = float(config.get("rebalancing", {}).get("trigger_max_age_hours", 8.0))
+        if age_h > max_age_h:
+            print(
+                f"[{side.upper()}] 트리거 stale ({age_h:.1f}h 전 설정 > {max_age_h:.0f}h) "
+                f"→ 실행 중단, 모니터 재실행 필요"
+            )
+            messenger.send_system_error(
+                RuntimeError(f"{side.upper()} trigger stale ({age_h:.1f}h) — monitor 크래시 가능성")
+            )
+            return
+
     print(f"[{side.upper()}] 트리거 확인: {reason}")
 
     blended_targets = state.get("saved_blended_targets")
@@ -634,6 +654,7 @@ def run_execution(config: dict, state: dict, messenger: Messenger, args) -> None
             )
 
     state["peak_krw"] = rebalancer._peak_krw
+    state["last_total_all_krw"] = rebalancer._last_total_all_krw
     usd_pct = total_usd_krw / total_krw * 100 if total_krw else 0
     krw_pct = total_krw_only / total_krw * 100 if total_krw else 0
     print(f"    총 자산: {total_krw:,.0f} 원  │  USD {usd_pct:.1f}% / KRW {krw_pct:.1f}%")
@@ -685,7 +706,7 @@ def run_execution(config: dict, state: dict, messenger: Messenger, args) -> None
     )
 
     merged_target = merge_to_total_weights(target_usd, target_krw, total_usd_krw, total_krw_only)
-    _print_targets(target_usd, target_krw, merged_target, current_weights, side)
+    _print_targets(target_usd, target_krw, merged_target, current_weights, side, config["universe"])
 
     print("[8] 리밸런싱 실행...")
     if args.dry_run:
@@ -740,6 +761,7 @@ def run_execution(config: dict, state: dict, messenger: Messenger, args) -> None
         order_log=order_log,
         deferred_buys=new_deferred,
         confidence=combined_conf,
+        universe=config["universe"],
     )
 
     print("━" * 50)
@@ -752,7 +774,9 @@ def _print_targets(
     merged_target: dict,
     current_weights: dict,
     side: str,
+    universe: dict,
 ) -> None:
+    from executor import _label_ticker
     targets = target_usd if side == "usd" else target_krw
     label = "USD 계좌" if side == "usd" else "KRW 계좌"
     print(f"    목표 비중 [{label}]:")
@@ -761,7 +785,8 @@ def _print_targets(
             total_frac = merged_target.get(ticker, 0.0)
             cur = current_weights.get(ticker, 0.0)
             sign = "▲" if total_frac - cur > 0.005 else ("▼" if total_frac - cur < -0.005 else " ")
-            print(f"      {sign} {ticker:<8} 계좌:{w:.1%}  전체:{total_frac:.1%}  현재:{cur:.1%}")
+            tlabel = _label_ticker(ticker, universe)
+            print(f"      {sign} {tlabel:<24} 계좌:{w:.1%}  전체:{total_frac:.1%}  현재:{cur:.1%}")
 
 
 # ── 진입점 ────────────────────────────────────────────────────────────────────
@@ -812,6 +837,8 @@ def main() -> None:
         sys.exit(1)
 
     state = load_state()
+    # 데드 키 정리 (T+2 추적 제거 이후)
+    state.pop("pending_sells", None)
 
     try:
         if args.mode == "monitor":

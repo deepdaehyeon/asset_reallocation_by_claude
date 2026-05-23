@@ -53,9 +53,17 @@ class Messenger:
         order_log: List[str],
         deferred_buys: Optional[List[dict]] = None,
         confidence: float = 0.0,
+        universe: Optional[Dict[str, dict]] = None,
     ) -> None:
+        def _label(ticker: str) -> str:
+            if not universe:
+                return ticker
+            info = universe.get(ticker)
+            name = info.get("name") if info else None
+            return f"{ticker}({name})" if name and ticker.isdigit() else ticker
+
         weight_lines = "\n".join(
-            f">   {ticker:<8} {current_weights.get(ticker, 0):.1%} → {w:.1%}"
+            f">   {_label(ticker):<24} {current_weights.get(ticker, 0):.1%} → {w:.1%}"
             for ticker, w in sorted(target_weights.items(), key=lambda x: -x[1])
             if w > 0
         )
@@ -64,7 +72,7 @@ class Messenger:
         deferred_section = ""
         if deferred_buys:
             lines = "\n".join(
-                f">   :hourglass: {d['ticker']} {d['amount_krw']:,.0f}원 ({d['currency']}) — T+2 대기"
+                f">   :hourglass: {_label(d['ticker'])} {d['amount_krw']:,.0f}원 ({d['currency']}) — T+2 대기"
                 for d in deferred_buys
             )
             deferred_section = f"\n*지연 매수 (합성 노출로 대체):*\n{lines}"

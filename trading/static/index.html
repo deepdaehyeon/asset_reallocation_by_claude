@@ -206,10 +206,6 @@ body{
         <div class="s-value" id="peak-krw">—</div>
       </div>
       <div class="state-item">
-        <div class="s-label">미결제 매도</div>
-        <div class="s-value" id="pending-sells">—</div>
-      </div>
-      <div class="state-item">
         <div class="s-label">지연 매수</div>
         <div class="s-value" id="deferred-buys">—</div>
       </div>
@@ -301,7 +297,6 @@ async function loadState() {
   try {
     const s = await fetch('/api/state').then(r => r.json());
     el('peak-krw').textContent      = s.peak_krw ? fmtKRW(s.peak_krw) : '—';
-    el('pending-sells').textContent = s.pending_sells ? s.pending_sells.length + '건' : '—';
     el('deferred-buys').textContent = s.deferred_buys ? s.deferred_buys.length + '건' : '—';
 
     if (s.confirmed_regime) {
