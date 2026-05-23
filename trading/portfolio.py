@@ -266,6 +266,15 @@ def derive_account_weights(
     usd_pool["bond_usd"] = bond_usd_actual
     usd_remaining -= bond_usd_actual
 
+    # bond_usd 부족분 → KRW bond로 대체 (priority 3, replaceable)
+    bond_usd_shortfall = max(0.0, targets.get("bond_usd", 0.0) * total - bond_usd_actual)
+    if bond_usd_shortfall > total * 0.001:
+        print(
+            f"    [USD 부족 대체] bond_usd "
+            f"{targets.get('bond_usd', 0.0)*100:.1f}% → {bond_usd_actual/total*100:.1f}%, "
+            f"부족분 {bond_usd_shortfall/total*100:.1f}%를 bond_krw로 대체"
+        )
+
     # 잔여 USD → 기배정 항목 비례 확대 (현금 usd_cash_min 보존, 나머지 소진)
     allocated = sum(usd_pool.values())
     if allocated > 0 and usd_remaining > 1.0:
@@ -298,8 +307,12 @@ def derive_account_weights(
         for ticker, split in routing.get("equity_etf", {}).items():
             krw_w[ticker] = (equity_etf_of_total / krw_ratio) * split
 
+        # bond_usd 부족분을 bond_krw로 흡수 (KRW 계좌 내 비중으로 환산)
+        bond_krw_extra = (bond_usd_shortfall / total) / krw_ratio
         for cls in ("gold", "bond_krw", "cash"):
             frac = targets.get(cls, 0.0) / krw_ratio
+            if cls == "bond_krw":
+                frac += bond_krw_extra
             for ticker, split in routing.get(cls, {}).items():
                 krw_w[ticker] = krw_w.get(ticker, 0.0) + frac * split
 
@@ -455,10 +468,14 @@ def apply_synthetic_reallocation(
 
     deferred_buys: [{ticker, amount_krw, currency}, ...]
     synthetic_pairs: {usd_ticker: krw_ticker}
+
+    정규화는 입력 target의 합계를 보존한다 (예: 99% → 99%). 1.0으로 정규화하면
+    상위에서 확보한 1% 현금 reserve가 손실되므로 원래 합계로 스케일링한다.
     """
     if not deferred_buys or total_krw <= 0:
         return dict(target)
 
+    original_sum = sum(target.values())
     adjusted = dict(target)
     added_any = False
     for item in deferred_buys:
@@ -474,7 +491,8 @@ def apply_synthetic_reallocation(
 
     if added_any:
         total = sum(adjusted.values())
-        if total > 0:
-            adjusted = {k: v / total for k, v in adjusted.items()}
+        if total > 0 and original_sum > 0:
+            scale = original_sum / total
+            adjusted = {k: v * scale for k, v in adjusted.items()}
 
     return adjusted
