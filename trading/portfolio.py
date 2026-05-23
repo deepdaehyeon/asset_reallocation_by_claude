@@ -202,15 +202,17 @@ def derive_account_weights(
     """
     블렌딩·조정된 자산군 목표 비중으로부터 계좌별 종목 비중을 동적으로 도출한다.
 
-    USD 배정 우선순위:
-      1순위 — commodity, managed_futures (KRW 대체재 없음, 전액 배정)
-      2순위 — equity_factor + equity_individual (USD 전용, 예산 내 비례 배분)
-      3순위 — bond_usd (잔여 예산에만)
-      잔여 USD → 1~3 항목 비례 확대 (USD 계좌 100% 소진)
+    USD 배정 우선순위 (단계 내 pro-rata):
+      1순위 — commodity, managed_futures           (대체 불가, 전액 배정)
+      2a순위 — equity_factor/sector/individual    (USD core equity, equity_etf 대체)
+      2b순위 — equity_developed/equity_emerging   (USD intl equity, 한국 대체재 회피로 equity_etf 대체)
+      3순위 — bond_usd, bond_tips                  (USD bonds, bond_krw 대체)
+      잔여 USD → 기배정 항목 비례 확대 (1% 현금 reserve만 유지)
 
     KRW 배정:
-      equity_etf = 총 equity 목표 - USD equity 실제 배분 (자동 흡수)
-      gold, bond_krw, cash = 목표 그대로
+      equity_etf = 모든 equity_* 목표 - USD 실제 equity 배분 (자동 흡수)
+      bond_krw = 자체 목표 + bond_usd/bond_tips 부족분
+      gold, cash = 목표 그대로
 
     Args:
         targets: blend_regime_targets() 또는 regime_targets[regime] 반환값
@@ -226,89 +228,90 @@ def derive_account_weights(
     krw_ratio = total_krw_only / total
 
     # ── USD 예산 배정 ────────────────────────────────────────────────────────
-    # USD 계좌 최소 현금 비율 (항상 이 비율 이상 현금 보유)
     usd_cash_min = float(config.get("rebalancing", {}).get("usd_cash_min", 0.01))
     usd_investable = total_usd_krw * (1.0 - usd_cash_min)
 
     usd_pool: dict = {}
     usd_remaining = usd_investable
 
+    def _allocate_group(classes, group_label: str) -> Tuple[float, float]:
+        """그룹 내 pro-rata 배정. (wanted, actual) 반환."""
+        wanted = sum(targets.get(c, 0.0) * total for c in classes)
+        actual = min(wanted, max(usd_remaining, 0.0))
+        for cls in classes:
+            cls_t = targets.get(cls, 0.0) * total
+            usd_pool[cls] = actual * cls_t / wanted if wanted > 0 else 0.0
+        return wanted, actual
+
+    # Priority 1: 비대체 자산
     for cls in ("commodity", "managed_futures"):
         amt = min(targets.get(cls, 0.0) * total, usd_remaining)
         usd_pool[cls] = amt
         usd_remaining -= amt
 
-    # equity_factor + equity_sector + equity_individual: USD 예산 내에서 비례 배분
-    eq_factor_wanted = targets.get("equity_factor", 0.0) * total
-    eq_sector_wanted = targets.get("equity_sector", 0.0) * total
-    eq_ind_wanted    = targets.get("equity_individual", 0.0) * total
-    eq_usd_wanted    = eq_factor_wanted + eq_sector_wanted + eq_ind_wanted
-    eq_usd_actual    = min(eq_usd_wanted, max(usd_remaining, 0.0))
-    usd_remaining   -= eq_usd_actual
+    # Priority 2a: USD equity core (factor/sector/individual)
+    core_eq = ("equity_factor", "equity_sector", "equity_individual")
+    core_w, core_a = _allocate_group(core_eq, "equity_core")
+    usd_remaining -= core_a
 
-    if eq_usd_wanted > 0:
-        usd_pool["equity_factor"]     = eq_usd_actual * eq_factor_wanted / eq_usd_wanted
-        usd_pool["equity_sector"]     = eq_usd_actual * eq_sector_wanted / eq_usd_wanted
-        usd_pool["equity_individual"] = eq_usd_actual * eq_ind_wanted    / eq_usd_wanted
-    else:
-        usd_pool["equity_factor"]     = 0.0
-        usd_pool["equity_sector"]     = 0.0
-        usd_pool["equity_individual"] = 0.0
+    # Priority 2b: USD equity intl (developed/emerging) — 한국 대체재 회피, 마지막 equity
+    intl_eq = ("equity_developed", "equity_emerging")
+    intl_w, intl_a = _allocate_group(intl_eq, "equity_intl")
+    usd_remaining -= intl_a
 
-    if eq_usd_wanted - eq_usd_actual > total * 0.001:
+    # Priority 3: USD bonds (bond_usd + bond_tips)
+    bond_cls = ("bond_usd", "bond_tips")
+    bond_w, bond_a = _allocate_group(bond_cls, "bond_usd")
+    usd_remaining -= bond_a
+
+    # 로깅
+    if core_w - core_a > total * 0.001:
         print(
-            f"    [USD 예산 조정] equity(factor+sector+individual) "
-            f"{eq_usd_wanted/total:.1%} → {eq_usd_actual/total:.1%} "
-            f"(USD 비중 {total_usd_krw/total:.0%} 한도)"
+            f"    [USD 예산 조정] equity_core(factor+sector+individual) "
+            f"{core_w/total*100:.1f}% → {core_a/total*100:.1f}% (USD 한도 {total_usd_krw/total:.0%})"
+        )
+    if intl_w - intl_a > total * 0.001:
+        print(
+            f"    [USD 부족 대체] equity_intl(developed+emerging) "
+            f"{intl_w/total*100:.1f}% → {intl_a/total*100:.1f}%, 부족분 equity_etf로 대체"
+        )
+    bond_shortfall = max(0.0, bond_w - bond_a)
+    if bond_shortfall > total * 0.001:
+        print(
+            f"    [USD 부족 대체] bond(usd+tips) "
+            f"{bond_w/total*100:.1f}% → {bond_a/total*100:.1f}%, 부족분 {bond_shortfall/total*100:.1f}%를 bond_krw로 대체"
         )
 
-    bond_usd_actual = min(targets.get("bond_usd", 0.0) * total, max(usd_remaining, 0.0))
-    usd_pool["bond_usd"] = bond_usd_actual
-    usd_remaining -= bond_usd_actual
-
-    # bond_usd 부족분 → KRW bond로 대체 (priority 3, replaceable)
-    bond_usd_shortfall = max(0.0, targets.get("bond_usd", 0.0) * total - bond_usd_actual)
-    if bond_usd_shortfall > total * 0.001:
-        print(
-            f"    [USD 부족 대체] bond_usd "
-            f"{targets.get('bond_usd', 0.0)*100:.1f}% → {bond_usd_actual/total*100:.1f}%, "
-            f"부족분 {bond_usd_shortfall/total*100:.1f}%를 bond_krw로 대체"
-        )
-
-    # 잔여 USD → 기배정 항목 비례 확대 (현금 usd_cash_min 보존, 나머지 소진)
+    # 잔여 USD → 기배정 항목 비례 확대
     allocated = sum(usd_pool.values())
     if allocated > 0 and usd_remaining > 1.0:
         scale = usd_investable / allocated
         usd_pool = {k: v * scale for k, v in usd_pool.items()}
 
-    # 계좌 비중으로 변환
+    # USD 계좌 비중
     usd_w: dict = {}
     for cls, amt in usd_pool.items():
         for ticker, split in routing.get(cls, {}).items():
             usd_w[ticker] = usd_w.get(ticker, 0.0) + (amt / total_usd_krw) * split
 
     # ── KRW 배정 ────────────────────────────────────────────────────────────
-    eq_factor_final = usd_pool.get("equity_factor", 0.0)
-    eq_sector_final = usd_pool.get("equity_sector", 0.0)
-    eq_ind_final    = usd_pool.get("equity_individual", 0.0)
-    equity_total_target = (
-        targets.get("equity_etf", 0.0)
-        + targets.get("equity_individual", 0.0)
-        + targets.get("equity_factor", 0.0)
-        + targets.get("equity_sector", 0.0)
+    all_eq_classes = (
+        "equity_etf", "equity_factor", "equity_sector",
+        "equity_individual", "equity_developed", "equity_emerging",
     )
-    equity_etf_of_total = max(
-        0.0,
-        equity_total_target - (eq_factor_final + eq_sector_final + eq_ind_final) / total,
-    )
+    equity_total_target = sum(targets.get(c, 0.0) for c in all_eq_classes)
+    usd_eq_allocated = sum(usd_pool.get(c, 0.0) for c in (
+        "equity_factor", "equity_sector", "equity_individual",
+        "equity_developed", "equity_emerging",
+    ))
+    equity_etf_of_total = max(0.0, equity_total_target - usd_eq_allocated / total)
 
     krw_w: dict = {}
     if krw_ratio > 0:
         for ticker, split in routing.get("equity_etf", {}).items():
             krw_w[ticker] = (equity_etf_of_total / krw_ratio) * split
 
-        # bond_usd 부족분을 bond_krw로 흡수 (KRW 계좌 내 비중으로 환산)
-        bond_krw_extra = (bond_usd_shortfall / total) / krw_ratio
+        bond_krw_extra = (bond_shortfall / total) / krw_ratio
         for cls in ("gold", "bond_krw", "cash"):
             frac = targets.get(cls, 0.0) / krw_ratio
             if cls == "bond_krw":
@@ -316,7 +319,7 @@ def derive_account_weights(
             for ticker, split in routing.get(cls, {}).items():
                 krw_w[ticker] = krw_w.get(ticker, 0.0) + frac * split
 
-    # KRW 계좌 최소 현금 비율 확보 후 정규화 (수수료·거래 거절 여유분)
+    # KRW 1% 현금 reserve 보존 후 정규화
     krw_cash_min = float(config.get("rebalancing", {}).get("krw_cash_min", 0.01))
     krw_investable = 1.0 - krw_cash_min
     krw_total = sum(krw_w.values())
@@ -482,11 +485,18 @@ def apply_synthetic_reallocation(
         syn = synthetic_pairs.get(item["ticker"])
         if not syn or item.get("currency") != "USD":
             continue
-        extra = item["amount_krw"] / total_krw
-        adjusted[syn] = adjusted.get(syn, 0.0) + extra
+        extra_total = item["amount_krw"] / total_krw
+        # syn: str (단일 티커) 또는 dict (다중 티커 + 가중치)
+        if isinstance(syn, dict):
+            for tk, weight in syn.items():
+                adjusted[tk] = adjusted.get(tk, 0.0) + extra_total * weight
+            syn_label = "+".join(f"{tk}×{w:.0%}" for tk, w in syn.items())
+        else:
+            adjusted[syn] = adjusted.get(syn, 0.0) + extra_total
+            syn_label = syn
         added_any = True
         print(
-            f"    [합성] {item['ticker']} 지연 → {syn} +{extra:.1%} 임시 반영"
+            f"    [합성] {item['ticker']} 지연 → {syn_label} +{extra_total:.1%} 임시 반영"
         )
 
     if added_any:
