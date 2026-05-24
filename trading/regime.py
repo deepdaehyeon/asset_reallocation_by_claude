@@ -211,8 +211,11 @@ class HmmRegimeClassifier:
     """
     GaussianHMM 기반 비지도 레짐 분류기.
 
-    학습: 역사적 피처 행렬로 4-상태 HMM 적합
-    레이블 매핑: 각 HMM 상태를 규칙 기반 레짐과 매핑 (다수결)
+    학습: 역사적 피처 행렬로 5-상태 HMM 적합
+    레이블 매핑:
+      Primary (unsupervised=True, 기본): 각 HMM state의 피처 통계(성장·인플레·변동성)로 레짐 결정.
+        detect_regime 자기참조 없음. ambiguous할 경우 legacy로 자동 폴백.
+      Legacy (unsupervised=False 또는 폴백 시): detect_regime 다수결 + 미매핑 레짐 강제 매핑.
     추론: 현재 피처 → 레짐별 사후 확률 dict
 
     의존성: hmmlearn, scikit-learn (requirements.txt)
@@ -220,10 +223,12 @@ class HmmRegimeClassifier:
 
     N_STATES = 5  # Goldilocks / Reflation / Slowdown / Stagflation / Crisis
 
-    def __init__(self) -> None:
+    def __init__(self, unsupervised_mapping: bool = True) -> None:
         self._model = None
         self._scaler = None
         self._state_to_regime: dict[int, str] = {}
+        self._unsupervised_mapping = unsupervised_mapping
+        self._mapping_method: str = "unknown"  # "unsupervised" | "legacy" | "legacy-fallback"
 
     def fit(self, feature_matrix) -> None:
         """
@@ -231,7 +236,6 @@ class HmmRegimeClassifier:
 
         feature_matrix: pd.DataFrame with columns ⊇ active feature cols
         """
-        from collections import Counter
         import io
         import warnings
         from contextlib import redirect_stderr
@@ -247,7 +251,6 @@ class HmmRegimeClassifier:
         self._feature_cols = active_cols
 
         X = feature_matrix[active_cols].values.astype(float)
-        # 수치 안정성: NaN/Inf 제거 후 표준화, 극단값 클리핑
         X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
 
         scaler = StandardScaler()
@@ -262,18 +265,15 @@ class HmmRegimeClassifier:
                 covariance_type="diag",
                 n_iter=300,
                 random_state=seed,
-                tol=1e-3,        # 수렴 판정 완화 (경고/진동 감소)
-                min_covar=1e-3,  # 공분산 바닥값으로 수치 불안정 완화
+                tol=1e-3,
+                min_covar=1e-3,
             )
             with warnings.catch_warnings():
-                # hmmlearn 내부 EM 모니터 경고는 빈번하며, 수렴 여부는 monitor_로 재확인한다.
                 warnings.filterwarnings("ignore", category=ConvergenceWarning)
-                # 일부 환경에서는 수렴 메시지가 stderr로 직접 출력될 수 있어, 학습 구간에서만 숨긴다.
                 with redirect_stderr(io.StringIO()):
                     m.fit(X_scaled)
             return m
 
-        # HMM은 초기값/seed에 민감하므로, 몇 번 재시도 후 가장 좋은 모델을 채택
         candidates = []
         for seed in (42, 7, 13):
             m = _fit_once(seed)
@@ -281,20 +281,174 @@ class HmmRegimeClassifier:
             score = float(m.score(X_scaled))
             candidates.append((converged, score, m))
 
-        # 1순위: converged=True 중 score 최대, 2순위: score 최대
         candidates.sort(key=lambda x: (x[0], x[1]), reverse=True)
         model = candidates[0][2]
         self._model = model
 
-        # 각 행의 규칙 기반 레짐을 레이블로 사용 → HMM 상태 매핑
-        # 사용 가능한 모든 열을 detect_regime에 전달 (더 정확한 레이블 생성)
         states = model.predict(X_scaled)
+
+        # ── 매핑 결정: unsupervised 우선, ambiguous하면 legacy 폴백 ──────────
+        mapping: dict[int, str] | None = None
+        if self._unsupervised_mapping:
+            mapping = self._unsupervised_state_mapping(states, feature_matrix)
+            if mapping is None:
+                self._mapping_method = "legacy-fallback"
+            else:
+                self._mapping_method = "unsupervised"
+
+        if mapping is None:
+            mapping = self._legacy_state_mapping(states, feature_matrix)
+            if not self._unsupervised_mapping:
+                self._mapping_method = "legacy"
+
+        self._state_to_regime = mapping
+
+    def _unsupervised_state_mapping(
+        self, states, feature_matrix
+    ) -> dict[int, str] | None:
+        """
+        각 HMM state별 피처 평균에서 레짐을 추론한다.
+
+        규칙:
+          1. realized_vol이 가장 높고 충분히 극단적인 state → Crisis
+          2. 나머지 state를 성장 score 기준 정렬:
+             - 성장 score = momentum_1m + momentum_3m + credit_signal (+curve_10y2y 가중)
+             - 인플레 score = commodity_mom_1m + hy_spread_zscore + (vix-20)/50 + cpi_yoy/10
+          3. 4개 state면: 하위 2 (성장↓) → {Slowdown, Stagflation}, 상위 2 (성장↑) → {Goldilocks, Reflation}
+             각 그룹 내에서 인플레 score 높은 쪽이 Stagflation / Reflation, 낮은 쪽이 Slowdown / Goldilocks
+          4. ambiguous (분류된 레짐 < 3종 또는 빈 state ≥ 2개) → None 반환하여 legacy 폴백
+
+        detect_regime 자기참조 없음. 매핑 품질이 낮을 경우 None을 돌려 legacy 경로로 위임.
+        """
+        import numpy as np
+
+        cols = self._feature_cols
+
+        # state별 피처 평균
+        state_stats: dict[int, dict[str, float] | None] = {}
+        empty_states = 0
+        for s in range(self.N_STATES):
+            idxs = np.where(states == s)[0]
+            if len(idxs) == 0:
+                state_stats[s] = None
+                empty_states += 1
+                continue
+            means = {
+                c: float(feature_matrix[c].iloc[idxs].mean())
+                for c in cols
+                if c in feature_matrix.columns
+            }
+            state_stats[s] = means
+
+        if empty_states >= 2:
+            return None  # 너무 많은 state가 비어 있음 → 매핑 신뢰도 낮음
+
+        valid = [s for s, st in state_stats.items() if st is not None]
+        if len(valid) < 3:
+            return None
+
+        # 1. Crisis 식별: realized_vol 최댓값이 충분히 극단적인 경우만
+        rv_pairs = [(s, state_stats[s].get("realized_vol", 0.0)) for s in valid]
+        rv_pairs.sort(key=lambda x: x[1], reverse=True)
+        crisis_state: int | None = rv_pairs[0][0]
+        crisis_rv = rv_pairs[0][1]
+        second_rv = rv_pairs[1][1] if len(rv_pairs) > 1 else 0.0
+        # 0.25 이상 (= 연환산 25%) 이거나 두번째 state 대비 50% 이상 높을 때만 Crisis
+        is_crisis_clear = crisis_rv >= 0.25 or (
+            second_rv > 1e-6 and crisis_rv >= second_rv * 1.5
+        )
+        if not is_crisis_clear:
+            crisis_state = None
+
+        # 2. 나머지 state의 성장·인플레 score 계산
+        def growth_score(st: dict[str, float]) -> float:
+            score = 0.0
+            score += st.get("momentum_1m", 0.0)
+            score += st.get("momentum_3m", 0.0)
+            score += st.get("credit_signal", 0.0)
+            if "curve_10y2y" in st:
+                # 가파른 커브(>1.0)는 확장, 역전(<0)은 침체 — 중립 0.5 기준
+                score += (st["curve_10y2y"] - 0.5) * 0.01
+            return score
+
+        def infl_score(st: dict[str, float]) -> float:
+            score = 0.0
+            score += st.get("commodity_mom_1m", 0.0)
+            if "hy_spread_zscore" in st:
+                score += st["hy_spread_zscore"] * 0.03
+            if "cpi_yoy" in st:
+                score += (st["cpi_yoy"] - 2.0) * 0.01  # 2% 중립 기준
+            if "vix" in st:
+                score += (st["vix"] - 20.0) / 200.0
+            return score
+
+        others = [s for s in valid if s != crisis_state]
+        if not others:
+            return None
+
+        scored = [
+            (s, growth_score(state_stats[s]), infl_score(state_stats[s]))
+            for s in others
+        ]
+
+        mapping: dict[int, str] = {}
+        if crisis_state is not None:
+            mapping[crisis_state] = "Crisis"
+
+        # 비지도 매핑은 성장 score 정렬 후 인플레로 결합
+        scored.sort(key=lambda x: x[1])  # growth 오름차순
+        n = len(scored)
+
+        if n == 1:
+            mapping[scored[0][0]] = DEFAULT_REGIME
+        elif n == 2:
+            lo, hi = scored
+            mapping[lo[0]] = "Slowdown" if lo[1] < 0 else "Goldilocks"
+            mapping[hi[0]] = "Reflation" if hi[2] > 0 else "Goldilocks"
+        elif n == 3:
+            lo, mid, hi = scored
+            mapping[lo[0]] = "Stagflation" if lo[2] > 0 else "Slowdown"
+            mapping[mid[0]] = "Goldilocks"
+            mapping[hi[0]] = "Reflation" if hi[2] > 0 else "Goldilocks"
+        else:  # n == 4
+            neg = scored[:2]
+            pos = scored[2:]
+            # neg group: 인플레 높은 쪽 = Stagflation, 낮은 쪽 = Slowdown
+            if neg[0][2] >= neg[1][2]:
+                mapping[neg[0][0]] = "Stagflation"
+                mapping[neg[1][0]] = "Slowdown"
+            else:
+                mapping[neg[0][0]] = "Slowdown"
+                mapping[neg[1][0]] = "Stagflation"
+            # pos group: 인플레 높은 쪽 = Reflation, 낮은 쪽 = Goldilocks
+            if pos[0][2] >= pos[1][2]:
+                mapping[pos[0][0]] = "Reflation"
+                mapping[pos[1][0]] = "Goldilocks"
+            else:
+                mapping[pos[0][0]] = "Goldilocks"
+                mapping[pos[1][0]] = "Reflation"
+
+        # 비어 있던 state는 DEFAULT_REGIME로 채움 (predict_proba에서 거의 0 확률)
+        for s in range(self.N_STATES):
+            if s not in mapping:
+                mapping[s] = DEFAULT_REGIME
+
+        # 매핑 품질 검증: 분류된 distinct 레짐이 3종 이상이어야 신뢰
+        distinct = set(mapping[s] for s in valid)
+        if len(distinct) < 3:
+            return None
+
+        return mapping
+
+    def _legacy_state_mapping(self, states, feature_matrix) -> dict[int, str]:
+        """detect_regime 다수결 기반 매핑 (legacy 및 unsupervised 폴백)."""
+        from collections import Counter
+
         rule_labels = [
             detect_regime(row)
             for row in feature_matrix.to_dict(orient="records")
         ]
 
-        # Step 1: 각 HMM state → 그 state에서 가장 흔한 rule label
         mapping: dict[int, str] = {}
         for s in range(self.N_STATES):
             idxs = [i for i, st in enumerate(states) if st == s]
@@ -304,9 +458,7 @@ class HmmRegimeClassifier:
             else:
                 mapping[s] = DEFAULT_REGIME
 
-        # Step 2: 학습 데이터에는 존재하지만 어떤 state에도 매핑되지 않은 레짐을 구제.
-        # 그 레짐 시점들의 dominant HMM state를 찾아 강제 매핑 (가장 빈번한 state 덮어씀).
-        # 이 보강이 없으면 Crisis/Stagflation처럼 희귀한 레짐은 predict_proba에서 영구 0.
+        # 미매핑 희귀 레짐 강제 매핑 (Crisis/Stagflation 보강)
         seen_regimes = set(rule_labels)
         mapped_regimes = set(mapping.values())
         unmapped = seen_regimes - mapped_regimes
@@ -316,14 +468,9 @@ class HmmRegimeClassifier:
                 continue
             regime_states = [states[i] for i in regime_idxs]
             dominant_state = Counter(regime_states).most_common(1)[0][0]
-            prev = mapping[dominant_state]
             mapping[dominant_state] = regime
-            print(
-                f"    [HMM 매핑 보강] {regime} 미매핑 → state {dominant_state} "
-                f"({prev} → {regime}로 강제 매핑)"
-            )
 
-        self._state_to_regime = mapping
+        return mapping
 
     def predict_proba(self, feature_sequence) -> dict[str, float]:
         """

@@ -323,6 +323,11 @@ hmm:
   override_threshold: 0.60
   rf_enabled: true         # BalancedRF 앙상블 (소수 레짐 탐지 보강)
   rf_weight: 0.40          # RF 확률 가중치 (HMM 0.6 + RF 0.4)
+  # state→regime 매핑 방식:
+  #   true (기본): HMM state별 피처 통계로 비지도 매핑 (detect_regime 자기참조 제거)
+  #                매핑이 ambiguous하면 legacy로 자동 폴백
+  #   false      : legacy detect_regime 다수결 매핑만 사용
+  unsupervised_mapping: true
 
 # 이상 탐지 (Option C — detect_regime 자기참조 없는 독립 신호)
 # IsolationForest로 현재 시장이 학습 분포에서 얼마나 벗어났는지 측정.

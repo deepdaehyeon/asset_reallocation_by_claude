@@ -106,6 +106,7 @@ class BacktestEngine:
         self.predict_lookback = hmm_cfg.get("predict_lookback", 60)
         self.rf_enabled = hmm_cfg.get("rf_enabled", True)
         self.rf_weight = float(hmm_cfg.get("rf_weight", 0.40))
+        self.unsupervised_mapping = bool(hmm_cfg.get("unsupervised_mapping", True))
 
         eq_classes = set(config.get("vol_targeting", {}).get(
             "equity_asset_classes",
@@ -143,7 +144,7 @@ class BacktestEngine:
             )
             fm = compute_feature_matrix(sig, fred_slice)
             if len(fm) >= self.hmm_min:
-                clf = HmmRegimeClassifier()
+                clf = HmmRegimeClassifier(unsupervised_mapping=self.unsupervised_mapping)
                 # hmmlearn EM은 경계 케이스에서 수렴 경고가 잦다.
                 # 수렴 여부는 내부에서 재시도/선택 로직으로 보완하므로, 백테스트 출력은 조용히 유지.
                 import warnings

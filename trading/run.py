@@ -240,7 +240,8 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
     rf_weight = float(hmm_cfg.get("rf_weight", 0.40))
 
     if hmm_enabled and len(feature_matrix) >= hmm_min:
-        hmm_clf = HmmRegimeClassifier()
+        unsupervised_mapping = hmm_cfg.get("unsupervised_mapping", True)
+        hmm_clf = HmmRegimeClassifier(unsupervised_mapping=unsupervised_mapping)
         import warnings
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=ConvergenceWarning)

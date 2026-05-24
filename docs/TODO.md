@@ -114,15 +114,15 @@
 >
 > 아래는 남은 후속 항목.
 
-### HMM/RF 자기참조 학습 — `regime.py:fit` 🔄 진행 중
+### HMM/RF 자기참조 학습 — `regime.py:fit` ✅ HMM 측 적용 완료
 
-**현 상태**: HMM의 상태→레짐 매핑과 RF의 학습 레이블 둘 다 `detect_regime` 결과. 두 모델 모두 본질적으로 규칙기반의 smoothing 근사기.
+**현 상태**: HMM 매핑은 비지도 state-feature 방식으로 전환 완료. RF는 여전히 detect_regime 라벨 학습 (자기참조 잔존).
 
 **진행 계획** (옵션 C → A → 비교):
 
 - ✅ **옵션 C 적용 (2026-05-24)** — `AnomalyDetector(IsolationForest)` 추가. detect_regime 자기참조 없는 **독립 신호**. anomaly_score(0~1)로 분류 신뢰도에 선형 패널티 적용 → 높은 이상도 시 `DEFAULT_REGIME` 폴백 트리거. config: `anomaly.contamination=0.05`, `confidence_penalty=0.5`. HMM/RF는 그대로 유지.
-- ⏸ **옵션 A 다음 적용 예정** — HMM unsupervised 학습 후 상태별 피처 통계(수익률·변동성·credit spread 등)로 사후 레짐 라벨링. 현재의 detect_regime 기반 majority voting 매핑을 대체. 백테스트로 검증 필요.
-- ⏸ **옵션 A vs C 비교 후 fallback 결정** — A의 매핑이 ambiguous하거나 백테스트 성능이 불안정할 경우 현재 detect_regime 기반 매핑(or anomaly-only 폴백)을 fallback으로 유지.
+- ✅ **옵션 A 적용 (2026-05-24)** — `HmmRegimeClassifier`에 `_unsupervised_state_mapping` 추가. HMM state별 피처 평균(realized_vol/momentum/credit/inflation)으로 직접 레짐 매핑. config: `hmm.unsupervised_mapping=true`. detect_regime 다수결 매핑은 `_legacy_state_mapping`로 보존하고 ambiguous 시 자동 폴백. 백테스트(2010-2025): Sharpe 보존, MaxDD −1.92pp 개선, Calmar +0.13 개선. 자세한 결과는 `docs/experiment_2026-05-24_hmm_unsupervised_mapping.md`.
+- ⏸ **RF 자기참조는 잔존** — `BalancedRFClassifier`는 여전히 detect_regime 라벨로 학습. RF는 단일 시점 분류기라 sequence 정보가 없어 비지도 라벨링 어려움. Phase 2의 "RF Anomaly Detector 역할 전환" 또는 HMM 매핑 결과를 RF 라벨로 위임하는 방안 검토 필요.
 - 🚫 **옵션 B 보류** — NBER 후행 발표·라벨 희소성으로 실시간 트레이딩에 부적합. 장기 연구 목표.
 
 - HMM의 상태→레짐 매핑과 RF의 학습 레이블 둘 다 `detect_regime` 결과. 두 모델 모두 본질적으로 규칙기반의 smoothing 근사기로 동작 → 진정한 앙상블 효과 미흡.
