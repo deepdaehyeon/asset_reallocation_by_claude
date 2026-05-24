@@ -114,16 +114,16 @@
 >
 > 아래는 남은 후속 항목.
 
-### HMM/RF 자기참조 학습 — `regime.py:fit` ⏸ 보류
+### HMM/RF 자기참조 학습 — `regime.py:fit` 🔄 진행 중
 
 **현 상태**: HMM의 상태→레짐 매핑과 RF의 학습 레이블 둘 다 `detect_regime` 결과. 두 모델 모두 본질적으로 규칙기반의 smoothing 근사기.
 
-**보류 이유**: 진짜 해결책은 아키텍처 변경이 필요해 한 번에 처리하기 위험.
-  - 옵션 A: HMM을 완전 unsupervised로 두고, 학습 후 상태별 자산 수익률·변동성 분포로 사후 레짐 라벨링 함수 작성
-  - 옵션 B: NBER recession dates 등 외부 ground truth 데이터 소스 통합
-  - 옵션 C: RF를 IsolationForest 등 anomaly detector로 교체 + `ensemble_regime` 재설계
+**진행 계획** (옵션 C → A → 비교):
 
-어느 방향이든 backtest로 새로 검증해야 하며, 사용자의 방향 결정이 필요. 별도 세션에서 실험 후 적용 권장.
+- ✅ **옵션 C 적용 (2026-05-24)** — `AnomalyDetector(IsolationForest)` 추가. detect_regime 자기참조 없는 **독립 신호**. anomaly_score(0~1)로 분류 신뢰도에 선형 패널티 적용 → 높은 이상도 시 `DEFAULT_REGIME` 폴백 트리거. config: `anomaly.contamination=0.05`, `confidence_penalty=0.5`. HMM/RF는 그대로 유지.
+- ⏸ **옵션 A 다음 적용 예정** — HMM unsupervised 학습 후 상태별 피처 통계(수익률·변동성·credit spread 등)로 사후 레짐 라벨링. 현재의 detect_regime 기반 majority voting 매핑을 대체. 백테스트로 검증 필요.
+- ⏸ **옵션 A vs C 비교 후 fallback 결정** — A의 매핑이 ambiguous하거나 백테스트 성능이 불안정할 경우 현재 detect_regime 기반 매핑(or anomaly-only 폴백)을 fallback으로 유지.
+- 🚫 **옵션 B 보류** — NBER 후행 발표·라벨 희소성으로 실시간 트레이딩에 부적합. 장기 연구 목표.
 
 - HMM의 상태→레짐 매핑과 RF의 학습 레이블 둘 다 `detect_regime` 결과. 두 모델 모두 본질적으로 규칙기반의 smoothing 근사기로 동작 → 진정한 앙상블 효과 미흡.
 - 보강 방향:

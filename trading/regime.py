@@ -496,6 +496,91 @@ class BalancedRFClassifier:
         return regime_probs
 
 
+class AnomalyDetector:
+    """
+    IsolationForest 기반 시장 이상 상태 탐지기 (unsupervised, detect_regime 자기참조 없음).
+
+    레짐 분류기가 아닌 **독립적인 보조 신호**.
+    현재 피처 조합이 학습 분포에서 얼마나 벗어났는지 0~1 점수로 반환.
+    - score ≈ 0  → 학습 분포 내부, 익숙한 상태
+    - score ≈ 1  → 학습 데이터에서 본 적 없는 패턴 (Black Swan 후보)
+
+    용도:
+    - 높은 anomaly_score → 레짐 분류 신뢰도 하향 → confidence_threshold 폴백 트리거
+    - 라벨 불필요(unsupervised) → HMM/RF의 detect_regime 자기참조 문제와 무관
+
+    구현: 학습 데이터의 IsolationForest decision_function 분포에서의 percentile rank.
+    """
+
+    def __init__(self, contamination: float = 0.05) -> None:
+        self._model = None
+        self._scaler = None
+        self._train_scores = None
+        self._contamination = contamination
+        self._feature_cols: list[str] = []
+
+    def fit(self, feature_matrix) -> None:
+        from sklearn.ensemble import IsolationForest
+        from sklearn.preprocessing import StandardScaler
+        import numpy as np
+
+        from features import get_active_feature_cols
+
+        active_cols = get_active_feature_cols(feature_matrix)
+        self._feature_cols = active_cols
+
+        X = feature_matrix[active_cols].values.astype(float)
+        X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
+
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
+        X_scaled = np.clip(X_scaled, -6.0, 6.0)
+        self._scaler = scaler
+
+        self._model = IsolationForest(
+            n_estimators=200,
+            contamination=self._contamination,
+            random_state=42,
+            n_jobs=-1,
+        )
+        self._model.fit(X_scaled)
+        # 학습 분포 보존 — 추론 시 percentile rank 계산에 사용
+        self._train_scores = self._model.decision_function(X_scaled)
+
+    def anomaly_score(self, features) -> float:
+        """
+        현재 피처가 학습 분포에서 얼마나 이상한지 0~1 점수 반환.
+
+        features: dict (단일 시점) 또는 pd.DataFrame (마지막 row 사용).
+        구현: 학습 decision_function 분포에서 현재 raw 점수의 rank.
+              raw가 낮을수록(더 anomalous) anomaly score가 높음.
+        """
+        if self._model is None or self._scaler is None or self._train_scores is None:
+            return 0.0
+
+        import numpy as np
+
+        cols = self._feature_cols
+        if isinstance(features, dict):
+            x = np.array([[features.get(c, 0.0) for c in cols]], dtype=float)
+        else:
+            seq = features.copy()
+            for c in cols:
+                if c not in seq.columns:
+                    seq[c] = 0.0
+            x = seq[cols].tail(1).values.astype(float)
+
+        x = np.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
+        x_scaled = self._scaler.transform(x)
+        x_scaled = np.clip(x_scaled, -6.0, 6.0)
+
+        raw = float(self._model.decision_function(x_scaled)[0])
+        # 학습 분포에서 현재 raw보다 낮은(=더 이상한) 비율 = anomaly rank
+        # raw < min(train) → anomaly 1.0, raw > max(train) → anomaly 0.0
+        rank_in_training = float(np.sum(self._train_scores <= raw)) / len(self._train_scores)
+        return float(1.0 - rank_in_training)
+
+
 def compute_rule_confidence(features: dict, regime: str) -> float:
     """
     규칙 기반 레짐 판단의 신뢰도 [0.0, 1.0]을 반환한다.

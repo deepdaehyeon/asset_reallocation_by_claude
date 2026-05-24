@@ -42,6 +42,7 @@ from portfolio import (
 from regime import (
     DEFAULT_REGIME,
     REGIMES,
+    AnomalyDetector,
     BalancedRFClassifier,
     HmmRegimeClassifier,
     RegimeFilter,
@@ -285,8 +286,34 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
     hmm_conf: Optional[float] = hmm_probs.get(raw_regime) if hmm_probs else None
     combined_conf = (rule_conf + hmm_conf) / 2 if hmm_conf is not None else rule_conf
 
+    # ── 이상 탐지 (Option C) ─────────────────────────────────────────────
+    # IsolationForest로 현재 시장이 학습 분포에서 얼마나 벗어났는지 측정.
+    # HMM/RF가 자기참조(detect_regime 라벨) 문제를 안고 있는 반면 이 신호는 unsupervised.
+    anomaly_cfg = config.get("anomaly", {})
+    anomaly_score = 0.0
+    if anomaly_cfg.get("enabled", True) and len(feature_matrix) >= hmm_min:
+        anomaly_det = AnomalyDetector(
+            contamination=float(anomaly_cfg.get("contamination", 0.05))
+        )
+        anomaly_det.fit(feature_matrix)
+        anomaly_score = anomaly_det.anomaly_score(features)
+        icon = " ⚠" if anomaly_score > 0.7 else ""
+        print(f"    Anomaly    : {anomaly_score:.0%}{icon}")
+
+    # anomaly_score로 신뢰도 패널티 — 높은 이상도 → 분류 신뢰도 하향
+    raw_combined_conf = combined_conf
+    penalty = float(anomaly_cfg.get("confidence_penalty", 0.5))
+    combined_conf = combined_conf * (1.0 - penalty * anomaly_score)
+
     if hmm_conf is not None:
-        print(f"    신뢰도     : {combined_conf:.0%}  (규칙기반 {rule_conf:.0%} | HMM {hmm_conf:.0%})")
+        anom_str = (
+            f" | anomaly 패널티 -{(raw_combined_conf - combined_conf):.0%}"
+            if anomaly_score > 0.01 else ""
+        )
+        print(
+            f"    신뢰도     : {combined_conf:.0%}"
+            f"  (규칙기반 {rule_conf:.0%} | HMM {hmm_conf:.0%}{anom_str})"
+        )
     else:
         print(f"    신뢰도     : {combined_conf:.0%}  (규칙기반)")
 
