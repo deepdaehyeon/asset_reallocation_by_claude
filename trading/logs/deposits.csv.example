@@ -1,0 +1,16 @@
+ts,acc_name,amount_krw,kind,note,id
+# 위 헤더 행은 그대로 유지하세요.
+# 입출금 발생 시 한 줄씩 append (운영 중인 deposits.csv 파일은 .gitignore로 제외됨).
+#
+# 컬럼:
+#   ts          : ISO8601 timestamp (예: 2026-05-23T15:00:00 — KST 시각 그대로 OK)
+#   acc_name    : 계좌 식별자 (KRW_1 / KRW_2 / USD 등 — 정보용)
+#   amount_krw  : KRW 환산 금액. 항상 양수. (USD 입출금이면 환율 적용한 KRW 금액)
+#   kind        : 'deposit' 또는 'withdrawal'
+#   note        : 자유 메모 (선택)
+#   id          : 고유 식별자 (선택 — 비우면 ts+kind+amount로 자동 생성)
+#
+# 예시:
+2026-05-01T10:00:00,KRW_1,1000000,deposit,월급 입금,
+2026-05-15T14:30:00,KRW_1,300000,withdrawal,생활비,
+2026-05-22T09:15:00,USD,1380000,deposit,USD 100$ → 1,380,000원 환산,

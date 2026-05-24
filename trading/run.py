@@ -498,6 +498,11 @@ def run_monitor(config: dict, state: dict, messenger: Messenger, args) -> None:
     state["peak_krw"] = rebalancer._peak_krw
     state["last_total_all_krw"] = rebalancer._last_total_all_krw
     state["last_total_all_krw_at"] = datetime.now().isoformat()
+    # KIS profits 역산 백엔드용 — 직전 실행 원금(매입금액+예수금) 및 마지막 처리일
+    if getattr(rebalancer, "_last_principal_krw", None) is not None:
+        state["last_principal_krw"] = rebalancer._last_principal_krw
+    if getattr(rebalancer, "_kis_profits_processed_through", None):
+        state["kis_profits_processed_through"] = rebalancer._kis_profits_processed_through
     usd_pct = total_usd_krw / total_krw * 100 if total_krw else 0
     krw_pct = total_krw_only / total_krw * 100 if total_krw else 0
     print(f"    총 자산: {total_krw:,.0f} 원  │  USD {usd_pct:.1f}% / KRW {krw_pct:.1f}%")
@@ -685,6 +690,11 @@ def run_execution(config: dict, state: dict, messenger: Messenger, args) -> None
     state["peak_krw"] = rebalancer._peak_krw
     state["last_total_all_krw"] = rebalancer._last_total_all_krw
     state["last_total_all_krw_at"] = datetime.now().isoformat()
+    # KIS profits 역산 백엔드용 — 직전 실행 원금(매입금액+예수금) 및 마지막 처리일
+    if getattr(rebalancer, "_last_principal_krw", None) is not None:
+        state["last_principal_krw"] = rebalancer._last_principal_krw
+    if getattr(rebalancer, "_kis_profits_processed_through", None):
+        state["kis_profits_processed_through"] = rebalancer._kis_profits_processed_through
     usd_pct = total_usd_krw / total_krw * 100 if total_krw else 0
     krw_pct = total_krw_only / total_krw * 100 if total_krw else 0
     print(f"    총 자산: {total_krw:,.0f} 원  │  USD {usd_pct:.1f}% / KRW {krw_pct:.1f}%")

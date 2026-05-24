@@ -15,6 +15,10 @@ import yaml
 from portfolio import compute_drift
 from messenger import Messenger
 from settlement import SettlementTracker
+from deposit_log import (
+    compute_net_flow,
+    fetch_deposit_withdrawal_events,
+)
 
 # 시장 코드 → 통화 매핑 (pykis stock.market 값 기준)
 MARKET_TO_CURRENCY: Dict[str, str] = {
@@ -348,6 +352,105 @@ class KisRebalancer:
         return clients
 
     # ──────────────────────────────────────────────
+    # peak 보정 — explicit 입출금 이벤트 우선, 휴리스틱 fallback
+    # ──────────────────────────────────────────────
+
+    def _correct_peak_for_io(
+        self,
+        peak: float,
+        prev_total: float,
+        prev_total_at: Optional[str],
+        total_all_krw: float,
+        current_principal_krw: Optional[float] = None,
+        state_snapshot: Optional[dict] = None,
+    ) -> Tuple[float, Optional[str]]:
+        """
+        직전 실행 이후 발생한 입출금을 peak에 반영한다.
+
+        조회 우선순위:
+          1. trading/logs/deposits.csv (explicit, 결정적)
+          2. pykis account().profits() 역산: 입출금 = Δprincipal - 실현손익
+          3. 휴리스틱: |Δ|>10% AND age<30h → 입출금 추정
+
+        Returns
+        -------
+        (new_peak, processed_through_iso)
+          processed_through_iso: KIS profits 백엔드를 사용한 경우 마지막 처리일(YYYY-MM-DD).
+                                  호출자가 state에 캐시하면 같은 날 중복 호출 시 매도손익 이중 계산을 막는다.
+        """
+        if peak <= 0 or prev_total <= 0 or not prev_total_at:
+            return peak, None
+
+        # since 시각 파싱 — 실패하면 보정 스킵
+        try:
+            since_dt = datetime.fromisoformat(prev_total_at)
+        except (ValueError, TypeError):
+            return peak, None
+
+        events, source = fetch_deposit_withdrawal_events(
+            since=since_dt,
+            pykis_clients=getattr(self, "_clients", None),
+            state_snapshot=state_snapshot,
+            current_principal_krw=current_principal_krw,
+        )
+
+        if events is not None:
+            net_flow = compute_net_flow(events)
+            processed_through = (
+                datetime.now().date().isoformat() if source == "kis_profits" else None
+            )
+
+            if net_flow == 0.0:
+                return peak, processed_through
+
+            new_peak = peak + net_flow
+            if new_peak <= 0:
+                print(
+                    f"  [peak 보정/{source}] net_flow {net_flow:+,.0f}원 적용 시 peak<0"
+                    f" — total_all_krw({total_all_krw:,.0f}원)로 리셋"
+                )
+                return float(total_all_krw), processed_through
+
+            n_dep = sum(1 for e in events if e.kind == "deposit")
+            n_wd = len(events) - n_dep
+            print(
+                f"  [peak 보정/{source}] {len(events)}건"
+                f" (입금 {n_dep} / 출금 {n_wd}) net {net_flow:+,.0f}원"
+                f" → peak {peak:,.0f}→{new_peak:,.0f}원"
+            )
+            return new_peak, processed_through
+
+        # 휴리스틱 fallback
+        try:
+            age_h = (
+                datetime.now() - datetime.fromisoformat(prev_total_at)
+            ).total_seconds() / 3600
+        except (ValueError, TypeError):
+            age_h = float("inf")
+
+        rel_change = (total_all_krw - prev_total) / prev_total
+        if age_h <= 30:
+            if abs(rel_change) > 0.10:
+                new_peak = peak * (1 + rel_change)
+                print(
+                    f"  [peak 보정/휴리스틱] 자산 {prev_total:,.0f}→{total_all_krw:,.0f}원"
+                    f" ({rel_change:+.1%}, 직전 {age_h:.1f}h전)"
+                    f" → 입출금 추정, peak {peak:,.0f}→{new_peak:,.0f}원"
+                )
+                print(
+                    "  [참고] 명시적 입출금 로그 사용 권장:"
+                    " trading/logs/deposits.csv (ts,acc_name,amount_krw,kind,note)"
+                )
+                return new_peak, None
+        elif abs(rel_change) > 0.10:
+            print(
+                f"  [peak 보정 스킵] 직전 자산 기록이 {age_h:.0f}h 전 (>30h)"
+                f" — 시장 변동 가능성, 입출금 보정 건너뜀"
+            )
+
+        return peak, None
+
+    # ──────────────────────────────────────────────
     # 포트폴리오 상태 조회
     # ──────────────────────────────────────────────
 
@@ -365,6 +468,7 @@ class KisRebalancer:
         cash_by_currency: Dict[str, float] = {"KRW": 0.0, "USD": 0.0}
         krw_acc_holdings: Dict[str, Dict[str, float]] = {}  # acc_name → {ticker: krw}
         krw_acc_cash: Dict[str, float] = {}  # acc_name → cash
+        purchase_amount_krw_total: float = 0.0  # 매입금액 합 (KRW 환산) — KIS profits 백엔드용
 
         processed_acc: set = set()
         # (acc_no, currency) → balance  — currency별 국가 분리 조회로 API 호출 최소화
@@ -404,6 +508,15 @@ class KisRebalancer:
                     amt = 0.0
                 krw_amt = amt * self.usd_krw if currency == "USD" else amt
                 holdings_krw[ticker] = holdings_krw.get(ticker, 0.0) + krw_amt
+
+                # 매입금액(cost basis) — KIS profits 역산 백엔드용
+                try:
+                    purch = float(stock.purchase_amount)
+                except Exception:
+                    purch = 0.0
+                purchase_amount_krw_total += (
+                    purch * self.usd_krw if currency == "USD" else purch
+                )
 
                 if currency == "KRW":
                     acc_stock_holdings[ticker] = acc_stock_holdings.get(ticker, 0.0) + krw_amt
@@ -479,37 +592,23 @@ class KisRebalancer:
         total_all_krw = sum(holdings_krw.values()) + sum(cash_by_currency.values())
         peak = state.get("peak_krw", 0.0)
 
-        # 입출금 자동 보정: 직전 실행 대비 ±10% 이상 변화 시 시장 변동이 아닌 입출금으로 추정.
-        # 단, prev_total이 30시간 이상 오래된 경우(monitor 다일 크래시 후 첫 실행 등)는
-        # 그 사이의 시장 변동도 포함될 수 있어 보정 스킵.
         prev_total = float(state.get("last_total_all_krw", 0.0))
         prev_total_at = state.get("last_total_all_krw_at")
-        if prev_total > 0 and peak > 0 and prev_total_at:
-            try:
-                age_h = (
-                    datetime.now() - datetime.fromisoformat(prev_total_at)
-                ).total_seconds() / 3600
-            except (ValueError, TypeError):
-                age_h = float("inf")
-            if age_h <= 30:
-                rel_change = (total_all_krw - prev_total) / prev_total
-                if abs(rel_change) > 0.10:
-                    new_peak = peak * (1 + rel_change)
-                    print(
-                        f"  [peak 보정] 자산 {prev_total:,.0f}→{total_all_krw:,.0f}원"
-                        f" ({rel_change:+.1%}, 직전 {age_h:.1f}h전)"
-                        f" → 입출금 추정, peak {peak:,.0f}→{new_peak:,.0f}원"
-                    )
-                    peak = new_peak
-            elif abs((total_all_krw - prev_total) / prev_total) > 0.10:
-                print(
-                    f"  [peak 보정 스킵] 직전 자산 기록이 {age_h:.0f}h 전 (>30h)"
-                    f" — 시장 변동 가능성, 입출금 보정 건너뜀"
-                )
+        current_principal_krw = purchase_amount_krw_total + sum(cash_by_currency.values())
+        peak, kis_profits_processed_through = self._correct_peak_for_io(
+            peak=peak,
+            prev_total=prev_total,
+            prev_total_at=prev_total_at,
+            total_all_krw=total_all_krw,
+            current_principal_krw=current_principal_krw,
+            state_snapshot=state,
+        )
 
         peak = max(peak, total_all_krw)
         self._peak_krw = peak
         self._last_total_all_krw = total_all_krw
+        self._last_principal_krw = current_principal_krw
+        self._kis_profits_processed_through = kis_profits_processed_through
         drawdown = (total_all_krw / peak - 1.0) if peak > 0 else 0.0
 
         return universe_total_krw, total_usd_krw, total_krw_only, current_weights, drawdown
