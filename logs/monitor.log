@@ -541,3 +541,37 @@
 [05/22 23:00:10] Headers: {'User-Agent': 'PyKis/2.1.6', 'Accept-Encoding': 'gzip, deflate, br', 'Accept': '*/*', 'Connection': 'keep-alive', 'Content-Length': '283', 'Content-Type': 'application/json'}
 [05/22 23:00:10] Params: {}
 [05/22 23:00:10] Body: [PROTECTED BODY]
+[05/25 09:30:03] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[05/25 09:30:03] [1] 시장 데이터 수집 중...
+[05/25 09:30:04]     수집 기간  : 503일
+[05/25 09:30:04] [2] 피처 계산 중...
+[05/25 09:30:04]     momentum_1m : +5.25%
+[05/25 09:30:04]     momentum_3m : +8.78%
+[05/25 09:30:04]     realized_vol: 12.41% (연환산)
+[05/25 09:30:04]     VIX         : 16.7
+[05/25 09:30:04]     credit_signal: +1.75%
+[05/25 09:30:04]     자산 간 상관계수: 0.09
+[05/25 09:30:04] [3] 레짐 감지 중...
+[05/25 09:30:05]     규칙 기반  : Goldilocks
+[05/25 09:30:05]     HMM 예측   : Reflation (93%) | Reflation:93% / Goldilocks:7% / Slowdown:0% / Stagflation:0% / Crisis:0%
+[05/25 09:30:06]     RF(balanced): Goldilocks (99%) | crisis=0%  stag=0%
+[05/25 09:30:06]     전환 엔트로피: 0.182 (0=안정 / 높을수록 불안정)
+[05/25 09:30:06]     Anomaly    : 4%
+[05/25 09:30:06]     신뢰도     : 50%  (규칙기반 57% | HMM 44% | anomaly 패널티 -1%)
+[05/25 09:30:06]     → 레짐: Goldilocks
+[05/25 09:30:06]     연속 노출  : Goldilocks 44% / Reflation 56%
+[05/25 09:30:06] [4] 계좌 잔고 조회 중...
+[05/25 09:30:06]     USD/KRW: 1,511.2 (실시간)
+[05/25 09:30:07]     총 자산: 237,176,212 원  │  USD 28.9% / KRW 71.1%
+[05/25 09:30:07]     드로우다운: +0.00%
+[05/25 09:30:07] [5] 목표 비중 산출 중...
+[05/25 09:30:07]     [블렌딩] equity_etf:31%  equity_individual:14%  gold:13%  commodity:11%  cash:8%  equity_factor:7%  managed_futures:5%  equity_sector:4%  bond_tips:3%  equity_developed:2%  equity_emerging:2%
+[05/25 09:30:07]     포트폴리오 EWMA vol: 0.00% (λ=0.94)
+[05/25 09:30:07]     [USD 예산 조정] equity_core(factor+sector+individual) 25.0% → 12.5% (USD 한도 29%)
+[05/25 09:30:07]     [USD 부족 대체] equity_intl(developed+emerging) 4.4% → 0.0%, 부족분 equity_etf로 대체
+[05/25 09:30:07]     [USD 부족 대체] bond(usd+tips) 2.8% → 0.0%, 부족분 2.8%를 bond_krw로 대체
+[05/25 09:30:07] [6] 트리거 계산 중...
+[05/25 09:30:07]     [KRW] drift=34.5%  →  ✗ 스킵  (cooldown(4d/7d))
+[05/25 09:30:07]     [USD] drift=100.5%  →  ✗ 스킵  (cooldown(4d/7d))
+[05/25 09:30:07] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[05/25 09:30:07] 모니터링 완료
