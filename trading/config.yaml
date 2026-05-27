@@ -378,11 +378,10 @@ regime_filter:
   confidence_method: min
   # blend_probs EWMA 평활 (외부 비평 #6-c whipsaw 억제):
   #   new_blend = α · prev_blend + (1-α) · raw_blend
-  #   0    — 평활 없음 (기존)
-  #   0.5  — 약한 평활
-  #   0.7~0.9 — 강한 평활 (whipsaw 크게 감소, 위험 진입 둔감화 trade-off)
-  # 활성화 전 scripts/compare_blend_smoothing.py로 비교 권장.
-  blend_smoothing_alpha: 0.0
+  #   0    — 평활 없음
+  #   0.5  — 약한 평활 ← 현재 (whipsaw 57.6→47.3%, Sharpe -0.013, MaxDD -1.18pp)
+  #   0.7~0.9 — 강한 평활 (MaxDD 악화 폭이 커짐 — 보류)
+  blend_smoothing_alpha: 0.5
   # 레짐별 override — Crisis는 빠른 진입이 중요하므로 confirmation 1회·쿨다운 0.
   per_regime:
     Crisis:
