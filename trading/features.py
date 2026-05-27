@@ -7,13 +7,14 @@ import pandas as pd
 # ── 피처 컬럼 정의 ────────────────────────────────────────────────────────────
 # HMM/RF 학습에 사용할 가격 파생 피처 (signal_px만으로 계산 가능)
 PRICE_FEATURE_COLS: list[str] = [
-    "momentum_1m",      # SPY 1개월 모멘텀
-    "momentum_3m",      # SPY 3개월 모멘텀
-    "realized_vol",     # SPY 21일 실현변동성 (연환산)
-    "vix",              # VIX 수준
-    "credit_signal",    # HYG-TLT 스프레드 모멘텀 (신용 프록시)
-    "dxy_mom_1m",       # 달러 인덱스 1M 모멘텀
-    "commodity_mom_1m", # 원자재(DJP) 1M 모멘텀
+    "momentum_1m",          # SPY 1개월 모멘텀
+    "momentum_3m",          # SPY 3개월 모멘텀
+    "realized_vol",         # SPY 21일 실현변동성 (연환산)
+    "vix",                  # VIX 수준
+    "credit_signal",        # HYG-TLT 스프레드 모멘텀 (신용 프록시)
+    "dxy_mom_1m",           # 달러 인덱스 1M 모멘텀
+    "commodity_mom_1m",     # 원자재(DJP) 1M 모멘텀
+    "vix_term_structure",   # ^VIX9D - ^VIX (음수=평상 contango, 양수=fear backwardation)
 ]
 
 # FRED API로만 계산 가능한 매크로 피처
@@ -138,6 +139,11 @@ def compute_features(prices: pd.DataFrame, fred_data: dict | None = None) -> dic
     if len(djp) > 22:
         features["commodity_mom_1m"] = _safe_mom(djp, 22)
 
+    # VIX term structure: VIX9D - VIX (음수=평상 contango, 양수=fear backwardation)
+    vix9d = _safe_series(prices, "^VIX9D")
+    if len(vix9d) > 0 and len(vix) > 0:
+        features["vix_term_structure"] = float(vix9d.iloc[-1]) - float(vix.iloc[-1])
+
     if fred_data:
         # credit_signal은 항상 가격기반으로 유지 (FRED는 스케일 ±0.25라 임계값 불일치).
         # FRED의 hy_spread/curve/CPI 등은 단위가 명확하므로 그대로 사용.
@@ -218,6 +224,12 @@ def compute_feature_matrix(
     if "DJP" in prices.columns:
         djp = prices["DJP"]
         data["commodity_mom_1m"] = djp.pct_change(22, fill_method=None)
+
+    # VIX term structure (VIX9D - VIX, 2011-부터 가용)
+    # NaN 그대로 두면 dropna()에서 자동 처리 — 백테스트 시작이 2011-부터로 늦춰짐 (수용).
+    # fillna(0)으로 채우는 것은 학습 noise를 만드는 부작용이 있어 회피.
+    if "^VIX9D" in prices.columns:
+        data["vix_term_structure"] = prices["^VIX9D"] - prices["^VIX"]
 
     matrix = pd.DataFrame(data).dropna()
 

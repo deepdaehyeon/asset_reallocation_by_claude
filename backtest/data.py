@@ -29,8 +29,11 @@ TICKER_INCEPTION: Dict[str, str] = {
     "BIL":  "2007-05-25",
 }
 
-SIGNAL_TICKERS = ["SPY", "^VIX", "TLT", "HYG", "DX-Y.NYB", "DJP"]
+SIGNAL_TICKERS = ["SPY", "^VIX", "^VIX9D", "TLT", "HYG", "DX-Y.NYB", "DJP"]
 # DX-Y.NYB: 달러 인덱스(DXY)  /  DJP: Bloomberg Commodity Index ETN (2006~)
+# ^VIX9D: 9일 만기 VIX. VIX9D - VIX = 단기/중기 변동성 term structure.
+#   contango (VIX9D < VIX): 평상 / backwardation (VIX9D > VIX): fear/spike.
+#   2011-01-03 부터 가용 — 그 전 구간은 NaN으로 자동 처리.
 
 
 def _cache_path(ticker: str) -> Path:
