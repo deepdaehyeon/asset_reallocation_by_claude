@@ -11,6 +11,7 @@
 - 표본 부족 시(`len(fm) <= N+1`) 안전하게 룰 라벨로 폴백.
 - 비교 백테스트 스크립트 `scripts/compare_rf_label.py` 추가 (rule baseline vs forward N=21 / 63).
 - 실험 노트: `docs/experiment_2026-05-27_rf_forward_label.md`.
+- **백테스트 결과 (2010~2025)**: forward 라벨이 baseline 대비 Sharpe -0.02~-0.07, MaxDD -1.5pp 악화 → **채택 보류**(`rf_forward_window=0` 유지). 코드는 옵트인 옵션으로 보존. FRED 매크로 포함 재실험과 forward 수익률 quantile binning(옵션 2)이 후속 과제.
 
 ### 레짐 분류 안전 fix 묶음 (외부 비평 반영)
 
