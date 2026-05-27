@@ -117,6 +117,23 @@ forward 라벨 채택 결론은 lag 적용 후에도 변함없음 (Round 3에서
 
 `docs/plan_2026-05-27_quantile_regime_framework.md` 작성. 5개 레짐 이름은 유지하되 정의를 데이터 분포(forward 21일 수익률·변동성 quantile)로 교체하는 단계별 계획. Phase 1(시뮬레이션) → Phase 2(코드 통합) → Phase 3(백테스트) → Phase 4(채택 결정). 코드 변경 없음 — 진행 결정 시 별도 PR.
 
+### C안 Phase 1 — 라벨 분리도 검증 (PASS)
+
+`scripts/compare_quantile_regimes.py` + `docs/experiment_2026-05-27_quantile_phase1.md`.
+
+**결과 (2010~2025 in-sample)**:
+
+| | Goldilocks | Δ vs 평균 | 순위 |
+|---|----------:|----------:|----:|
+| baseline (rule) | +0.81% | **-1.19pp** | **5/5** |
+| **quantile** (옵션 2) | **+4.48%** | **+4.85pp** | **1/5** |
+
+분포도 회복 (Goldilocks 59% → 21%, 5개 레짐 8-33% 균형). Crisis -2.27%로 정상화(이전 +3.84%는 ensemble 후행 진입의 V-shape 반등 효과).
+
+라벨 정의의 sound성 검증 완료. 단 in-sample 측정이라 진짜 예측력은 Phase 2/3에서 supervised 분류기 + walk-forward로 검증.
+
+**Phase 2 진행 권장**.
+
 ### 레짐 분류 안전 fix 묶음 (외부 비평 반영)
 
 외부 리뷰의 6개 비평 중 단독 결정 가능한 4개 항목을 한 번에 적용.
