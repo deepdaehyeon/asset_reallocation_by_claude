@@ -323,6 +323,24 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
             total = sum(raw.values())
             hmm_probs = {r: v / total for r, v in raw.items()} if total > 0 else hmm_probs
 
+        # blend EWMA 평활 (whipsaw 억제, 외부 비평 #6-c)
+        smoothing_alpha = float(
+            config.get("regime_filter", {}).get("blend_smoothing_alpha", 0.0)
+        )
+        prev_blend = state.get("prev_blend_probs") or {}
+        if smoothing_alpha > 0 and prev_blend:
+            smoothed = {
+                r: smoothing_alpha * prev_blend.get(r, 0.0)
+                   + (1 - smoothing_alpha) * hmm_probs.get(r, 0.0)
+                for r in REGIMES
+            }
+            s_total = sum(smoothed.values())
+            if s_total > 0:
+                hmm_probs = {r: v / s_total for r, v in smoothed.items()}
+            top = max(hmm_probs, key=hmm_probs.get)
+            print(f"    blend 평활 (α={smoothing_alpha}): {top} {hmm_probs[top]:.0%}")
+        state["prev_blend_probs"] = dict(hmm_probs)
+
         raw_regime = ensemble_regime(rule_regime, hmm_probs, override_thr)
         if raw_regime != rule_regime:
             print(f"    앙상블 조정: {rule_regime} → {raw_regime}")

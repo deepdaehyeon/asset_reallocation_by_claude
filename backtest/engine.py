@@ -113,6 +113,11 @@ class BacktestEngine:
         self.confidence_method = str(
             config.get("regime_filter", {}).get("confidence_method", "mean")
         )
+        self.blend_smoothing_alpha = float(
+            config.get("regime_filter", {}).get("blend_smoothing_alpha", 0.0)
+        )
+        # 워크포워드 진행 중 직전 blend를 보관 (EWMA 평활용). _get_regime 호출 사이에 유지.
+        self._prev_blend: Optional[Dict[str, float]] = None
         self.unsupervised_mapping = bool(hmm_cfg.get("unsupervised_mapping", True))
         self.mapping_weights = hmm_cfg.get("mapping_weights")
         self.crisis_rvol_threshold = hmm_cfg.get("crisis_rvol_threshold")
@@ -183,6 +188,19 @@ class BacktestEngine:
                     blend = {r: v / total for r, v in raw.items()} if total > 0 else hmm_probs
                 else:
                     blend = hmm_probs
+
+                # blend EWMA 평활 (whipsaw 억제, 외부 비평 #6-c)
+                if self.blend_smoothing_alpha > 0 and self._prev_blend is not None:
+                    α = self.blend_smoothing_alpha
+                    smoothed = {
+                        r: α * self._prev_blend.get(r, 0.0)
+                           + (1 - α) * blend.get(r, 0.0)
+                        for r in REGIMES
+                    }
+                    s_total = sum(smoothed.values())
+                    if s_total > 0:
+                        blend = {r: v / s_total for r, v in smoothed.items()}
+                self._prev_blend = dict(blend)
 
                 final = ensemble_regime(rule_regime, blend, self.override_thr)
                 rule_conf = compute_rule_confidence(features, final)

@@ -77,6 +77,26 @@ forward 라벨 채택 결론은 lag 적용 후에도 변함없음 (Round 3에서
 
 단조성이 -0.325에서 +0.60(min)/+0.68(product)로 극적 회복. 백테스트 성과는 동일(엔진이 conf 폴백 미적용). **min을 새 기본으로 권장**, 단 fallback이 mean 38.8% → min 72.4%로 증가하므로 `confidence_threshold`도 0.40 → ~0.20으로 동시 조정 필요. 채택 시 config 변경만으로 즉시 적용 (별도 코드 변경 없음).
 
+→ **사용자 채택**: `confidence_method=min`, `confidence_threshold=0.20` 적용.
+
+### blend_probs EWMA 평활 (외부 비평 #6-c 본질 해결)
+
+- `regime_filter.blend_smoothing_alpha` config 키 추가. `new = α·prev + (1-α)·raw` 후 정규화.
+- `backtest/engine.py`: `_prev_blend` 인스턴스 상태, 워크포워드 사이 유지.
+- `trading/run.py`: `state.json`의 `prev_blend_probs`로 일별 호출 영속화.
+- 비교 스크립트: `scripts/compare_blend_smoothing.py` / 실험 노트: `docs/experiment_2026-05-27_blend_smoothing.md`.
+
+**비교 결과 (2010~2025, FRED + confidence_method=min)**:
+
+| α   | Sharpe | MaxDD  | whipsaw      | Crisis일 | 채택 |
+|-----|-------:|-------:|-------------:|---------:|------|
+| 0   | 0.700  | -9.42% | 140 (57.6%)  | 217      | baseline |
+| **0.5** | **0.687** | **-10.60%** | **86 (47.3%)** | **168** | **✓** |
+| 0.7 | 0.677  | -11.80%| 91 (49.7%)   | 183      | ✗ MaxDD -2.4pp |
+| 0.9 | 0.722  | -13.67%| 107 (53.5%)  | 183      | ✗ MaxDD -4.3pp |
+
+α=0.5에서 whipsaw 10.3pp 감소, 전환 횟수 243→182(거래비용 절감), Sharpe 거의 동등. Crisis 진입 감소(-49일, -23%)는 부작용이지만 MaxDD 악화가 -1.18pp로 통제됨. 기본값은 0.0 유지(호환), 채택 결정 시 config만 변경.
+
 ### 레짐 분류 안전 fix 묶음 (외부 비평 반영)
 
 외부 리뷰의 6개 비평 중 단독 결정 가능한 4개 항목을 한 번에 적용.

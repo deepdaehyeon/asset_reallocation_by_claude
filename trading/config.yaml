@@ -376,6 +376,13 @@ regime_filter:
   #   min     — min(rule_conf, hmm_conf)    (ρ +0.595, 단조 회복) ← 현재
   #   product — rule_conf * hmm_conf        (ρ +0.681, 가장 강한 단조)
   confidence_method: min
+  # blend_probs EWMA 평활 (외부 비평 #6-c whipsaw 억제):
+  #   new_blend = α · prev_blend + (1-α) · raw_blend
+  #   0    — 평활 없음 (기존)
+  #   0.5  — 약한 평활
+  #   0.7~0.9 — 강한 평활 (whipsaw 크게 감소, 위험 진입 둔감화 trade-off)
+  # 활성화 전 scripts/compare_blend_smoothing.py로 비교 권장.
+  blend_smoothing_alpha: 0.0
   # 레짐별 override — Crisis는 빠른 진입이 중요하므로 confirmation 1회·쿨다운 0.
   per_regime:
     Crisis:
