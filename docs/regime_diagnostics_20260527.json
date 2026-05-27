@@ -1,0 +1,296 @@
+{
+  "period": "2010-01-01 ~ 2025-04-30",
+  "forward_window_days": 21,
+  "forward_return_separation": [
+    {
+      "regime": "Goldilocks",
+      "n_days": 1773,
+      "fwd_mean_pct": 0.705838321381488,
+      "fwd_std_pct": 2.328649959708423,
+      "sharpe_annualized": 1.0500056734288616,
+      "win_rate_pct": 63.95939086294417
+    },
+    {
+      "regime": "Reflation",
+      "n_days": 353,
+      "fwd_mean_pct": 1.247678914893979,
+      "fwd_std_pct": 2.5298257229988477,
+      "sharpe_annualized": 1.7084522878256474,
+      "win_rate_pct": 71.671388101983
+    },
+    {
+      "regime": "Slowdown",
+      "n_days": 1094,
+      "fwd_mean_pct": 0.8235133649394563,
+      "fwd_std_pct": 1.9338443276861166,
+      "sharpe_annualized": 1.4751621610554613,
+      "win_rate_pct": 70.84095063985374
+    },
+    {
+      "regime": "Stagflation",
+      "n_days": 419,
+      "fwd_mean_pct": 0.883449089568474,
+      "fwd_std_pct": 1.9899855088628255,
+      "sharpe_annualized": 1.537879248083051,
+      "win_rate_pct": 66.33416458852868
+    },
+    {
+      "regime": "Crisis",
+      "n_days": 217,
+      "fwd_mean_pct": 0.38132446582019613,
+      "fwd_std_pct": 1.849904856888906,
+      "sharpe_annualized": 0.7140619654141547,
+      "win_rate_pct": 58.41121495327103
+    }
+  ],
+  "transition_timeliness": [
+    {
+      "from": "Crisis",
+      "to": "Goldilocks",
+      "n": 3,
+      "ret_pre_pct": 0.543853884014737,
+      "ret_post_pct": -0.023604338130785624
+    },
+    {
+      "from": "Crisis",
+      "to": "Reflation",
+      "n": 1,
+      "ret_pre_pct": 2.5290470338823257,
+      "ret_post_pct": 0.4549195767827863
+    },
+    {
+      "from": "Crisis",
+      "to": "Slowdown",
+      "n": 5,
+      "ret_pre_pct": -1.1690293215821868,
+      "ret_post_pct": 0.3995536245434006
+    },
+    {
+      "from": "Crisis",
+      "to": "Stagflation",
+      "n": 10,
+      "ret_pre_pct": -0.7596055547267433,
+      "ret_post_pct": 0.5711020306154124
+    },
+    {
+      "from": "Goldilocks",
+      "to": "Crisis",
+      "n": 2,
+      "ret_pre_pct": -2.0653072831056996,
+      "ret_post_pct": -0.29047485170485277
+    },
+    {
+      "from": "Goldilocks",
+      "to": "Reflation",
+      "n": 16,
+      "ret_pre_pct": 1.32486295737059,
+      "ret_post_pct": 1.5524200320787787
+    },
+    {
+      "from": "Goldilocks",
+      "to": "Slowdown",
+      "n": 50,
+      "ret_pre_pct": 0.5087007026956807,
+      "ret_post_pct": 0.41890288015182153
+    },
+    {
+      "from": "Goldilocks",
+      "to": "Stagflation",
+      "n": 8,
+      "ret_pre_pct": -0.7162532284451129,
+      "ret_post_pct": 0.727537273960098
+    },
+    {
+      "from": "Reflation",
+      "to": "Crisis",
+      "n": 1,
+      "ret_pre_pct": 2.2225739391108057,
+      "ret_post_pct": -1.767886981967981
+    },
+    {
+      "from": "Reflation",
+      "to": "Goldilocks",
+      "n": 19,
+      "ret_pre_pct": 1.2894789316724466,
+      "ret_post_pct": 1.3548572231304263
+    },
+    {
+      "from": "Reflation",
+      "to": "Slowdown",
+      "n": 10,
+      "ret_pre_pct": 0.3292176801856372,
+      "ret_post_pct": 0.7898172238992962
+    },
+    {
+      "from": "Reflation",
+      "to": "Stagflation",
+      "n": 4,
+      "ret_pre_pct": -1.2383513565937894,
+      "ret_post_pct": -0.534913744933524
+    },
+    {
+      "from": "Slowdown",
+      "to": "Crisis",
+      "n": 6,
+      "ret_pre_pct": -0.36069655280189244,
+      "ret_post_pct": -0.4481334451968559
+    },
+    {
+      "from": "Slowdown",
+      "to": "Goldilocks",
+      "n": 45,
+      "ret_pre_pct": 0.8834951790843001,
+      "ret_post_pct": 1.0581309987761633
+    },
+    {
+      "from": "Slowdown",
+      "to": "Reflation",
+      "n": 13,
+      "ret_pre_pct": 1.259269974729758,
+      "ret_post_pct": 1.0019104484156574
+    },
+    {
+      "from": "Slowdown",
+      "to": "Stagflation",
+      "n": 14,
+      "ret_pre_pct": -1.2798241938568806,
+      "ret_post_pct": 1.1654313484377408
+    },
+    {
+      "from": "Stagflation",
+      "to": "Crisis",
+      "n": 10,
+      "ret_pre_pct": -1.8592192803026009,
+      "ret_post_pct": 0.22130080352348536
+    },
+    {
+      "from": "Stagflation",
+      "to": "Goldilocks",
+      "n": 9,
+      "ret_pre_pct": 0.7547313531897748,
+      "ret_post_pct": 0.718732810246234
+    },
+    {
+      "from": "Stagflation",
+      "to": "Reflation",
+      "n": 4,
+      "ret_pre_pct": 1.1741407799831072,
+      "ret_post_pct": 0.20502353766771175
+    },
+    {
+      "from": "Stagflation",
+      "to": "Slowdown",
+      "n": 12,
+      "ret_pre_pct": -0.08507328250306474,
+      "ret_post_pct": 0.6481584609361777
+    }
+  ],
+  "whipsaw": {
+    "total_transitions": 243,
+    "whipsaw_count": 140,
+    "whipsaw_rate_pct": 57.6,
+    "window_days": 21
+  },
+  "calibration_spearman_rho": -0.32517785314411984,
+  "calibration": [
+    {
+      "bin": "(-0.002, 0.1]",
+      "n_days": 37,
+      "accuracy_pct": 100.0,
+      "conf_mean": 0.0
+    },
+    {
+      "bin": "(0.1, 0.2]",
+      "n_days": 15,
+      "accuracy_pct": 100.0,
+      "conf_mean": 0.1460255993066853
+    },
+    {
+      "bin": "(0.2, 0.3]",
+      "n_days": 307,
+      "accuracy_pct": 93.48534201954396,
+      "conf_mean": 0.26875158427333457
+    },
+    {
+      "bin": "(0.3, 0.4]",
+      "n_days": 1139,
+      "accuracy_pct": 47.76119402985074,
+      "conf_mean": 0.3558402601028817
+    },
+    {
+      "bin": "(0.4, 0.5]",
+      "n_days": 941,
+      "accuracy_pct": 63.8682252922423,
+      "conf_mean": 0.45036427712046745
+    },
+    {
+      "bin": "(0.5, 0.6]",
+      "n_days": 529,
+      "accuracy_pct": 64.08317580340265,
+      "conf_mean": 0.5521214946289703
+    },
+    {
+      "bin": "(0.6, 0.7]",
+      "n_days": 463,
+      "accuracy_pct": 86.60907127429806,
+      "conf_mean": 0.6480207141888661
+    },
+    {
+      "bin": "(0.7, 0.8]",
+      "n_days": 242,
+      "accuracy_pct": 81.81818181818183,
+      "conf_mean": 0.7424449734891653
+    },
+    {
+      "bin": "(0.8, 0.9]",
+      "n_days": 131,
+      "accuracy_pct": 44.274809160305345,
+      "conf_mean": 0.8377903866006772
+    },
+    {
+      "bin": "(0.9, 1.0]",
+      "n_days": 52,
+      "accuracy_pct": 100.0,
+      "conf_mean": 0.9423946915556664
+    }
+  ],
+  "threshold_sensitivity": [
+    {
+      "threshold": 0.1,
+      "fallback_rate_pct": 0.1,
+      "sim_match_rule_pct": 65.5
+    },
+    {
+      "threshold": 0.2,
+      "fallback_rate_pct": 0.3,
+      "sim_match_rule_pct": 65.4
+    },
+    {
+      "threshold": 0.3,
+      "fallback_rate_pct": 3.9,
+      "sim_match_rule_pct": 61.7
+    },
+    {
+      "threshold": 0.4,
+      "fallback_rate_pct": 19.2,
+      "sim_match_rule_pct": 59.9
+    },
+    {
+      "threshold": 0.5,
+      "fallback_rate_pct": 40.5,
+      "sim_match_rule_pct": 50.9
+    },
+    {
+      "threshold": 0.6,
+      "fallback_rate_pct": 49.6,
+      "sim_match_rule_pct": 48.6
+    }
+  ],
+  "regime_distribution": {
+    "Goldilocks": 1773,
+    "Reflation": 353,
+    "Slowdown": 1094,
+    "Stagflation": 419,
+    "Crisis": 217
+  }
+}
