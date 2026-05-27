@@ -123,6 +123,29 @@ def main():
         except Exception as e:
             print(f"    [경고] balance.amount 추출 실패: {e}")
 
+        # 종목별 평가금액 — 이중계산 여부 확인
+        out1 = raw.get("output1")
+        if isinstance(out1, list) and out1:
+            print(f"\n  보유종목 (output1) {len(out1)}건:")
+            total_evlu = 0.0
+            total_pchs = 0.0
+            for stock in out1:
+                # 국내/해외 필드명 다름
+                sym = stock.get("pdno") or stock.get("ovrs_pdno") or "?"
+                qty = stock.get("hldg_qty") or stock.get("ovrs_cblc_qty") or 0
+                evlu = stock.get("evlu_amt") or stock.get("ovrs_stck_evlu_amt") or stock.get("frcr_evlu_amt2") or 0
+                pchs = stock.get("pchs_amt") or stock.get("frcr_pchs_amt1") or stock.get("frcr_pchs_amt") or 0
+                try:
+                    evlu_f = float(evlu) if evlu else 0.0
+                    pchs_f = float(pchs) if pchs else 0.0
+                except (ValueError, TypeError):
+                    evlu_f = pchs_f = 0.0
+                total_evlu += evlu_f
+                total_pchs += pchs_f
+                print(f"    {sym:<12} qty={qty:<8} 평가={evlu_f:>18,.2f}  매입={pchs_f:>18,.2f}")
+            print(f"  {'-'*68}")
+            print(f"    {'합계':<12} {'':<13} 평가={total_evlu:>18,.2f}  매입={total_pchs:>18,.2f}")
+
 
 if __name__ == "__main__":
     main()

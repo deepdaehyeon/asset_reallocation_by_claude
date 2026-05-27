@@ -552,7 +552,14 @@ class KisRebalancer:
                         except Exception as e:
                             print(f"  [경고] {acc_name} prvs_rcdl_excc_amt 추출 실패: {e} — dnca_tot_amt 사용")
                     else:
-                        cash = float(deposit.amount) * self.usd_krw
+                        # USD: pykis deposit.amount = frcr_dncl_amt_2 (예수금)는 매수증거금 포함.
+                        # 매수 결제 대기분이 stocks 평가에도 잡혀 있어 이중계산.
+                        # frcr_drwg_psbl_amt_1 (출금가능금액, 매수증거금 차감)을 사용.
+                        cash_usd = float(deposit.withdrawable_amount)  # = frcr_drwg_psbl_amt_1
+                        # 폴백: withdrawable_amount이 0 또는 비정상이면 deposit.amount 사용
+                        if cash_usd <= 0:
+                            cash_usd = float(deposit.amount)
+                        cash = cash_usd * self.usd_krw
                 except Exception as e:
                     print(f"  [경고] {acc_name} 예수금 변환 실패: {e} — 0 처리")
                     cash = 0.0
