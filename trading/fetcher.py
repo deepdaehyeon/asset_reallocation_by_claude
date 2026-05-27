@@ -268,47 +268,76 @@ def fetch_fred_history(start: str, end: str) -> pd.DataFrame:
     # ── 변환 계산 ──────────────────────────────────────────────────────────
     # 원칙: 시리즈는 native 빈도(월/주/일)에서 변환·z-score 계산 후 일별로 reindex.
     # daily ffill된 시리즈에 shift(252)·pct_change()를 적용하면 의미 왜곡.
+    #
+    # Publication lag 적용 (외부 비평 #3):
+    #   FRED의 reference date 기준 index에 발표 시차만큼 영업일을 더해
+    #   "as_of 시점 d에서 사용 가능한 값 = d 이전에 발표된 가장 최근 값"이 되도록 한다.
+    #   각 시리즈의 표준 발표 캘린더 기반 보수적 추정.
+    from pandas.tseries.offsets import BDay
+    PUB_LAG = {
+        "cpi_yoy":          30,   # CPI: 다음달 중순 발표 → ~30 BDay
+        "cpi_mom_zscore":   30,
+        "unrate_chg_3m":    25,   # UNRATE: 다음달 첫 금요일 → ~25 BDay
+        "m2_yoy":           30,   # M2SL: 다음달 4째 화요일 → ~30 BDay
+        "fed_bs_yoy":        7,   # WALCL: 다음주 목요일 → ~7 BDay
+        "breakeven_5y":      1,   # T5YIE: 일별, 마감 후 → 다음 영업일
+        "hy_spread":         1,   # 일별
+        "hy_spread_zscore":  1,
+        "curve_10y2y":       1,   # T10Y2Y: 일별
+    }
+
+    def _publish(s: pd.Series, key: str) -> pd.Series:
+        """시리즈 index에 publication lag(영업일)를 더해 발표 가용일로 변환."""
+        lag = PUB_LAG.get(key, 0)
+        if lag <= 0:
+            return s
+        shifted = s.set_axis(s.index + BDay(lag))
+        # 원본이 calendar day 기반(예: weekend 포함 daily series)인 경우
+        # BDay shift 시 동일 영업일로 중복될 수 있다 → 마지막 값(=더 최근 reference)만 유지.
+        if shifted.index.has_duplicates:
+            shifted = shifted[~shifted.index.duplicated(keep="last")]
+        return shifted
 
     # CPI (monthly)
     if "cpi_raw" in raw:
         cpi_m = raw["cpi_raw"]  # 월별 원본
         yoy_m = (cpi_m / cpi_m.shift(12) - 1) * 100  # 12개월 YoY
         mom_z_m = _zscore_series(cpi_m.pct_change(), window=36)  # 36개월 z-score
-        result["cpi_yoy"] = yoy_m.reindex(idx, method="ffill", limit=45)
-        result["cpi_mom_zscore"] = mom_z_m.reindex(idx, method="ffill", limit=45)
+        result["cpi_yoy"] = _publish(yoy_m, "cpi_yoy").reindex(idx, method="ffill", limit=45)
+        result["cpi_mom_zscore"] = _publish(mom_z_m, "cpi_mom_zscore").reindex(idx, method="ffill", limit=45)
 
     # 실업률 (monthly)
     if "unrate_raw" in raw:
         ur_m = raw["unrate_raw"]
         chg_m = ur_m - ur_m.shift(3)   # 3개월 변화
-        result["unrate_chg_3m"] = chg_m.reindex(idx, method="ffill", limit=45)
+        result["unrate_chg_3m"] = _publish(chg_m, "unrate_chg_3m").reindex(idx, method="ffill", limit=45)
 
     # Breakeven (daily)
     if "breakeven_5y" in raw:
-        result["breakeven_5y"] = raw["breakeven_5y"].reindex(idx, method="ffill", limit=5)
+        result["breakeven_5y"] = _publish(raw["breakeven_5y"], "breakeven_5y").reindex(idx, method="ffill", limit=5)
 
     # M2 (monthly)
     if "m2_raw" in raw:
         m2_m = raw["m2_raw"]
         yoy_m = (m2_m / m2_m.shift(12) - 1) * 100  # 12개월 YoY
-        result["m2_yoy"] = yoy_m.reindex(idx, method="ffill", limit=45)
+        result["m2_yoy"] = _publish(yoy_m, "m2_yoy").reindex(idx, method="ffill", limit=45)
 
     # Fed 자산규모 (weekly)
     if "fed_bs_raw" in raw:
         bs_w = raw["fed_bs_raw"]
         yoy_w = (bs_w / bs_w.shift(52) - 1) * 100   # 52주 YoY
-        result["fed_bs_yoy"] = yoy_w.reindex(idx, method="ffill", limit=10)
+        result["fed_bs_yoy"] = _publish(yoy_w, "fed_bs_yoy").reindex(idx, method="ffill", limit=10)
 
     # HY 스프레드 (daily, z-score는 영업일 756)
     if "hy_raw" in raw:
         hy_d = raw["hy_raw"]
-        result["hy_spread"] = hy_d.reindex(idx, method="ffill", limit=3)
-        result["hy_spread_zscore"] = _zscore_series(hy_d).reindex(idx, method="ffill", limit=3)
+        result["hy_spread"] = _publish(hy_d, "hy_spread").reindex(idx, method="ffill", limit=3)
+        result["hy_spread_zscore"] = _publish(_zscore_series(hy_d), "hy_spread_zscore").reindex(idx, method="ffill", limit=3)
 
     # 장단기 금리차 (daily)
     if "curve_10y2y" in raw:
         result["curve_10y2y"] = (
-            raw["curve_10y2y"].reindex(idx, method="ffill", limit=3)
+            _publish(raw["curve_10y2y"], "curve_10y2y").reindex(idx, method="ffill", limit=3)
         )
 
     # warm-up 구간 제거 → start 이후만 반환

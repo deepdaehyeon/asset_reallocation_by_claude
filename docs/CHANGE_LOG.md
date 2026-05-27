@@ -26,6 +26,28 @@
 
 **Round 2 결과**: baseline Sharpe 0.58, MaxDD -12.5%, 위험레짐 미감지 10일 / forward 라벨 모두 위험레짐 미감지 30일(3배 증가). 자동 판정은 forward_rule_21(Sharpe 0.60)을 추천했으나 위험감지 악화로 실질 권고는 **baseline 유지**. FRED 매크로 자체가 성능을 향상시키지 못한 점은 publication lag(#3) 미반영 가능성 시사 → **#3 처리 후 본 실험 재실행 권장**.
 
+### FRED publication lag 적용 (외부 비평 #3)
+
+- `trading/fetcher.fetch_fred_history()`에 시리즈별 publication lag(영업일) 적용:
+  CPI 30, UNRATE 25, M2 30, WALCL 7, BEI/T10Y2Y/HY 각 1.
+  → reference date 기준 raw 시리즈를 발표일로 shift 후 daily reindex.
+- `fetch_fred_data()`(라이브)는 변경 없음. FRED API가 라이브에서는 이미 "발표된 데이터만" 반환하므로 lag 불필요.
+- 일별 시리즈가 calendar day 기반일 때 BDay shift 후 중복이 생기는 케이스를 안전하게 처리 (마지막 값 유지).
+
+### RF forward 라벨 Round 3 (FRED + lag 적용)
+
+가장 큰 발견: **publication lag 적용이 lookahead bias의 영향을 제거**.
+
+| Round | 조건                            | baseline Sharpe | baseline MaxDD |
+|-------|---------------------------------|----------------:|---------------:|
+| 1     | FRED 없음                       |  0.78           | -11.0%         |
+| 2     | FRED 포함 + lag 미적용         |  0.58           | -12.5%         |
+| **3** | **FRED 포함 + lag 적용**       | **0.70**        | **-9.4%**      |
+
+Round 2 → 3로 baseline Sharpe +0.12, MaxDD +3.1pp 개선. Round 2가 사후 발표된 매크로를 누설한 결과였음이 확인됨.
+
+forward 라벨 채택 결론은 lag 적용 후에도 변함없음 (Round 3에서도 위험감지 20→35일 악화). **`rf_forward_window=0` 유지**. publication lag fix는 라이브에 반영 완료.
+
 ### 레짐 분류 안전 fix 묶음 (외부 비평 반영)
 
 외부 리뷰의 6개 비평 중 단독 결정 가능한 4개 항목을 한 번에 적용.
