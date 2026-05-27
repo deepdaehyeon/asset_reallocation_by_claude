@@ -105,6 +105,9 @@ class BacktestEngine:
         self.hmm_lookback = hmm_cfg.get("lookback_days", 500)
         self.hmm_min = hmm_cfg.get("min_samples", 100)
         self.override_thr = hmm_cfg.get("override_threshold", 0.60)
+        self.crisis_priority_threshold = hmm_cfg.get("crisis_priority_threshold", None)
+        self.use_forward_hmm = bool(hmm_cfg.get("use_forward_hmm", False))
+        self.forward_hmm_horizon = int(hmm_cfg.get("forward_hmm_horizon", 1))
         self.predict_lookback = hmm_cfg.get("predict_lookback", 60)
         self.rf_enabled = hmm_cfg.get("rf_enabled", True)
         self.rf_weight = float(hmm_cfg.get("rf_weight", 0.40))
@@ -173,7 +176,10 @@ class BacktestEngine:
                     warnings.filterwarnings("ignore", category=ConvergenceWarning)
                     clf.fit(fm)
                 seq = fm.tail(self.predict_lookback)
-                hmm_probs = clf.predict_proba(seq)
+                if self.use_forward_hmm:
+                    hmm_probs = clf.predict_proba_forward(seq, horizon=self.forward_hmm_horizon)
+                else:
+                    hmm_probs = clf.predict_proba(seq)
 
                 if self.rf_enabled:
                     rf_clf = BalancedRFClassifier(
@@ -202,7 +208,10 @@ class BacktestEngine:
                         blend = {r: v / s_total for r, v in smoothed.items()}
                 self._prev_blend = dict(blend)
 
-                final = ensemble_regime(rule_regime, blend, self.override_thr)
+                final = ensemble_regime(
+                    rule_regime, blend, self.override_thr,
+                    crisis_priority_threshold=self.crisis_priority_threshold,
+                )
                 rule_conf = compute_rule_confidence(features, final)
                 hmm_conf = blend.get(final, 0.0)
                 combined_conf = compute_combined_confidence(

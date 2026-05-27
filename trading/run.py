@@ -291,11 +291,18 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
         state["hmm_legacy_fallback_count"] = legacy_count
 
         seq = feature_matrix.tail(predict_lookback)
-        hmm_probs = hmm_clf.predict_proba(seq)
+        use_forward_hmm = bool(hmm_cfg.get("use_forward_hmm", False))
+        if use_forward_hmm:
+            horizon = int(hmm_cfg.get("forward_hmm_horizon", 1))
+            hmm_probs = hmm_clf.predict_proba_forward(seq, horizon=horizon)
+            hmm_label = f"HMM forward (h={horizon})"
+        else:
+            hmm_probs = hmm_clf.predict_proba(seq)
+            hmm_label = "HMM 예측"
         hmm_top = max(hmm_probs, key=hmm_probs.get)
         print(f"    규칙 기반  : {rule_regime}")
         print(
-            f"    HMM 예측   : {hmm_top} ({hmm_probs[hmm_top]:.0%}) | "
+            f"    {hmm_label}   : {hmm_top} ({hmm_probs[hmm_top]:.0%}) | "
             + " / ".join(
                 f"{r}:{p:.0%}"
                 for r, p in sorted(hmm_probs.items(), key=lambda x: -x[1])
@@ -341,7 +348,11 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
             print(f"    blend 평활 (α={smoothing_alpha}): {top} {hmm_probs[top]:.0%}")
         state["prev_blend_probs"] = dict(hmm_probs)
 
-        raw_regime = ensemble_regime(rule_regime, hmm_probs, override_thr)
+        crisis_prio = hmm_cfg.get("crisis_priority_threshold", None)
+        raw_regime = ensemble_regime(
+            rule_regime, hmm_probs, override_thr,
+            crisis_priority_threshold=crisis_prio,
+        )
         if raw_regime != rule_regime:
             print(f"    앙상블 조정: {rule_regime} → {raw_regime}")
 

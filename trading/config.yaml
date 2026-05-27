@@ -321,6 +321,15 @@ hmm:
   predict_lookback: 60     # 추론 시 사용할 시퀀스 길이 — 전이 확률 문맥 반영
   min_samples: 100
   override_threshold: 0.60
+  # Crisis 비대칭 우선 (transition 후행 손실 완화 — 진단 결과 후속 작업):
+  #   null/누락 — 비대칭 비활성 (기존 동작, 일반 override만)
+  #   값 (예: 0.30) — blend["Crisis"]가 이 임계 이상이면 다른 조건 무시하고 Crisis 채택
+  crisis_priority_threshold: null
+  # HMM 1-step ahead 예측 사용 (transition matrix로 next-step 분포):
+  #   false — 마지막 시점 사후 확률 (기존)
+  #   true  — transition 적용한 next-step 분포 (forward 시그널)
+  use_forward_hmm: false
+  forward_hmm_horizon: 1
   rf_enabled: true         # BalancedRF 앙상블 (소수 레짐 탐지 보강)
   rf_weight: 0.40          # RF 확률 가중치 (HMM 0.6 + RF 0.4)
   # RF 라벨링 방식:

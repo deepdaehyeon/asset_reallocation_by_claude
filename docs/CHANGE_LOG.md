@@ -150,6 +150,26 @@ forward 라벨 채택 결론은 lag 적용 후에도 변함없음 (Round 3에서
 
 → **C안 framework 전체에 본질적 의문 제기. Phase 2b(HMM 통합) 보류 권장**. 코드는 옵트인으로 영구 보존(`label_mode='forward_quantile_v2'`). 실험 노트: `docs/experiment_2026-05-27_quantile_phase2a.md`.
 
+### Transition 후행 손실 완화 (override 완화 + Crisis 우선 + forward HMM)
+
+진단의 transition 후행 발견 후속 — 3가지 변경 시도:
+- `ensemble_regime()`에 `crisis_priority_threshold` 인자 (blend[Crisis] ≥ 임계면 즉시 Crisis)
+- `HmmRegimeClassifier.predict_proba_forward(horizon=1)`: transition matrix로 1-step ahead 분포
+- config: `crisis_priority_threshold`, `use_forward_hmm`, `forward_hmm_horizon`
+
+**비교 결과 (2010~2025)**:
+
+| 시나리오            | Sharpe | MaxDD   | crisis_d | **Crisis 진입 후 21일** |
+|--------------------|-------:|--------:|---------:|----------------------:|
+| baseline           | 0.687  | -10.60% | 168      | **+0.06%** (후행)     |
+| override_50        | 0.680  | -10.60% | 207      | **-0.30%** (적시!)    |
+| +crisis_prio_30    | 0.683  | -10.60% | 319      | -0.11% (적시)         |
+| +forward_hmm       | 0.682  | -10.66% | 310      | -0.06% (적시)         |
+
+**Crisis 적시성 본질적 개선** (진입 후 21일 +0.06% → -0.30%). portfolio Sharpe/MaxDD 영향 미미 — 시스템이 이미 다층 안전망(blend 연속노출+drawdown scale-down+vol_targeting)을 가져 분류 변경이 결과로 크게 이어지지 않음. **A안(override 0.50만) 권장**. forward_hmm 단독 추가 효과 미미.
+
+실험 노트: `docs/experiment_2026-05-27_transition_response.md`. 코드는 옵트인으로 영구 보존.
+
 ### 레짐 분류 안전 fix 묶음 (외부 비평 반영)
 
 외부 리뷰의 6개 비평 중 단독 결정 가능한 4개 항목을 한 번에 적용.

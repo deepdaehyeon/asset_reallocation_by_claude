@@ -577,6 +577,51 @@ class HmmRegimeClassifier:
 
         return regime_probs
 
+    def predict_proba_forward(self, feature_sequence, horizon: int = 1) -> dict[str, float]:
+        """
+        Transition matrix를 곱해 horizon-step ahead 사후 확률을 반환한다.
+
+        P(state_{t+h}) = P(state_t) @ transmat^h
+        그 후 state→regime 매핑으로 레짐 확률 변환.
+
+        호리즌이 길수록 transition 누적이 stationary distribution에 수렴 →
+        h=1, 2 정도만 의미 있음. h=1이 기본.
+
+        Crisis transition 진입 후행 문제(진단 결과)를 완화하기 위한 forward 시그널.
+        """
+        if self._model is None or self._scaler is None:
+            return {r: 1.0 / len(REGIMES) for r in REGIMES}
+
+        import numpy as np
+
+        cols = getattr(self, "_feature_cols", None)
+        if cols is None:
+            from features import get_active_feature_cols
+            cols = get_active_feature_cols(feature_sequence)
+
+        missing = [c for c in cols if c not in feature_sequence.columns]
+        if missing:
+            feature_sequence = feature_sequence.copy()
+            for c in missing:
+                feature_sequence[c] = 0.0
+
+        X = feature_sequence[cols].values.astype(float)
+        X_scaled = self._scaler.transform(X)
+        state_probs = self._model.predict_proba(X_scaled)[-1]
+
+        # transition matrix를 horizon회 적용
+        transmat = self._model.transmat_  # (N, N), [i,j] = P(s_{t+1}=j | s_t=i)
+        forward = state_probs.copy()
+        for _ in range(max(1, int(horizon))):
+            forward = forward @ transmat
+
+        regime_probs: dict[str, float] = {r: 0.0 for r in REGIMES}
+        for s, prob in enumerate(forward):
+            regime = self._state_to_regime.get(s, DEFAULT_REGIME)
+            regime_probs[regime] += float(prob)
+
+        return regime_probs
+
     def get_transition_matrix(self) -> dict[str, dict[str, float]]:
         """
         HMM 내부 전이 확률을 레짐 레이블 기준으로 반환한다.
@@ -1033,15 +1078,30 @@ def ensemble_regime(
     rule_regime: str,
     combined_probs: dict[str, float],
     override_threshold: float = 0.60,
+    crisis_priority_threshold: float | None = None,
 ) -> str:
     """
     규칙 기반 레짐과 (HMM+RF 가중평균) 확률 분포를 결합해 최종 레짐을 반환한다.
 
-    combined_probs는 run.py에서 HMM 0.6 + RF 0.4 가중평균된 분포가 전달된다.
-    이 분포가 rule-based와 다른 레짐을 override_threshold 이상 확률로 지지하고,
-    rule-based 레짐의 확률이 25% 미만인 경우에만 다수 레짐을 채택한다.
-    그 외에는 규칙 기반 레짐을 사용한다 (보수적 기본값).
+    1. Crisis 비대칭 우선순위 (`crisis_priority_threshold`, None이면 비활성):
+       blend["Crisis"]가 임계 이상이면 다른 조건 무시하고 즉시 Crisis 반환.
+       이유: Crisis 진입 지연이 가장 큰 transition 손실을 만들기 때문 (진단 결과).
+       위험 진입의 false positive 비용은 보수 자산 비중 일시 상승으로 제한적인 반면
+       Crisis 진입 지연의 비용은 폭락 구간 추가 노출.
+
+    2. 그 외 일반 override:
+       blend top이 rule과 다르고, top 확률이 override_threshold 이상,
+       rule 확률이 25% 미만인 경우에만 다수 레짐 채택.
+       그 외에는 보수적으로 rule 유지.
     """
+    # 1. Crisis 비대칭 우선 (옵트인)
+    if (
+        crisis_priority_threshold is not None
+        and combined_probs.get("Crisis", 0.0) >= crisis_priority_threshold
+    ):
+        return "Crisis"
+
+    # 2. 일반 다수결 override
     top = max(combined_probs, key=combined_probs.get)
     if (
         top != rule_regime
