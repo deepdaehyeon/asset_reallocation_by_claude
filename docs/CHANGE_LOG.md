@@ -97,6 +97,20 @@ forward 라벨 채택 결론은 lag 적용 후에도 변함없음 (Round 3에서
 
 α=0.5에서 whipsaw 10.3pp 감소, 전환 횟수 243→182(거래비용 절감), Sharpe 거의 동등. Crisis 진입 감소(-49일, -23%)는 부작용이지만 MaxDD 악화가 -1.18pp로 통제됨. 기본값은 0.0 유지(호환), 채택 결정 시 config만 변경.
 
+→ **사용자 채택**: `blend_smoothing_alpha=0.5` 적용.
+
+### detect_regime 임계 시뮬레이션 (외부 비평 #6-a 분리도 검증)
+
+- `scripts/compare_detect_thresholds.py`: 코드 변경 없이 walk-forward features로 4개 시나리오 재적용 후 분리도만 검증.
+- 실험 노트: `docs/experiment_2026-05-27_detect_thresholds.md`.
+
+**핵심 발견**:
+- detect_regime **자체로는** Crisis(+3.84%)·Stagflation(+2.05%)이 가장 우월. 진단의 Crisis 후행(+0.38%) 문제는 룰이 아니라 ensemble + RegimeFilter 단계.
+- Goldilocks 임계 조정(growth_min 2→3)으로 평균 +0.81→+0.93% 미세 개선, 순위 5/5 → 4/5. 분리도 본질적 회복은 아님.
+- flip_fallback은 오히려 악화. very_strict는 추가 개선 없음.
+
+**채택 보류** — 임계 조정만으로 의미 있는 회복 없음. 본질 문제(ensemble 후행)는 이미 적용된 `blend_smoothing_alpha=0.5`·Crisis 비대칭 hysteresis로 부분 처리. 더 본질적 재설계(레짐 framework 자체를 forward return quantile 기반으로 교체)는 별도 큰 작업.
+
 ### 레짐 분류 안전 fix 묶음 (외부 비평 반영)
 
 외부 리뷰의 6개 비평 중 단독 결정 가능한 4개 항목을 한 번에 적용.
