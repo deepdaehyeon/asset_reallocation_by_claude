@@ -25,8 +25,9 @@ MACRO_FEATURE_COLS: list[str] = [
     "breakeven_5y",     # 5년 기대인플레이션 (BEI)
     "m2_yoy",           # M2 공급 전년비 (%)
     "fed_bs_yoy",       # Fed 자산규모 전년비 (QE/QT 신호)
-    "hy_spread_zscore", # HY 스프레드 3년 Z-score
+    "hy_spread_zscore", # 신용 spread 3년 Z-score (BAA10Y proxy)
     "curve_10y2y",      # 장단기 금리차
+    "nfci",             # ChicagoFed 금융여건 지표 (-=loose, +=tight)
 ]
 
 # 하위 호환 alias — 이전 코드에서 HMM_FEATURE_COLS를 직접 참조하는 경우
@@ -153,6 +154,7 @@ def compute_features(prices: pd.DataFrame, fred_data: dict | None = None) -> dic
             "unrate_chg_3m",
             "breakeven_5y",
             "m2_yoy", "fed_bs_yoy",
+            "nfci",
         ):
             if key in fred_data:
                 features[key] = fred_data[key]

@@ -210,6 +210,14 @@ def fetch_fred_data() -> dict:
         except Exception:
             pass
 
+        # ── NFCI (ChicagoFed 금융여건, 주별) ──────────────────────────────
+        try:
+            nfci = fred.get_series("NFCI").dropna()
+            if len(nfci) > 0:
+                result["nfci"] = float(nfci.iloc[-1])
+        except Exception:
+            pass
+
     except Exception as e:
         print(f"    [FRED] 조회 실패 ({type(e).__name__}): {e}")
 
@@ -247,6 +255,9 @@ def fetch_fred_history(start: str, end: str) -> pd.DataFrame:
         # 스케일: BAA10Y 평균 ~2.5%, std ~0.8%, GFC peak 6%, COVID 4% (HY 대비 압축됨).
         "BAA10Y":         "hy_raw",
         "T10Y2Y":         "curve_10y2y",
+        # NFCI: Chicago Fed National Financial Conditions Index (주별, 매주 수요일 발표).
+        # 음수=loose(평상), 양수=tight(위험). 평균 ~-0.3, std ~0.6, GFC peak 3.06.
+        "NFCI":           "nfci",
     }
 
     raw: dict[str, pd.Series] = {}
@@ -288,6 +299,7 @@ def fetch_fred_history(start: str, end: str) -> pd.DataFrame:
         "hy_spread":         1,   # 일별
         "hy_spread_zscore":  1,
         "curve_10y2y":       1,   # T10Y2Y: 일별
+        "nfci":              7,   # NFCI: 주별, 다음 수요일 발표 → ~7 BDay
     }
 
     def _publish(s: pd.Series, key: str) -> pd.Series:
@@ -337,6 +349,10 @@ def fetch_fred_history(start: str, end: str) -> pd.DataFrame:
         hy_d = raw["hy_raw"]
         result["hy_spread"] = _publish(hy_d, "hy_spread").reindex(idx, method="ffill", limit=3)
         result["hy_spread_zscore"] = _publish(_zscore_series(hy_d), "hy_spread_zscore").reindex(idx, method="ffill", limit=3)
+
+    # NFCI (weekly, ChicagoFed financial conditions index)
+    if "nfci" in raw:
+        result["nfci"] = _publish(raw["nfci"], "nfci").reindex(idx, method="ffill", limit=10)
 
     # 장단기 금리차 (daily)
     if "curve_10y2y" in raw:
