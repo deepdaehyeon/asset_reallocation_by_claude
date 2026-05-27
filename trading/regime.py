@@ -639,22 +639,42 @@ class BalancedRFClassifier:
     RandomForest 기반 레짐 분류기.
 
     목적: GaussianHMM의 소수 레짐(Crisis/Stagflation) 과소 탐지 보완.
-    학습 라벨링(`forward_window`):
-      0          → 동일 시점 detect_regime() (룰의 근사기 — 자기참조 있음, 기존 동작)
-      N (>0)     → t+N 시점 detect_regime() 라벨 (forward-looking — 자기참조 끊김)
-                   ⇒ "현재 피처가 N영업일 후 어떤 레짐과 연관되는가"를 학습.
-                   ⇒ 마지막 N영업일은 라벨링 불가 → 학습 셋에서 제외.
-    추론: 현재 피처 벡터(단일 행) → 레짐별 확률 dict.
+    학습 라벨링 (`forward_window`, `label_mode`):
+      forward_window=0
+        → 동일 시점 detect_regime() (룰의 근사기 — 자기참조 있음, 기존 동작)
+      forward_window=N>0, label_mode='rule_at_future' (기본)
+        → t+N 시점 detect_regime() 라벨 (옵션 1, forward-looking — 룰 임계 그대로 사용)
+      forward_window=N>0, label_mode='quantile'
+        → t+N 시점의 (momentum_1m, realized_vol) 학습 분포 분위 기반 라벨 (옵션 2)
+          매핑:
+            - rvol  ≥ p80                       → Crisis
+            - return ≥ p60, rvol  < median      → Goldilocks
+            - return ≥ p60, rvol ≥ median       → Reflation
+            - return ≤ p40, rvol ≥ median       → Stagflation
+            - 그 외                             → Slowdown
+          detect_regime 호출 없음 → 룰의 절대 임계·카운팅 편향에서 자유로움.
+      forward_window>0인데 표본 부족(len(fm) ≤ N+1)이면 rule 라벨로 안전 폴백.
 
     HMM이 순서 정보(전이 확률)를 담당하고,
     RF는 피처 공간에서 소수 클래스 경계를 더 민감하게 학습하는 역할을 한다.
     """
 
-    def __init__(self, forward_window: int = 0) -> None:
+    VALID_LABEL_MODES = ("rule_at_future", "quantile")
+
+    def __init__(
+        self,
+        forward_window: int = 0,
+        label_mode: str = "rule_at_future",
+    ) -> None:
         self._model = None
         self._scaler = None
         self._forward_window = int(forward_window)
-        self._label_method: str = "rule"  # "rule" | f"forward_{N}"
+        if label_mode not in self.VALID_LABEL_MODES:
+            raise ValueError(
+                f"label_mode must be one of {self.VALID_LABEL_MODES}, got {label_mode!r}"
+            )
+        self._label_mode = label_mode
+        self._label_method: str = "rule"
         self._train_samples: int = 0
 
     @property
@@ -667,7 +687,7 @@ class BalancedRFClassifier:
         return self._train_samples
 
     def fit(self, feature_matrix) -> None:
-        """피처 행렬로 RF를 학습한다. 라벨링은 forward_window에 따라 분기."""
+        """피처 행렬로 RF를 학습한다. 라벨링은 forward_window·label_mode에 따라 분기."""
         from sklearn.ensemble import RandomForestClassifier
         from sklearn.preprocessing import StandardScaler
 
@@ -680,17 +700,24 @@ class BalancedRFClassifier:
         records = feature_matrix.to_dict(orient="records")
 
         if self._forward_window > 0:
-            # forward 라벨: t의 라벨 = t+N 시점 detect_regime
             fw = self._forward_window
             if n <= fw + 1:
-                # 학습 데이터가 너무 적음 → 안전하게 룰 라벨로 폴백
                 labels = [detect_regime(r) for r in records]
                 train_fm = feature_matrix
                 self._label_method = "rule (forward 폴백: 표본 부족)"
-            else:
+            elif self._label_mode == "quantile":
+                labels = self._compute_quantile_labels(feature_matrix, fw)
+                if labels is None:
+                    labels = [detect_regime(r) for r in records]
+                    train_fm = feature_matrix
+                    self._label_method = "rule (quantile 폴백: 컬럼 누락)"
+                else:
+                    train_fm = feature_matrix.iloc[:n - fw]
+                    self._label_method = f"forward_quantile_{fw}"
+            else:  # 'rule_at_future'
                 labels = [detect_regime(records[t + fw]) for t in range(n - fw)]
                 train_fm = feature_matrix.iloc[:n - fw]
-                self._label_method = f"forward_{fw}"
+                self._label_method = f"forward_rule_{fw}"
         else:
             labels = [detect_regime(r) for r in records]
             train_fm = feature_matrix
@@ -712,6 +739,52 @@ class BalancedRFClassifier:
             n_jobs=-1,
         )
         self._model.fit(X_scaled, labels)
+
+    @staticmethod
+    def _compute_quantile_labels(feature_matrix, forward_window: int):
+        """
+        t의 라벨 = t+forward_window 시점의 (momentum_1m, realized_vol) 분위 매핑.
+
+        feature_matrix에 momentum_1m·realized_vol가 모두 있어야 한다 (없으면 None 반환 → 폴백).
+        detect_regime 호출 없음. forward 통계는 학습 분포 분위로 비교 → 절대 임계 회피.
+        """
+        import numpy as np
+
+        cols_needed = ("momentum_1m", "realized_vol")
+        if not all(c in feature_matrix.columns for c in cols_needed):
+            return None
+
+        fw = forward_window
+        n = len(feature_matrix)
+        # 학습 셋(t=0..n-fw-1)의 라벨에 사용할 forward 통계 — t+fw 시점 값을 본다
+        fwd_returns = feature_matrix["momentum_1m"].iloc[fw:fw + (n - fw)].values
+        fwd_rvols = feature_matrix["realized_vol"].iloc[fw:fw + (n - fw)].values
+
+        if len(fwd_returns) == 0:
+            return None
+
+        # 학습 분포에서의 분위 (스칼라)
+        ret_p60 = float(np.nanpercentile(fwd_returns, 60))
+        ret_p40 = float(np.nanpercentile(fwd_returns, 40))
+        rvol_p80 = float(np.nanpercentile(fwd_rvols, 80))
+        rvol_med = float(np.nanmedian(fwd_rvols))
+
+        labels: list[str] = []
+        for r, v in zip(fwd_returns, fwd_rvols):
+            if np.isnan(r) or np.isnan(v):
+                labels.append("Slowdown")
+                continue
+            if v >= rvol_p80:
+                labels.append("Crisis")
+            elif r >= ret_p60 and v < rvol_med:
+                labels.append("Goldilocks")
+            elif r >= ret_p60:
+                labels.append("Reflation")
+            elif r <= ret_p40 and v >= rvol_med:
+                labels.append("Stagflation")
+            else:
+                labels.append("Slowdown")
+        return labels
 
     def predict_proba(self, features: dict) -> dict[str, float]:
         """현재 피처 dict → 레짐별 확률 (클래스 균형 가중치 반영)."""

@@ -324,10 +324,14 @@ hmm:
   rf_enabled: true         # BalancedRF 앙상블 (소수 레짐 탐지 보강)
   rf_weight: 0.40          # RF 확률 가중치 (HMM 0.6 + RF 0.4)
   # RF 라벨링 방식:
-  #   0         (기본): 동일 시점의 detect_regime() 라벨 — 룰의 근사기 (자기참조)
-  #   N (양수, 영업일): t+N 시점의 detect_regime() 라벨 — forward-looking, 자기참조 끊김
-  # 활성화 전 scripts/compare_rf_label.py로 백테스트 비교 권장 (N=21 / 63 / 0).
+  #   rf_forward_window=0 (기본): 동일 시점의 detect_regime() 라벨 — 룰의 근사기 (자기참조)
+  #   rf_forward_window=N>0 + rf_label_mode='rule_at_future':
+  #     t+N 시점의 detect_regime() 라벨 — forward-looking, 자기참조 끊김(룰 임계 그대로)
+  #   rf_forward_window=N>0 + rf_label_mode='quantile':
+  #     t+N 시점의 (momentum_1m, realized_vol) 학습 분포 분위 매핑 — detect_regime 호출 없음
+  # 활성화 전 scripts/compare_rf_label.py로 백테스트 비교 권장.
   rf_forward_window: 0
+  rf_label_mode: rule_at_future   # rule_at_future | quantile
   # state→regime 매핑 방식:
   #   true (기본): HMM state별 피처 통계로 비지도 매핑 (detect_regime 자기참조 제거)
   #                매핑이 ambiguous하면 legacy로 자동 폴백

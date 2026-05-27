@@ -303,7 +303,11 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
 
         if rf_enabled:
             rf_forward_window = int(hmm_cfg.get("rf_forward_window", 0))
-            rf_clf = BalancedRFClassifier(forward_window=rf_forward_window)
+            rf_label_mode = hmm_cfg.get("rf_label_mode", "rule_at_future")
+            rf_clf = BalancedRFClassifier(
+                forward_window=rf_forward_window,
+                label_mode=rf_label_mode,
+            )
             rf_clf.fit(feature_matrix)
             rf_probs = rf_clf.predict_proba(features)
             rf_top = max(rf_probs, key=rf_probs.get)

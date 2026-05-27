@@ -11,7 +11,20 @@
 - 표본 부족 시(`len(fm) <= N+1`) 안전하게 룰 라벨로 폴백.
 - 비교 백테스트 스크립트 `scripts/compare_rf_label.py` 추가 (rule baseline vs forward N=21 / 63).
 - 실험 노트: `docs/experiment_2026-05-27_rf_forward_label.md`.
-- **백테스트 결과 (2010~2025)**: forward 라벨이 baseline 대비 Sharpe -0.02~-0.07, MaxDD -1.5pp 악화 → **채택 보류**(`rf_forward_window=0` 유지). 코드는 옵트인 옵션으로 보존. FRED 매크로 포함 재실험과 forward 수익률 quantile binning(옵션 2)이 후속 과제.
+- **백테스트 결과 (2010~2025)**: forward 라벨이 baseline 대비 Sharpe -0.02~-0.07, MaxDD -1.5pp 악화 → **채택 보류**(`rf_forward_window=0` 유지). 코드는 옵트인 옵션으로 보존.
+
+### RF forward 라벨 Round 2 (FRED 포함 + 옵션 2 quantile binning)
+
+후속 실험으로 두 가지를 같이 검증:
+- (a) FRED 매크로 7개(`cpi_yoy`/`cpi_mom_zscore`/`unrate_chg_3m`/`breakeven_5y`/`m2_yoy`/`fed_bs_yoy`/`curve_10y2y`) 포함 재실험
+- (b) `BalancedRFClassifier(label_mode='quantile')` 추가 — t의 라벨로 t+N 시점의 `(momentum_1m, realized_vol)` 학습 분포 분위 매핑. `detect_regime` 호출 없음.
+
+지원 작업:
+- `trading/fetcher.py`에 프로젝트 루트 `.env` 자동 로딩 (`FRED_API_KEY` 등) + ICE 빈 응답 가드 (HY 스프레드 라이선스 회수 대응).
+- `hmm.rf_label_mode` config 키 추가 (`rule_at_future` | `quantile`).
+- `scripts/compare_rf_label.py`를 5개 시나리오 비교로 확장.
+
+**Round 2 결과**: baseline Sharpe 0.58, MaxDD -12.5%, 위험레짐 미감지 10일 / forward 라벨 모두 위험레짐 미감지 30일(3배 증가). 자동 판정은 forward_rule_21(Sharpe 0.60)을 추천했으나 위험감지 악화로 실질 권고는 **baseline 유지**. FRED 매크로 자체가 성능을 향상시키지 못한 점은 publication lag(#3) 미반영 가능성 시사 → **#3 처리 후 본 실험 재실행 권장**.
 
 ### 레짐 분류 안전 fix 묶음 (외부 비평 반영)
 

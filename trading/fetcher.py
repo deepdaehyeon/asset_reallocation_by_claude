@@ -2,10 +2,33 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import yfinance as yf
+
+
+def _load_env_from_file() -> None:
+    """프로젝트 루트의 .env를 한 번 파싱해 os.environ에 주입 (이미 있는 키는 보존)."""
+    env_path = Path(__file__).resolve().parent.parent / ".env"
+    if not env_path.exists():
+        return
+    try:
+        for line in env_path.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, _, v = line.partition("=")
+            k = k.strip()
+            v = v.strip().strip("'\"")
+            if k and v and os.environ.get(k) is None:
+                os.environ[k] = v
+    except OSError:
+        pass
+
+
+_load_env_from_file()
 
 
 def fetch_signal_prices(tickers: list[str], lookback_days: int = 130) -> pd.DataFrame:
@@ -226,7 +249,12 @@ def fetch_fred_history(start: str, end: str) -> pd.DataFrame:
     for code, alias in series_map.items():
         try:
             s = fred.get_series(code, observation_start=fetch_start, observation_end=end)
-            raw[alias] = s.dropna()
+            s = s.dropna()
+            # 빈 시리즈/datetime 아닌 index는 스킵 (ICE 라이선스 회수 등으로 빈 응답이 올 수 있음)
+            if len(s) == 0 or not pd.api.types.is_datetime64_any_dtype(s.index):
+                print(f"    [FRED history] {code}: 빈 응답 — 스킵")
+                continue
+            raw[alias] = s
         except Exception as e:
             print(f"    [FRED history] {code} 조회 실패: {e}")
 
