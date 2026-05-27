@@ -366,13 +366,16 @@ anomaly:
 regime_filter:
   confirmation_count: 3
   cooldown_days: 5
-  confidence_threshold: 0.40
-  # 신뢰도 결합 산식:
-  #   mean    — (rule_conf + hmm_conf) / 2  (기존, 단조성 보장 X — 비평 #4)
-  #   min     — min(rule_conf, hmm_conf)    (보수)
-  #   product — rule_conf * hmm_conf        (보수)
-  # 활성화 전 scripts/compare_confidence_methods.py로 비교 권장.
-  confidence_method: mean
+  # confidence_threshold: confidence_method 스케일에 맞춰야 한다.
+  #   mean  : 0.40 (기존). 비단조 산식이므로 실제 캘리브레이션 의미 약함.
+  #   min   : 0.20 (현재). mean 0.40과 동등한 fallback 비율(~39%) 유지.
+  #   product: 0.10 권장 (multiplicative라 더 낮은 임계 필요).
+  confidence_threshold: 0.20
+  # 신뢰도 결합 산식 (외부 비평 #4):
+  #   mean    — (rule_conf + hmm_conf) / 2  (Spearman ρ -0.325, 비단조)
+  #   min     — min(rule_conf, hmm_conf)    (ρ +0.595, 단조 회복) ← 현재
+  #   product — rule_conf * hmm_conf        (ρ +0.681, 가장 강한 단조)
+  confidence_method: min
   # 레짐별 override — Crisis는 빠른 진입이 중요하므로 confirmation 1회·쿨다운 0.
   per_regime:
     Crisis:
