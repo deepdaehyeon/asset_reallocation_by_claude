@@ -134,6 +134,22 @@ forward 라벨 채택 결론은 lag 적용 후에도 변함없음 (Round 3에서
 
 **Phase 2 진행 권장**.
 
+### C안 Phase 2a — supervised 분류기 검증 (FAIL)
+
+`BalancedRFClassifier.label_mode='forward_quantile_v2'` 추가. 옵션 2 매핑(rvol p90 Crisis, ret p70 × vol high/low 코어 + 가장 가까운 코어 할당)을 RF가 학습하도록.
+
+**백테스트 결과 (2010~2025, FRED 포함)**:
+
+| | Sharpe | MaxDD | Calmar | MCC |
+|---|------:|------:|-------:|----:|
+| rule (baseline) | **0.69** | **-10.6%** | **0.90** | **+0.65** |
+| forward_qv2_21 | 0.61 | -11.5% | 0.76 | +0.53 |
+| forward_qv2_63 | 0.60 | -12.2% | 0.71 | +0.54 |
+
+**Phase 1의 분리도 회복이 supervised 학습으로 보존되지 못함**. 본질 원인은 시장 효율성으로 인한 features → forward stats 예측의 한계. 여러 forward 라벨 변형(rule/quantile v1/v2)이 모두 baseline 대비 열위.
+
+→ **C안 framework 전체에 본질적 의문 제기. Phase 2b(HMM 통합) 보류 권장**. 코드는 옵트인으로 영구 보존(`label_mode='forward_quantile_v2'`). 실험 노트: `docs/experiment_2026-05-27_quantile_phase2a.md`.
+
 ### 레짐 분류 안전 fix 묶음 (외부 비평 반영)
 
 외부 리뷰의 6개 비평 중 단독 결정 가능한 4개 항목을 한 번에 적용.

@@ -43,9 +43,9 @@ SCENARIOS = [
     # (label, forward_window, label_mode)
     ("rule",            0,  "rule_at_future"),
     ("forward_rule_21", 21, "rule_at_future"),
-    ("forward_rule_63", 63, "rule_at_future"),
     ("forward_q_21",    21, "quantile"),
-    ("forward_q_63",    63, "quantile"),
+    ("forward_qv2_21",  21, "forward_quantile_v2"),
+    ("forward_qv2_63",  63, "forward_quantile_v2"),
 ]
 
 

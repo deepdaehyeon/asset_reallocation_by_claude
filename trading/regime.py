@@ -659,7 +659,7 @@ class BalancedRFClassifier:
     RF는 피처 공간에서 소수 클래스 경계를 더 민감하게 학습하는 역할을 한다.
     """
 
-    VALID_LABEL_MODES = ("rule_at_future", "quantile")
+    VALID_LABEL_MODES = ("rule_at_future", "quantile", "forward_quantile_v2")
 
     def __init__(
         self,
@@ -714,6 +714,15 @@ class BalancedRFClassifier:
                 else:
                     train_fm = feature_matrix.iloc[:n - fw]
                     self._label_method = f"forward_quantile_{fw}"
+            elif self._label_mode == "forward_quantile_v2":
+                labels = self._compute_quantile_labels_v2(feature_matrix, fw)
+                if labels is None:
+                    labels = [detect_regime(r) for r in records]
+                    train_fm = feature_matrix
+                    self._label_method = "rule (quantile_v2 폴백: 컬럼 누락)"
+                else:
+                    train_fm = feature_matrix.iloc[:n - fw]
+                    self._label_method = f"forward_quantile_v2_{fw}"
             else:  # 'rule_at_future'
                 labels = [detect_regime(records[t + fw]) for t in range(n - fw)]
                 train_fm = feature_matrix.iloc[:n - fw]
@@ -784,6 +793,79 @@ class BalancedRFClassifier:
                 labels.append("Stagflation")
             else:
                 labels.append("Slowdown")
+        return labels
+
+    @staticmethod
+    def _compute_quantile_labels_v2(feature_matrix, forward_window: int):
+        """
+        t의 라벨 = t+forward_window 시점의 (momentum_1m, realized_vol) 옵션 2 매핑.
+
+        Phase 1 시뮬레이션과 동일 매핑:
+          - Crisis      : forward 변동성 top 10%
+          - Reflation   : forward 수익률 top 30% + 변동성 ≥ median
+          - Goldilocks  : forward 수익률 top 30% + 변동성 < median
+          - Stagflation : forward 수익률 bottom 30% + 변동성 ≥ median
+          - Slowdown    : forward 수익률 bottom 30% + 변동성 < median
+          - 나머지 ~40%: 가장 가까운 코어에 할당 (z-score Manhattan 거리)
+
+        기존 'quantile' 모드(p80 Crisis, p60/p40 cutoff, default Slowdown)와 차이:
+          - Crisis 임계 더 엄격 (p80 → p90)
+          - 코어 4-quadrant 명확히 분리 (top/bottom 30%)
+          - 나머지 시점을 default Slowdown이 아니라 가장 가까운 코어에 할당
+        """
+        import numpy as np
+
+        cols_needed = ("momentum_1m", "realized_vol")
+        if not all(c in feature_matrix.columns for c in cols_needed):
+            return None
+
+        fw = forward_window
+        n = len(feature_matrix)
+        fwd_returns = feature_matrix["momentum_1m"].iloc[fw:fw + (n - fw)].values
+        fwd_rvols = feature_matrix["realized_vol"].iloc[fw:fw + (n - fw)].values
+
+        if len(fwd_returns) == 0:
+            return None
+
+        ret_p70 = float(np.nanpercentile(fwd_returns, 70))
+        ret_p30 = float(np.nanpercentile(fwd_returns, 30))
+        vol_p90 = float(np.nanpercentile(fwd_rvols, 90))
+        vol_med = float(np.nanmedian(fwd_rvols))
+
+        # 코어 중심점 (Manhattan 거리 측정용)
+        core_centers = {
+            "Goldilocks":  (ret_p70, 0.0),
+            "Reflation":   (ret_p70, vol_med),
+            "Slowdown":    (ret_p30, 0.0),
+            "Stagflation": (ret_p30, vol_med),
+        }
+
+        labels: list[str] = []
+        for r, v in zip(fwd_returns, fwd_rvols):
+            if np.isnan(r) or np.isnan(v):
+                labels.append("Slowdown")
+                continue
+            # 1. Crisis: 변동성 극단
+            if v >= vol_p90:
+                labels.append("Crisis")
+                continue
+            # 2. 코어 4-quadrant
+            if r >= ret_p70 and v < vol_med:
+                labels.append("Goldilocks")
+                continue
+            if r >= ret_p70 and v >= vol_med:
+                labels.append("Reflation")
+                continue
+            if r <= ret_p30 and v < vol_med:
+                labels.append("Slowdown")
+                continue
+            if r <= ret_p30 and v >= vol_med:
+                labels.append("Stagflation")
+                continue
+            # 3. 중간 ~40%: 가장 가까운 코어에 (Manhattan)
+            best = min(core_centers.items(),
+                       key=lambda kv: abs(r - kv[1][0]) + abs(v - kv[1][1]))
+            labels.append(best[0])
         return labels
 
     def predict_proba(self, features: dict) -> dict[str, float]:
