@@ -111,6 +111,12 @@ forward 라벨 채택 결론은 lag 적용 후에도 변함없음 (Round 3에서
 
 **채택 보류** — 임계 조정만으로 의미 있는 회복 없음. 본질 문제(ensemble 후행)는 이미 적용된 `blend_smoothing_alpha=0.5`·Crisis 비대칭 hysteresis로 부분 처리. 더 본질적 재설계(레짐 framework 자체를 forward return quantile 기반으로 교체)는 별도 큰 작업.
 
+→ **사용자 결정**: 임계 조정 채택 X. 본질 재설계를 위한 C안 계획 별도 문서화.
+
+### C안 계획 문서 — forward return quantile binning 기반 레짐 재설계
+
+`docs/plan_2026-05-27_quantile_regime_framework.md` 작성. 5개 레짐 이름은 유지하되 정의를 데이터 분포(forward 21일 수익률·변동성 quantile)로 교체하는 단계별 계획. Phase 1(시뮬레이션) → Phase 2(코드 통합) → Phase 3(백테스트) → Phase 4(채택 결정). 코드 변경 없음 — 진행 결정 시 별도 PR.
+
 ### 레짐 분류 안전 fix 묶음 (외부 비평 반영)
 
 외부 리뷰의 6개 비평 중 단독 결정 가능한 4개 항목을 한 번에 적용.
