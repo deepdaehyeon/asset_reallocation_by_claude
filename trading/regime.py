@@ -30,29 +30,34 @@ def _growth_inflation_signals(features: dict) -> tuple[int, int, int, int]:
     mom3m   = features["momentum_3m"]
     vix     = features["vix"]
     credit  = features["credit_signal"]
-    hy_spr  = features.get("hy_spread", 4.5)         # 중립값
-    curve   = features.get("curve_10y2y", 0.5)       # 중립값
-    commod  = features.get("commodity_mom_1m", 0.0)  # 없으면 0
+    # hy_spread는 이제 BAA10Y proxy (ICE HY OAS 라이선스 회수 대응).
+    # 중립값 2.5는 BAA10Y 평균(2.53)에 근접.
+    hy_spr  = features.get("hy_spread", 2.5)
+    curve   = features.get("curve_10y2y", 0.5)
+    commod  = features.get("commodity_mom_1m", 0.0)
 
     growth_bullish = sum([
         mom1m > 0.02,
         mom3m > 0.03,
         credit > 0.01,
-        curve > 1.0,   # 가파른 커브 = 확장 신호
+        curve > 1.0,
     ])
     growth_bearish = sum([
         mom1m < -0.02,
         mom3m < -0.03,
         credit < -0.02,
-        curve < 0.0,   # 역전 = 침체 선행 신호
+        curve < 0.0,
     ])
+    # BAA10Y 스케일 적용:
+    #   > 3.0 (p85) = 진짜 stress 시점
+    #   < 1.8 (p20) = 진짜 평온 시점
     infl_rising = sum([
-        hy_spr > 5.0,
+        hy_spr > 3.0,
         vix > 25,
-        commod > 0.05,   # 원자재 +5% 모멘텀 = 인플레 압력
+        commod > 0.05,
     ])
     infl_low = sum([
-        hy_spr < 4.0,
+        hy_spr < 1.8,
         vix < 18,
         commod < -0.05,
     ])

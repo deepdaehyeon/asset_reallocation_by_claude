@@ -170,6 +170,25 @@ forward 라벨 채택 결론은 lag 적용 후에도 변함없음 (Round 3에서
 
 실험 노트: `docs/experiment_2026-05-27_transition_response.md`. 코드는 옵트인으로 영구 보존.
 
+## 2026-05-28
+
+### HY 스프레드 대체 — BAA10Y 통합 (시스템 완성도 회복)
+
+ICE `BAMLH0A0HYM2` (HY OAS) 라이선스 회수로 빈 응답 → Moody's `BAA10Y` (BAA - 10Y 국채 spread)로 교체. 변수명 `hy_spread`/`hy_spread_zscore`는 호환을 위해 유지(의미는 "credit spread proxy"로 재해석).
+
+- `fetcher.fetch_fred_history()` 및 `fetch_fred_data()` 시리즈 코드 교체
+- BAA10Y 분포 (2007-2025): 평균 2.53, std 0.79, p10/p50/p90 = 1.69/2.38/3.27, GFC peak 6.16, COVID peak 4.31
+- `detect_regime` 임계 재조정: `> 5.0 → > 3.0` (p85, 진짜 stress), `< 4.0 → < 1.8` (p20, 진짜 평온)
+- 중립값 4.5 → 2.5
+
+**효과 (라이브 config로 백테스트 2010~2025)**:
+- Sharpe 0.683 → **0.697** (+0.014)
+- MaxDD -10.60% → -11.26% (-0.66pp, 허용 범위)
+- 위험 미감지 평균 손실 -0.176%/일 → **-0.037%/일** (절반 이하)
+- 매크로 9개 모두 정상 (HMM unsupervised mapping의 `infl_hy_zscore` 가중치 작동 복구)
+
+가장 큰 가치는 시스템 완성도 회복 — 비평 #2 매핑 가중치 중 `infl_hy_zscore: 0.03`이 그동안 효과 없는 상태였음. BAA로 신호 복구. 다음 작업은 **#2 매크로 피처 추가**.
+
 ### 레짐 분류 안전 fix 묶음 (외부 비평 반영)
 
 외부 리뷰의 6개 비평 중 단독 결정 가능한 4개 항목을 한 번에 적용.

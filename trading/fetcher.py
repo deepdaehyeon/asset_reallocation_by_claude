@@ -148,7 +148,8 @@ def fetch_fred_data() -> dict:
 
     try:
         # ── 신용 / 금리 (일별) ─────────────────────────────────────────────
-        hy = fred.get_series("BAMLH0A0HYM2").dropna()
+        # ICE BAMLH0A0HYM2(HY OAS) 라이선스 회수 → BAA10Y로 대체 (의미는 credit spread proxy)
+        hy = fred.get_series("BAA10Y").dropna()
         curve = fred.get_series("T10Y2Y").dropna()
 
         if len(hy) > 0:
@@ -241,7 +242,10 @@ def fetch_fred_history(start: str, end: str) -> pd.DataFrame:
         "T5YIE":          "breakeven_5y",
         "M2SL":           "m2_raw",
         "WALCL":          "fed_bs_raw",
-        "BAMLH0A0HYM2":   "hy_raw",
+        # ICE BAMLH0A0HYM2(HY OAS) 라이선스 회수 → Moody's BAA - 10Y 국채 spread 대체.
+        # 변수명 hy_spread는 호환 유지하되 의미는 "credit spread proxy(BAA10Y)"로 재해석.
+        # 스케일: BAA10Y 평균 ~2.5%, std ~0.8%, GFC peak 6%, COVID 4% (HY 대비 압축됨).
+        "BAA10Y":         "hy_raw",
         "T10Y2Y":         "curve_10y2y",
     }
 
