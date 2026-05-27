@@ -875,12 +875,13 @@ class KisRebalancer:
     def _fetch_krw_orderable(self, acc_name: str, ref_ticker: str) -> float:
         """KRX 계좌의 주문가능금액을 KIS API로 조회한다 (매도 직후 호출 — 당일 매도대금 포함).
 
-        KIS는 매도 체결 즉시 주문가능금액에 반영하므로 T+2 현금 입금 전이라도 정확한 한도를 반환한다.
+        KIS는 매도 체결 즉시 max_buy_qty에 반영하므로 T+2 현금 입금 전이라도 정확한 한도를 반환한다.
         조회 실패 시 _krw_acc_cash (T+2 미결제 제외 현금) 폴백.
 
-        주의: ord_psbl_cash(oa.amount)가 아닌 max_buy_qty × price 기준으로 cap을 결정한다.
-        KIS 주문 검증은 max_buy_qty를 기준으로 하며, 수수료 차감 후 ord_psbl_cash보다 낮을 수 있어
-        ord_psbl_cash 기준으로 주문하면 경계값에서 APBK0952가 발생한다.
+        cap 결정: max_buy_qty × price를 신뢰한다.
+        - oa.amount(ord_psbl_cash)는 당일 매도대금을 반영하지 않아 매도 직후 매수에서 비현실적으로 작음.
+        - oa.quantity(max_buy_qty)는 KIS가 수수료 + 결제대기 자금까지 모두 반영해 자체 계산한 권위값.
+        - 따라서 cash와의 min 비교는 매도 직후 케이스에서 cap을 잘못 줄임 (실제 버그 사례 2026-05-27).
         """
         client = self._clients[acc_name]
         try:
@@ -890,14 +891,15 @@ class KisRebalancer:
             except Exception:
                 price = 1_000.0
             oa = client.account().orderable_amount("KRX", ref_ticker, price=price)
-            cash = float(oa.amount)          # ord_psbl_cash
-            max_qty = int(oa.quantity)        # max_buy_qty — 수수료 포함 KIS 계산
+            cash = float(oa.amount)          # ord_psbl_cash (참고용, cap에는 사용 안 함)
+            max_qty = int(oa.quantity)        # max_buy_qty — 수수료 + 매도대금 포함 KIS 계산
             qty_based = float(max_qty) * price
             # 99%만 사용 — 수수료·슬리피지 여유분 확보
-            effective = min(qty_based, cash) * 0.99
+            effective = qty_based * 0.99
             print(
                 f"    [주문가능금액] {acc_name}: {effective:,.0f}원"
-                f" (현금={cash:,.0f}, max_qty={max_qty}×{price:.0f}={qty_based:,.0f}, 99% 적용)"
+                f" (max_qty={max_qty}×{price:.0f}={qty_based:,.0f}, 99% 적용,"
+                f" 참고 ord_psbl_cash={cash:,.0f})"
             )
             return effective
         except Exception as e:
