@@ -61,6 +61,22 @@ forward 라벨 채택 결론은 lag 적용 후에도 변함없음 (Round 3에서
 
 라이브 동작은 변경 없음 (진단 도구). 후속 개선 작업: (1) 신뢰도 산식을 min/product로 교체 후 비교, (2) whipsaw 억제 강화(confirmation/cooldown 상향), (3) detect_regime 임계값 재검토.
 
+### 신뢰도 산식 옵션 추가 (외부 비평 #4 본질 해결)
+
+- `regime.compute_combined_confidence(rule, hmm, method)` 함수 추가 — `mean` / `min` / `product`.
+- `regime_filter.confidence_method` config 키 (기본 `mean`, 호환 유지). run.py와 backtest engine 모두 함수 사용.
+- 비교 스크립트 `scripts/compare_confidence_methods.py` + 실험 노트 `docs/experiment_2026-05-27_confidence_formula.md`.
+
+**비교 결과 (2010~2025, FRED 포함)**:
+
+| method     | Sharpe | MaxDD  | **Spearman ρ** | fallback @0.40 |
+|------------|-------:|-------:|---------------:|---------------:|
+| mean       | 0.70   | -9.4%  | **-0.325**     | 38.8%         |
+| **min**    | 0.70   | -9.4%  | **+0.595**     | 72.4%         |
+| product    | 0.70   | -9.4%  | **+0.681**     | 83.2%         |
+
+단조성이 -0.325에서 +0.60(min)/+0.68(product)로 극적 회복. 백테스트 성과는 동일(엔진이 conf 폴백 미적용). **min을 새 기본으로 권장**, 단 fallback이 mean 38.8% → min 72.4%로 증가하므로 `confidence_threshold`도 0.40 → ~0.20으로 동시 조정 필요. 채택 시 config 변경만으로 즉시 적용 (별도 코드 변경 없음).
+
 ### 레짐 분류 안전 fix 묶음 (외부 비평 반영)
 
 외부 리뷰의 6개 비평 중 단독 결정 가능한 4개 항목을 한 번에 적용.

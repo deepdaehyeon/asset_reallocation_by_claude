@@ -29,6 +29,7 @@ from regime import (
     REGIMES,
     BalancedRFClassifier,
     HmmRegimeClassifier,
+    compute_combined_confidence,
     compute_rule_confidence,
     detect_regime,
     ensemble_regime,
@@ -109,6 +110,9 @@ class BacktestEngine:
         self.rf_weight = float(hmm_cfg.get("rf_weight", 0.40))
         self.rf_forward_window = int(hmm_cfg.get("rf_forward_window", 0))
         self.rf_label_mode = str(hmm_cfg.get("rf_label_mode", "rule_at_future"))
+        self.confidence_method = str(
+            config.get("regime_filter", {}).get("confidence_method", "mean")
+        )
         self.unsupervised_mapping = bool(hmm_cfg.get("unsupervised_mapping", True))
         self.mapping_weights = hmm_cfg.get("mapping_weights")
         self.crisis_rvol_threshold = hmm_cfg.get("crisis_rvol_threshold")
@@ -183,7 +187,9 @@ class BacktestEngine:
                 final = ensemble_regime(rule_regime, blend, self.override_thr)
                 rule_conf = compute_rule_confidence(features, final)
                 hmm_conf = blend.get(final, 0.0)
-                combined_conf = (rule_conf + hmm_conf) / 2
+                combined_conf = compute_combined_confidence(
+                    rule_conf, hmm_conf, method=self.confidence_method
+                )
                 return final, blend, rule_regime, combined_conf
 
         blend[rule_regime] = 1.0

@@ -367,6 +367,12 @@ regime_filter:
   confirmation_count: 3
   cooldown_days: 5
   confidence_threshold: 0.40
+  # 신뢰도 결합 산식:
+  #   mean    — (rule_conf + hmm_conf) / 2  (기존, 단조성 보장 X — 비평 #4)
+  #   min     — min(rule_conf, hmm_conf)    (보수)
+  #   product — rule_conf * hmm_conf        (보수)
+  # 활성화 전 scripts/compare_confidence_methods.py로 비교 권장.
+  confidence_method: mean
   # 레짐별 override — Crisis는 빠른 진입이 중요하므로 confirmation 1회·쿨다운 0.
   per_regime:
     Crisis:

@@ -46,6 +46,7 @@ from regime import (
     BalancedRFClassifier,
     HmmRegimeClassifier,
     RegimeFilter,
+    compute_combined_confidence,
     compute_rule_confidence,
     detect_regime,
     ensemble_regime,
@@ -334,7 +335,8 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
 
     rule_conf = compute_rule_confidence(features, raw_regime)
     hmm_conf: Optional[float] = hmm_probs.get(raw_regime) if hmm_probs else None
-    combined_conf = (rule_conf + hmm_conf) / 2 if hmm_conf is not None else rule_conf
+    conf_method = config.get("regime_filter", {}).get("confidence_method", "mean")
+    combined_conf = compute_combined_confidence(rule_conf, hmm_conf, method=conf_method)
 
     # ── 이상 탐지 (Option C) ─────────────────────────────────────────────
     # IsolationForest로 현재 시장이 학습 분포에서 얼마나 벗어났는지 측정.

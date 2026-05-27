@@ -896,6 +896,31 @@ class AnomalyDetector:
         return float(1.0 - rank_in_training)
 
 
+def compute_combined_confidence(
+    rule_conf: float,
+    hmm_conf: float | None,
+    method: str = "mean",
+) -> float:
+    """
+    규칙 기반 신뢰도와 HMM 사후 확률을 결합한 단일 신뢰도를 반환한다.
+
+    method:
+      "mean"    — (rule_conf + hmm_conf) / 2  (기존 동작, 단조성 보장 안 함)
+      "min"     — min(rule_conf, hmm_conf)    (보수: 두 신호 동의 강도)
+      "product" — rule_conf * hmm_conf        (보수: 두 신호 곱)
+
+    hmm_conf가 None이면(HMM 비활성/학습 데이터 부족) rule_conf 그대로 사용.
+    """
+    if hmm_conf is None:
+        return float(rule_conf)
+    if method == "min":
+        return float(min(rule_conf, hmm_conf))
+    if method == "product":
+        return float(rule_conf * hmm_conf)
+    # 기본/미지정/'mean'
+    return float((rule_conf + hmm_conf) / 2)
+
+
 def compute_rule_confidence(features: dict, regime: str) -> float:
     """
     규칙 기반 레짐 판단의 신뢰도 [0.0, 1.0]을 반환한다.
