@@ -241,11 +241,54 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
 
     if hmm_enabled and len(feature_matrix) >= hmm_min:
         unsupervised_mapping = hmm_cfg.get("unsupervised_mapping", True)
-        hmm_clf = HmmRegimeClassifier(unsupervised_mapping=unsupervised_mapping)
+        hmm_clf = HmmRegimeClassifier(
+            unsupervised_mapping=unsupervised_mapping,
+            mapping_weights=hmm_cfg.get("mapping_weights"),
+            crisis_rvol_threshold=hmm_cfg.get("crisis_rvol_threshold"),
+            crisis_rvol_ratio=hmm_cfg.get("crisis_rvol_ratio"),
+        )
         import warnings
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=ConvergenceWarning)
             hmm_clf.fit(feature_matrix)
+
+        # 매핑 안정성·legacy 폴백 빈도 추적 — state.json에 누적
+        prev_mapping_raw = state.get("hmm_state_to_regime") or {}
+        prev_mapping = {int(k): v for k, v in prev_mapping_raw.items()}
+        new_mapping = hmm_clf.state_to_regime
+        method = hmm_clf.mapping_method
+
+        if prev_mapping:
+            changed_states = sum(
+                1 for s, r in new_mapping.items()
+                if s in prev_mapping and prev_mapping[s] != r
+            )
+            regime_diff = (
+                set(new_mapping.values()) ^ set(prev_mapping.values())
+            )
+            diff_str = f" | 레짐 집합 변화 {sorted(regime_diff)}" if regime_diff else ""
+            print(
+                f"    매핑       : {method} | state 변화 "
+                f"{changed_states}/{HmmRegimeClassifier.N_STATES}{diff_str}"
+            )
+        else:
+            print(f"    매핑       : {method} (첫 학습)")
+
+        total_runs = int(state.get("hmm_total_runs", 0)) + 1
+        legacy_count = int(state.get("hmm_legacy_fallback_count", 0))
+        if method != "unsupervised":
+            legacy_count += 1
+        if total_runs >= 5:
+            print(
+                f"    누적 legacy 사용: {legacy_count}/{total_runs} "
+                f"({legacy_count / total_runs:.0%})"
+            )
+
+        state["hmm_state_to_regime"] = {str(s): r for s, r in new_mapping.items()}
+        state["hmm_mapping_method"] = method
+        state["hmm_total_runs"] = total_runs
+        state["hmm_legacy_fallback_count"] = legacy_count
+
         seq = feature_matrix.tail(predict_lookback)
         hmm_probs = hmm_clf.predict_proba(seq)
         hmm_top = max(hmm_probs, key=hmm_probs.get)
@@ -319,12 +362,18 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
         print(f"    신뢰도     : {combined_conf:.0%}  (규칙기반)")
 
     conf_threshold = config.get("regime_filter", {}).get("confidence_threshold", 0.40)
-    if raw_regime != DEFAULT_REGIME and combined_conf < conf_threshold:
-        print(
-            f"    신뢰도 미달 ({combined_conf:.0%} < {conf_threshold:.0%})"
-            f" → {DEFAULT_REGIME} 폴백 (이전: {raw_regime})"
-        )
-        raw_regime = DEFAULT_REGIME
+    if combined_conf < conf_threshold:
+        # 폴백 목적지: 이전 확정 레짐 유지 (없으면 DEFAULT_REGIME).
+        # 항상 Slowdown 폴백은 강세장 초입에서 신뢰도가 낮을 때 기회를 놓치는 체계적 편향.
+        prev_confirmed = state.get("confirmed_regime")
+        fallback_target = prev_confirmed if prev_confirmed in REGIMES else DEFAULT_REGIME
+        if raw_regime != fallback_target:
+            fallback_label = "이전 확정 유지" if prev_confirmed in REGIMES else "초기 폴백"
+            print(
+                f"    신뢰도 미달 ({combined_conf:.0%} < {conf_threshold:.0%})"
+                f" → {fallback_target} ({fallback_label}, raw={raw_regime})"
+            )
+            raw_regime = fallback_target
 
     old_confirmed = state.get("confirmed_regime")
     regime_filter = RegimeFilter(state, config)

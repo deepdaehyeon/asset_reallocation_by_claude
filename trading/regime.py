@@ -118,8 +118,13 @@ class RegimeFilter:
 
     def __init__(self, state: dict, config: dict) -> None:
         cfg = config.get("regime_filter", {})
-        self._confirm_n: int = cfg.get("confirmation_count", 3)
-        self._cooldown: int = cfg.get("cooldown_days", 5)
+        self._default_confirm_n: int = cfg.get("confirmation_count", 3)
+        self._default_cooldown: int = cfg.get("cooldown_days", 5)
+        # 레짐별 override (예: Crisis는 confirm=1·cooldown=0). 키 없는 레짐은 default 사용.
+        per_regime = cfg.get("per_regime") or {}
+        self._per_regime: dict[str, dict] = {
+            r: dict(v) for r, v in per_regime.items() if r in REGIMES and isinstance(v, dict)
+        }
 
         confirmed = state.get("confirmed_regime")
         # 알 수 없는 레짐(예: 구버전의 "Neutral")은 None으로 처리 → 첫 raw 즉시 확정
@@ -127,6 +132,16 @@ class RegimeFilter:
         self._candidate: str | None = state.get("candidate_regime")
         self._count: int = state.get("candidate_count", 0)
         self._last_switch: str | None = state.get("last_switch_date")
+
+    def _confirm_n_for(self, regime: str | None) -> int:
+        if regime and regime in self._per_regime:
+            return int(self._per_regime[regime].get("confirmation_count", self._default_confirm_n))
+        return self._default_confirm_n
+
+    def _cooldown_for(self, regime: str | None) -> int:
+        if regime and regime in self._per_regime:
+            return int(self._per_regime[regime].get("cooldown_days", self._default_cooldown))
+        return self._default_cooldown
 
     def update(self, raw: str) -> str:
         """raw 레짐을 받아 확정 레짐을 반환하고 내부 상태를 갱신한다."""
@@ -151,7 +166,10 @@ class RegimeFilter:
         else:
             self._count += 1
 
-        if self._count >= self._confirm_n and self._cooldown_ok(today):
+        # 전환하려는 레짐(raw) 기준으로 임계 결정 — Crisis로 빠르게 진입 가능.
+        confirm_n = self._confirm_n_for(raw)
+        cooldown = self._cooldown_for(raw)
+        if self._count >= confirm_n and self._cooldown_ok(today, cooldown):
             self._confirmed = raw
             self._last_switch = today
             self._candidate = raw
@@ -159,11 +177,13 @@ class RegimeFilter:
 
         return self._confirmed
 
-    def _cooldown_ok(self, today_iso: str) -> bool:
+    def _cooldown_ok(self, today_iso: str, cooldown: int | None = None) -> bool:
+        if cooldown is None:
+            cooldown = self._default_cooldown
         if not self._last_switch:
             return True
         elapsed = (date.fromisoformat(today_iso) - date.fromisoformat(self._last_switch)).days
-        return elapsed >= self._cooldown
+        return elapsed >= cooldown
 
     # ── 상태 조회 ─────────────────────────────────────────────────────────
 
@@ -181,7 +201,8 @@ class RegimeFilter:
 
     @property
     def confirm_n(self) -> int:
-        return self._confirm_n
+        """현재 후보 레짐 기준 confirmation count (Crisis 등 per_regime override 반영)."""
+        return self._confirm_n_for(self._candidate if self.is_transitioning else None)
 
     @property
     def is_transitioning(self) -> bool:
@@ -190,11 +211,12 @@ class RegimeFilter:
 
     @property
     def cooldown_remaining(self) -> int:
-        """쿨다운 잔여 달력일 (0이면 이미 경과)."""
+        """현재 후보 레짐 기준 쿨다운 잔여 달력일 (0이면 이미 경과)."""
         if not self._last_switch:
             return 0
+        cooldown = self._cooldown_for(self._candidate if self.is_transitioning else None)
         elapsed = (date.today() - date.fromisoformat(self._last_switch)).days
-        return max(0, self._cooldown - elapsed)
+        return max(0, cooldown - elapsed)
 
     def to_dict(self) -> dict:
         return {
@@ -223,12 +245,43 @@ class HmmRegimeClassifier:
 
     N_STATES = 5  # Goldilocks / Reflation / Slowdown / Stagflation / Crisis
 
-    def __init__(self, unsupervised_mapping: bool = True) -> None:
+    # 기본 매핑 가중치 — config(hmm.mapping_weights)에서 override.
+    # mom1m/mom3m/credit은 스케일이 ±0.05라 그대로 합산, curve/vix/hy/cpi는 스케일 보정.
+    DEFAULT_MAPPING_WEIGHTS: dict[str, float] = {
+        "growth_curve":   0.01,
+        "infl_commodity": 1.0,
+        "infl_hy_zscore": 0.03,
+        "infl_cpi":       0.01,
+        "infl_vix":       0.005,
+    }
+    DEFAULT_CRISIS_RVOL_THRESHOLD = 0.30  # 룰 기반 detect_regime의 rvol>0.30과 통일
+    DEFAULT_CRISIS_RVOL_RATIO = 1.5
+
+    def __init__(
+        self,
+        unsupervised_mapping: bool = True,
+        mapping_weights: dict | None = None,
+        crisis_rvol_threshold: float | None = None,
+        crisis_rvol_ratio: float | None = None,
+    ) -> None:
         self._model = None
         self._scaler = None
         self._state_to_regime: dict[int, str] = {}
         self._unsupervised_mapping = unsupervised_mapping
         self._mapping_method: str = "unknown"  # "unsupervised" | "legacy" | "legacy-fallback"
+
+        weights = dict(self.DEFAULT_MAPPING_WEIGHTS)
+        if mapping_weights:
+            weights.update({k: float(v) for k, v in mapping_weights.items() if k in weights})
+        self._mapping_weights = weights
+        self._crisis_rvol_threshold = float(
+            crisis_rvol_threshold if crisis_rvol_threshold is not None
+            else self.DEFAULT_CRISIS_RVOL_THRESHOLD
+        )
+        self._crisis_rvol_ratio = float(
+            crisis_rvol_ratio if crisis_rvol_ratio is not None
+            else self.DEFAULT_CRISIS_RVOL_RATIO
+        )
 
     def fit(self, feature_matrix) -> None:
         """
@@ -347,20 +400,21 @@ class HmmRegimeClassifier:
         if len(valid) < 3:
             return None
 
-        # 1. Crisis 식별: realized_vol 최댓값이 충분히 극단적인 경우만
+        # 1. Crisis 식별: realized_vol 최댓값이 충분히 극단적인 경우만 (config 임계 사용)
         rv_pairs = [(s, state_stats[s].get("realized_vol", 0.0)) for s in valid]
         rv_pairs.sort(key=lambda x: x[1], reverse=True)
         crisis_state: int | None = rv_pairs[0][0]
         crisis_rv = rv_pairs[0][1]
         second_rv = rv_pairs[1][1] if len(rv_pairs) > 1 else 0.0
-        # 0.25 이상 (= 연환산 25%) 이거나 두번째 state 대비 50% 이상 높을 때만 Crisis
-        is_crisis_clear = crisis_rv >= 0.25 or (
-            second_rv > 1e-6 and crisis_rv >= second_rv * 1.5
+        is_crisis_clear = crisis_rv >= self._crisis_rvol_threshold or (
+            second_rv > 1e-6 and crisis_rv >= second_rv * self._crisis_rvol_ratio
         )
         if not is_crisis_clear:
             crisis_state = None
 
-        # 2. 나머지 state의 성장·인플레 score 계산
+        # 2. 나머지 state의 성장·인플레 score 계산 (config 가중치 사용)
+        w = self._mapping_weights
+
         def growth_score(st: dict[str, float]) -> float:
             score = 0.0
             score += st.get("momentum_1m", 0.0)
@@ -368,18 +422,18 @@ class HmmRegimeClassifier:
             score += st.get("credit_signal", 0.0)
             if "curve_10y2y" in st:
                 # 가파른 커브(>1.0)는 확장, 역전(<0)은 침체 — 중립 0.5 기준
-                score += (st["curve_10y2y"] - 0.5) * 0.01
+                score += (st["curve_10y2y"] - 0.5) * w["growth_curve"]
             return score
 
         def infl_score(st: dict[str, float]) -> float:
             score = 0.0
-            score += st.get("commodity_mom_1m", 0.0)
+            score += st.get("commodity_mom_1m", 0.0) * w["infl_commodity"]
             if "hy_spread_zscore" in st:
-                score += st["hy_spread_zscore"] * 0.03
+                score += st["hy_spread_zscore"] * w["infl_hy_zscore"]
             if "cpi_yoy" in st:
-                score += (st["cpi_yoy"] - 2.0) * 0.01  # 2% 중립 기준
+                score += (st["cpi_yoy"] - 2.0) * w["infl_cpi"]
             if "vix" in st:
-                score += (st["vix"] - 20.0) / 200.0
+                score += (st["vix"] - 20.0) * w["infl_vix"]
             return score
 
         others = [s for s in valid if s != crisis_state]
@@ -471,6 +525,16 @@ class HmmRegimeClassifier:
             mapping[dominant_state] = regime
 
         return mapping
+
+    @property
+    def state_to_regime(self) -> dict[int, str]:
+        """학습 후 결정된 state→regime 매핑 (없으면 빈 dict)."""
+        return dict(self._state_to_regime)
+
+    @property
+    def mapping_method(self) -> str:
+        """매핑 경로: unsupervised | legacy | legacy-fallback | unknown."""
+        return self._mapping_method
 
     def predict_proba(self, feature_sequence) -> dict[str, float]:
         """

@@ -1,6 +1,20 @@
 # CHANGE LOG
 
-*최종 갱신: 2026-05-10*
+*최종 갱신: 2026-05-27*
+
+## 2026-05-27
+
+### 레짐 분류 안전 fix 묶음 (외부 비평 반영)
+
+외부 리뷰의 6개 비평 중 단독 결정 가능한 4개 항목을 한 번에 적용.
+잔여 항목인 RF forward-looking label(#1)과 FRED publication lag/vintage(#3)는 별도 작업.
+
+- **HMM 매핑 가중치 외부화**: `_unsupervised_state_mapping`의 growth/infl score 합성 가중치(curve·hy_zscore·cpi·vix·commodity)를 하드코딩에서 `hmm.mapping_weights` config로 분리. 캘리브레이션 가능.
+- **Crisis 임계 통일**: HMM unsupervised의 Crisis state 식별 임계를 룰 기반 `detect_regime`과 동일한 `realized_vol >= 0.30`으로 통일 (기존 0.25). `hmm.crisis_rvol_threshold` / `crisis_rvol_ratio`로 노출.
+- **레짐별 hysteresis override**: `regime_filter.per_regime`에서 레짐별 `confirmation_count`/`cooldown_days` 지정 가능. Crisis는 `confirm=1, cooldown=0`으로 빠른 진입.
+- **신뢰도 폴백 변경**: confidence < threshold일 때 항상 Slowdown으로 폴백하던 동작을 "이전 확정 레짐 유지"(없으면 DEFAULT)로 교체. 강세장 초입의 체계적 편향 제거.
+- **매핑 안정성·legacy 폴백 빈도 로깅**: `state.json`에 `hmm_state_to_regime`/`hmm_mapping_method`/`hmm_total_runs`/`hmm_legacy_fallback_count` 누적. 매 학습 후 매핑 변화 state 수·레짐 집합 차이를 출력하고 누적 legacy 사용 비율을 함께 표시.
+- 백테스트(`backtest/engine.py`)도 동일 config 인자 전달하도록 갱신.
 
 ## 2026-05-10
 
