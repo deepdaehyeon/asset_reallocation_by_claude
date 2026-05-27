@@ -535,7 +535,24 @@ class KisRebalancer:
                 cash = 0.0
             else:
                 try:
-                    cash = float(deposit.amount) * self.usd_krw if currency == "USD" else float(deposit.amount)
+                    if currency == "KRW":
+                        # KIS의 dnca_tot_amt(pykis deposit.amount)는 당일 매도대금 미반영.
+                        # T+2 결제 대기 자금까지 포함하는 prvs_rcdl_excc_amt를 raw에서 추출.
+                        # 미가용 시 dnca_tot_amt로 폴백.
+                        cash = float(deposit.amount)
+                        try:
+                            raw = balance.raw()
+                            out2 = raw.get("output2") if raw else None
+                            if isinstance(out2, list) and out2:
+                                out2 = out2[0]
+                            if isinstance(out2, dict):
+                                prvs = out2.get("prvs_rcdl_excc_amt")
+                                if prvs not in (None, ""):
+                                    cash = float(prvs)
+                        except Exception as e:
+                            print(f"  [경고] {acc_name} prvs_rcdl_excc_amt 추출 실패: {e} — dnca_tot_amt 사용")
+                    else:
+                        cash = float(deposit.amount) * self.usd_krw
                 except Exception as e:
                     print(f"  [경고] {acc_name} 예수금 변환 실패: {e} — 0 처리")
                     cash = 0.0
