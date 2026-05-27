@@ -320,11 +320,14 @@ hmm:
   lookback_days: 500       # HMM 학습 윈도우 (거래일)
   predict_lookback: 60     # 추론 시 사용할 시퀀스 길이 — 전이 확률 문맥 반영
   min_samples: 100
-  override_threshold: 0.60
-  # Crisis 비대칭 우선 (transition 후행 손실 완화 — 진단 결과 후속 작업):
-  #   null/누락 — 비대칭 비활성 (기존 동작, 일반 override만)
-  #   값 (예: 0.30) — blend["Crisis"]가 이 임계 이상이면 다른 조건 무시하고 Crisis 채택
-  crisis_priority_threshold: null
+  # override_threshold 0.60 → 0.50: HMM/RF 다수결을 더 빠르게 채택
+  # Crisis 진입 후 21일 +0.06% → -0.30% (후행에서 적시로 회복).
+  override_threshold: 0.50
+  # Crisis 비대칭 우선:
+  #   0.40 (현재) — blend[Crisis] >= 0.40이면 즉시 Crisis. crisis_d 168 → 281일.
+  #   0.30 — 더 적극적 (crisis_d 319일, 운영 부담↑).
+  #   null  — 비활성.
+  crisis_priority_threshold: 0.40
   # HMM 1-step ahead 예측 사용 (transition matrix로 next-step 분포):
   #   false — 마지막 시점 사후 확률 (기존)
   #   true  — transition 적용한 next-step 분포 (forward 시그널)
