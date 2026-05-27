@@ -4,6 +4,14 @@
 
 ## 2026-05-27
 
+### RF forward-looking 라벨 도입 (자기참조 끊기, 옵트인)
+
+- `BalancedRFClassifier(forward_window=N)` 추가. N>0이면 t의 라벨로 t+N 시점의 `detect_regime()`를 사용 → 자기참조 끊김.
+- `hmm.rf_forward_window` config 키. 기본 0(기존 동작 유지, 옵트인).
+- 표본 부족 시(`len(fm) <= N+1`) 안전하게 룰 라벨로 폴백.
+- 비교 백테스트 스크립트 `scripts/compare_rf_label.py` 추가 (rule baseline vs forward N=21 / 63).
+- 실험 노트: `docs/experiment_2026-05-27_rf_forward_label.md`.
+
 ### 레짐 분류 안전 fix 묶음 (외부 비평 반영)
 
 외부 리뷰의 6개 비평 중 단독 결정 가능한 4개 항목을 한 번에 적용.

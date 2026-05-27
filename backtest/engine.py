@@ -106,6 +106,7 @@ class BacktestEngine:
         self.predict_lookback = hmm_cfg.get("predict_lookback", 60)
         self.rf_enabled = hmm_cfg.get("rf_enabled", True)
         self.rf_weight = float(hmm_cfg.get("rf_weight", 0.40))
+        self.rf_forward_window = int(hmm_cfg.get("rf_forward_window", 0))
         self.unsupervised_mapping = bool(hmm_cfg.get("unsupervised_mapping", True))
         self.mapping_weights = hmm_cfg.get("mapping_weights")
         self.crisis_rvol_threshold = hmm_cfg.get("crisis_rvol_threshold")
@@ -163,7 +164,7 @@ class BacktestEngine:
                 hmm_probs = clf.predict_proba(seq)
 
                 if self.rf_enabled:
-                    rf_clf = BalancedRFClassifier()
+                    rf_clf = BalancedRFClassifier(forward_window=self.rf_forward_window)
                     rf_clf.fit(fm)
                     rf_probs = rf_clf.predict_proba(features)
                     w = self.rf_weight

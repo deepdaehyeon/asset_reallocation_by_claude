@@ -639,20 +639,35 @@ class BalancedRFClassifier:
     RandomForest 기반 레짐 분류기.
 
     목적: GaussianHMM의 소수 레짐(Crisis/Stagflation) 과소 탐지 보완.
-    학습: 피처 행렬 각 행에 규칙 기반 레이블을 부여한 뒤 RF 학습.
-    특징: class_weight='balanced' → 희귀 레짐에 자동 고가중치.
+    학습 라벨링(`forward_window`):
+      0          → 동일 시점 detect_regime() (룰의 근사기 — 자기참조 있음, 기존 동작)
+      N (>0)     → t+N 시점 detect_regime() 라벨 (forward-looking — 자기참조 끊김)
+                   ⇒ "현재 피처가 N영업일 후 어떤 레짐과 연관되는가"를 학습.
+                   ⇒ 마지막 N영업일은 라벨링 불가 → 학습 셋에서 제외.
     추론: 현재 피처 벡터(단일 행) → 레짐별 확률 dict.
 
     HMM이 순서 정보(전이 확률)를 담당하고,
     RF는 피처 공간에서 소수 클래스 경계를 더 민감하게 학습하는 역할을 한다.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, forward_window: int = 0) -> None:
         self._model = None
         self._scaler = None
+        self._forward_window = int(forward_window)
+        self._label_method: str = "rule"  # "rule" | f"forward_{N}"
+        self._train_samples: int = 0
+
+    @property
+    def label_method(self) -> str:
+        return self._label_method
+
+    @property
+    def train_samples(self) -> int:
+        """학습에 실제로 사용된 표본 수 (forward 모드에선 N만큼 줄어듦)."""
+        return self._train_samples
 
     def fit(self, feature_matrix) -> None:
-        """피처 행렬로 RF를 학습한다. 레이블은 규칙 기반 detect_regime()으로 생성."""
+        """피처 행렬로 RF를 학습한다. 라벨링은 forward_window에 따라 분기."""
         from sklearn.ensemble import RandomForestClassifier
         from sklearn.preprocessing import StandardScaler
 
@@ -661,12 +676,28 @@ class BalancedRFClassifier:
         active_cols = get_active_feature_cols(feature_matrix)
         self._feature_cols = active_cols
 
-        X = feature_matrix[active_cols].values.astype(float)
-        # 모든 available 열을 detect_regime에 전달해 더 정확한 레이블 생성
-        labels = [
-            detect_regime(row)
-            for row in feature_matrix.to_dict(orient="records")
-        ]
+        n = len(feature_matrix)
+        records = feature_matrix.to_dict(orient="records")
+
+        if self._forward_window > 0:
+            # forward 라벨: t의 라벨 = t+N 시점 detect_regime
+            fw = self._forward_window
+            if n <= fw + 1:
+                # 학습 데이터가 너무 적음 → 안전하게 룰 라벨로 폴백
+                labels = [detect_regime(r) for r in records]
+                train_fm = feature_matrix
+                self._label_method = "rule (forward 폴백: 표본 부족)"
+            else:
+                labels = [detect_regime(records[t + fw]) for t in range(n - fw)]
+                train_fm = feature_matrix.iloc[:n - fw]
+                self._label_method = f"forward_{fw}"
+        else:
+            labels = [detect_regime(r) for r in records]
+            train_fm = feature_matrix
+            self._label_method = "rule"
+
+        self._train_samples = len(train_fm)
+        X = train_fm[active_cols].values.astype(float)
 
         scaler = StandardScaler()
         X_scaled = scaler.fit_transform(X)

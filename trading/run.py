@@ -302,14 +302,16 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
         )
 
         if rf_enabled:
-            rf_clf = BalancedRFClassifier()
+            rf_forward_window = int(hmm_cfg.get("rf_forward_window", 0))
+            rf_clf = BalancedRFClassifier(forward_window=rf_forward_window)
             rf_clf.fit(feature_matrix)
             rf_probs = rf_clf.predict_proba(features)
             rf_top = max(rf_probs, key=rf_probs.get)
+            label_tag = f" [label={rf_clf.label_method}]" if rf_forward_window > 0 else ""
             print(
                 f"    RF(balanced): {rf_top} ({rf_probs[rf_top]:.0%}) | "
                 f"crisis={rf_probs.get('Crisis', 0):.0%}  "
-                f"stag={rf_probs.get('Stagflation', 0):.0%}"
+                f"stag={rf_probs.get('Stagflation', 0):.0%}{label_tag}"
             )
             w = rf_weight
             raw = {r: (1 - w) * hmm_probs[r] + w * rf_probs[r] for r in REGIMES}
