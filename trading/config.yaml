@@ -240,6 +240,24 @@ regime_targets:
     gold:              0.12   # 0.15 → 0.12
     cash:              0.28   # 0.36 → 0.28
 
+  # ── Transition: 레짐 전환 직후 N일간 (transition_days, regime_filter 참조) ────
+  # 분류 불확실성 + 시장 변동성이 큰 시점 — 보수적 비중으로 risk-off.
+  # 안정화 후 본 레짐 비중으로 자동 복귀.
+  Transition:          # cash·bond·gold 위주, equity 최소
+    equity_etf:        0.15
+    equity_factor:     0.03
+    equity_sector:     0.00
+    equity_individual: 0.05
+    equity_developed:  0.01
+    equity_emerging:   0.01
+    commodity:         0.05
+    managed_futures:   0.05
+    bond_usd:          0.12
+    bond_tips:         0.05
+    bond_krw:          0.12
+    gold:              0.12
+    cash:              0.24
+
 # 자산군 → 종목 매핑 (within-class 상대 비중, 고정)
 asset_routing:
   equity_etf:          # KRW 계좌 전용
@@ -400,6 +418,13 @@ regime_filter:
     Crisis:
       confirmation_count: 1
       cooldown_days: 0
+  # Transition phase: 새 confirmed regime 진입 후 N일 동안 Transition 비중 사용.
+  # 분류 불확실성 + 시장 변동성이 큰 transition 시점에 risk-off.
+  #   0  — 비활성 (현재) — A안 백테스트 결과 over-protection으로 채택 보류
+  # 백테스트 결과 (2010~2025): N=7/14/21 모두 Sharpe -0.09~-0.13 열위.
+  # 원인: 강세장 진입(Goldilocks/Reflation)의 기회 손실 > 위험 진입 보호 효과.
+  # 후속 시도 후보: 위험 레짐 진입에만 적용 (per_regime gating).
+  transition_days: 0
 
 # 리밸런싱 파라미터
 rebalancing:

@@ -121,6 +121,12 @@ class BacktestEngine:
         )
         # 워크포워드 진행 중 직전 blend를 보관 (EWMA 평활용). _get_regime 호출 사이에 유지.
         self._prev_blend: Optional[Dict[str, float]] = None
+        # Transition phase 추적: 직전 confirmed regime이 바뀐 시점 기록
+        self.transition_days = int(
+            config.get("regime_filter", {}).get("transition_days", 0)
+        )
+        self._last_regime_change_date: Optional[pd.Timestamp] = None
+        self._prev_final_regime: Optional[str] = None
         self.unsupervised_mapping = bool(hmm_cfg.get("unsupervised_mapping", True))
         self.mapping_weights = hmm_cfg.get("mapping_weights")
         self.crisis_rvol_threshold = hmm_cfg.get("crisis_rvol_threshold")
@@ -223,6 +229,18 @@ class BacktestEngine:
         rule_conf = compute_rule_confidence(features, rule_regime)
         return rule_regime, blend, rule_regime, rule_conf
 
+    def _check_transition(self, current_date: pd.Timestamp, current_regime: str) -> bool:
+        """직전 confirmed regime이 바뀐 시점부터 transition_days 이내인지 판단."""
+        if self.transition_days <= 0:
+            return False
+        if self._prev_final_regime is not None and self._prev_final_regime != current_regime:
+            self._last_regime_change_date = current_date
+        self._prev_final_regime = current_regime
+        if self._last_regime_change_date is None:
+            return False
+        elapsed = (current_date - self._last_regime_change_date).days
+        return 0 < elapsed <= self.transition_days
+
     def _target_weights(
         self,
         blend_probs: Dict[str, float],
@@ -231,6 +249,7 @@ class BacktestEngine:
         regime: str = "",
         vix: float = 0.0,
         signal_px_slice: Optional[pd.DataFrame] = None,
+        transition_phase: bool = False,
     ) -> Dict[str, float]:
         """블렌딩 확률 → 전체 포트폴리오 기준 종목별 목표 비중."""
         usd_val = portfolio_value * self.usd_ratio
@@ -239,7 +258,9 @@ class BacktestEngine:
         vol_cfg = self.config.get("vol_targeting", {})
 
         with _quiet():
-            blended = blend_regime_targets(blend_probs, self.config)
+            blended = blend_regime_targets(
+                blend_probs, self.config, transition_phase=transition_phase
+            )
 
             # portfolio EWMA vol
             if vol_cfg.get("use_portfolio_vol", True) and signal_px_slice is not None:
@@ -307,6 +328,7 @@ class BacktestEngine:
                 current_regime = regime
                 current_rule_regime = rule_regime
                 current_combined_conf = conf
+                is_transition = self._check_transition(date, regime)
 
                 sig = self.signal_px[:date].tail(65)
                 feat = compute_features(sig) if len(sig) >= 30 else {}
@@ -316,6 +338,7 @@ class BacktestEngine:
                 weights = self._target_weights(
                     blend_probs, rv, portfolio_value,
                     regime=regime, vix=vix, signal_px_slice=sig,
+                    transition_phase=is_transition,
                 )
                 weights = _normalize_to_available(weights, available)
 
@@ -355,6 +378,7 @@ class BacktestEngine:
                 current_regime = regime
                 current_rule_regime = rule_regime
                 current_combined_conf = conf
+                is_transition = self._check_transition(date, regime)
 
                 sig = self.signal_px[:date].tail(65)
                 feat = compute_features(sig) if len(sig) >= 30 else {}
@@ -364,6 +388,7 @@ class BacktestEngine:
                 new_weights = self._target_weights(
                     blend_probs, rv, portfolio_value,
                     regime=regime, vix=vix, signal_px_slice=sig,
+                    transition_phase=is_transition,
                 )
 
                 thresholds = self.config["risk"]["drawdown_thresholds"]
@@ -437,6 +462,7 @@ class BacktestEngine:
                 current_regime = regime
                 current_rule_regime = rule_regime
                 current_combined_conf = conf
+                is_transition = self._check_transition(date, regime)
 
                 sig = self.signal_px[:date].tail(65)
                 feat = compute_features(sig) if len(sig) >= 30 else {}
@@ -446,6 +472,7 @@ class BacktestEngine:
                 target_weights = self._target_weights(
                     blend_probs, rv, portfolio_value,
                     regime=regime, vix=vix, signal_px_slice=sig,
+                    transition_phase=is_transition,
                 )
                 target_weights = _normalize_to_available(target_weights, available)
 
@@ -504,6 +531,7 @@ class BacktestEngine:
                     current_regime = regime
                     current_rule_regime = rule_regime
                     current_combined_conf = conf
+                    is_transition = self._check_transition(date, regime)
                 except Exception:
                     # HMM 수렴 실패 시 기존 레짐 유지, 리밸런싱 스킵
                     do_rebal = False
@@ -517,6 +545,7 @@ class BacktestEngine:
                 new_weights = self._target_weights(
                     blend_probs, rv, portfolio_value,
                     regime=regime, vix=vix, signal_px_slice=sig,
+                    transition_phase=is_transition,
                 )
 
                 thresholds = self.config["risk"]["drawdown_thresholds"]
