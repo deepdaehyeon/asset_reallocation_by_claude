@@ -1,8 +1,21 @@
 # TODO
 
-*최종 갱신: 2026-05-24*
+*최종 갱신: 2026-05-28*
 
 > **방향 원칙** — 뉴스 NLP·LLM·Transformer·Deep Learning 추가는 현 단계에서 독이 될 가능성이 크다. 해당 방향은 보류.
+
+---
+
+## 🎯 다음 작업 우선순위 (2026-05-28)
+
+본 세션의 모든 결과는 단일 백테스트(2010-2025) 기반 — robustness 검증이 필요한 상태.
+
+| 우선 | 작업 | 이유 |
+|------|------|------|
+| **1순위** | **Walk-Forward 백테스트** (Phase 3) | 2년 학습 / 6개월 검증 sliding window. 본 세션 변경의 미래 generalize 보장 확인 |
+| 2순위 | Data Validation Layer (Phase 3) | BAA10Y/VIX9D/NFCI 신규 외부 데이터 의존성 검증 |
+| 3순위 | Slippage Tracking (Phase 3) | 라이브 실거래 정확성 |
+| 4순위 | 거래비용 모델링 (Phase 5) | KIS 위탁 수수료 정밀화 (현재 backtest tx=0.001 단순화) |
 
 ## 현재 구현 보완 — 완료 (2026-05-09)
 
@@ -130,6 +143,75 @@
   - HMM은 unsupervised 그대로 두고, 학습 후 상태별 자산 수익률 분포 분석 → 사후 레짐 라벨링
   - 외부 ground truth 활용: NBER recession dates, 인플레 체제 라벨링 데이터셋
   - RF는 "현재가 과거 어떤 레짐과도 다름" 탐지용 anomaly detector로 역할 전환 (Phase 2에서 이미 후보로 등록됨)
+
+> **2026-05-27 갱신**: RF forward 라벨 시도 (rule_at_future / quantile / forward_quantile_v2) 모두 baseline 대비 열위 → 시장 효율성 한계. 코드는 옵트인으로 영구 보존.
+
+---
+
+## 외부 비평 시리즈 (2026-05-27 ~ 2026-05-28)
+
+외부 비평 6개 + 후속 개선. 전체 작업 `docs/CHANGE_LOG.md`·`docs/experiment_2026-05-*.md`·`docs/regime_*.md` 참조.
+
+### 라이브 적용 완료 ✅
+
+**분류기 보강**:
+- HMM unsupervised mapping 가중치 config 외부화 + 매핑 변화율 / legacy 폴백 빈도 로깅
+- Crisis 식별 임계 통일 (HMM 0.25 → 룰과 동일한 0.30)
+- Crisis 비대칭 hysteresis (`confirmation_count: 1`, `cooldown_days: 0`)
+- `confidence_method=min` + `threshold 0.20` (Spearman ρ -0.325 → +0.595 단조 회복)
+- `blend_smoothing_alpha=0.5` (whipsaw 57.6% → 47.3%)
+- `override_threshold 0.60 → 0.50` + `crisis_priority_threshold 0.40` (transition 후행 완화)
+- 신뢰도 폴백을 "이전 확정 레짐 유지"로 (DEFAULT_REGIME 강제 폴백 편향 회피)
+
+**데이터 정합성**:
+- FRED publication lag 적용 — CPI 30 / UNRATE 25 / M2 30 / WALCL 7 / BEI·T10Y2Y 1 BDay
+- HY 스프레드 → BAA10Y 대체 (ICE BAMLH0A0HYM2 라이선스 회수)
+- VIX9D term structure 피처 추가 (Sharpe +0.035)
+- NFCI 매크로 피처 추가 (MaxDD 회복)
+- `.env` 자동 로딩 (fetcher.py)
+
+**자산 배분·매매**:
+- `regime_targets` 부분 수동 조정 (Phase 1 진단 기반, Sharpe +0.018)
+- RegimeFilter 완화 (`confirmation_count 3→2`, `cooldown_days 5→0`)
+- `min_rebalance_interval_days 7 → 0` (drift threshold가 binding이라 무의미)
+- **`drift_threshold 5% → 1.5%`** (sweet spot, Calmar 0.968 — calendar보다 우월)
+
+### 검토 후 보류 — 코드는 옵트인으로 영구 보존 ⏸
+
+- RF forward label 3종 (`rule_at_future` / `quantile` / `forward_quantile_v2`) — 시장 효율성 한계
+- HMM transition matrix 1-step ahead (`use_forward_hmm`) — 효과 미미
+- Transition phase 보수 비중 (`transition_days`) — 강세장 진입 기회 손실 압도
+- detect_regime 임계 조정 (strict Goldilocks) — 미세 개선만
+
+### 보조 도구 (영구 보존) 🛠
+
+- `scripts/regime_diagnostics.py` — 레짐별 forward return / 전환 적시성 / whipsaw / confidence calibration
+- `scripts/analyze_regime_targets.py` — regime_targets 격차 진단
+- `scripts/compare_confidence_methods.py` / `compare_blend_smoothing.py` / `compare_transition_response.py` / `compare_rf_label.py` / `compare_detect_thresholds.py` / `compare_quantile_regimes.py` / `compare_transition_phase.py`
+
+### 누적 효과 (원래 baseline 대비)
+
+| 메트릭 | Before | After | 차이 |
+|--------|------:|-----:|----:|
+| Sharpe | 0.697 | 0.737 | +0.040 |
+| MaxDD | -11.26% | **-10.27%** | +0.99pp |
+| Calmar | 0.861 | **0.968** | +0.107 |
+| Calmar (Calendar baseline) | 0.926 | **0.968** | +0.042 |
+| 백테스트↔라이브 정합성 | 불일치 | **일치 (둘 다 drift 1.5%)** | - |
+
+### 실험 노트 색인
+- `docs/experiment_2026-05-27_rf_forward_label.md`
+- `docs/experiment_2026-05-27_regime_observability.md`
+- `docs/experiment_2026-05-27_confidence_formula.md`
+- `docs/experiment_2026-05-27_blend_smoothing.md`
+- `docs/experiment_2026-05-27_detect_thresholds.md`
+- `docs/experiment_2026-05-27_transition_response.md`
+- `docs/experiment_2026-05-27_quantile_phase1.md`
+- `docs/experiment_2026-05-27_quantile_phase2a.md`
+- `docs/experiment_2026-05-28_regime_targets_analysis.md`
+- `docs/experiment_2026-05-28_transition_phase.md`
+- `docs/regime_transition_matrix_2026-05-28.md`
+- `docs/plan_2026-05-27_quantile_regime_framework.md`
 
 ---
 
