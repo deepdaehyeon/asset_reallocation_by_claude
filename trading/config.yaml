@@ -172,7 +172,7 @@ regime_targets:
     cash:              0.08   # 0.15 → 0.08 (Goldilocks 현금 과다 축소)
 
   # ── Reflation: 성장↑ + 인플레↑ ─────────────────────────────────────────────
-  # TIPS 추가 (인플레 헷지). 해외 분산 소량.
+  # TIPS + commodity + MF (인플레·트렌드 동반). gold 축소 (Reflation Sharpe 0.01).
   Reflation:           # core 90% | satellite 10%
     equity_etf:        0.22
     equity_factor:     0.08
@@ -181,15 +181,15 @@ regime_targets:
     equity_developed:  0.02
     equity_emerging:   0.02
     commodity:         0.16
-    managed_futures:   0.05
+    managed_futures:   0.12   # 0.05 → 0.12 (Sharpe +2.26 1위, max 12%)
     bond_usd:          0.00
-    bond_tips:         0.05   # VTIP — 인플레 상승 헷지
+    bond_tips:         0.05
     bond_krw:          0.00
-    gold:              0.15
-    cash:              0.08   # 0.17 → 0.08
+    gold:              0.08   # 0.15 → 0.08 (Sharpe 0.01 11위 — 과중 해소)
+    cash:              0.08
 
   # ── Slowdown: 성장↓ (인플레 낮음) ──────────────────────────────────────────
-  # 채권·금·DBMF 방어. 해외 분산 소량. TIPS 불필요(저인플레).
+  # 채권·금 방어. bond_tips 추가 (Sharpe +1.19). MF 축소 (+0.07).
   Slowdown:            # core 90% | satellite 10%
     equity_etf:        0.15
     equity_factor:     0.05
@@ -198,46 +198,47 @@ regime_targets:
     equity_developed:  0.02
     equity_emerging:   0.02
     commodity:         0.05
-    managed_futures:   0.12
+    managed_futures:   0.05   # 0.12 → 0.05 (Sharpe +0.07 12위)
     bond_usd:          0.12
-    bond_tips:         0.00
+    bond_tips:         0.07   # 0.00 → 0.07 (Sharpe +1.19 3위)
     bond_krw:          0.15
     gold:              0.14
-    cash:              0.08   # 0.12 → 0.08
+    cash:              0.08
 
   # ── Stagflation: 성장↓ + 인플레↑ ───────────────────────────────────────────
-  # TIPS 대량 추가 (핵심 인플레 방어). cash 축소.
+  # TIPS + gold + commodity 인플레 방어. equity_factor 보강 (Sharpe +1.34).
   Stagflation:         # core 92% | satellite 8%
     equity_etf:        0.05
-    equity_factor:     0.03
+    equity_factor:     0.08   # 0.03 → 0.08 (Sharpe +1.34 3위)
     equity_sector:     0.05
     equity_individual: 0.08
     equity_developed:  0.02
     equity_emerging:   0.02
     commodity:         0.18
-    managed_futures:   0.12
+    managed_futures:   0.07   # 0.12 → 0.07 (Sharpe +0.44 12위)
     bond_usd:          0.05
-    bond_tips:         0.08   # VTIP — Stagflation 핵심 자산
+    bond_tips:         0.08
     bond_krw:          0.00
     gold:              0.18
-    cash:              0.14   # 0.26 → 0.14
+    cash:              0.14
 
   # ── Crisis: 유동성 쇼크 ─────────────────────────────────────────────────────
-  # TIPS 회피 (유동성 위기엔 동반 매도). 해외 분산 극소.
+  # equity_etf/bond_tips 추가 (Sharpe 2.85/2.28, 분류 후행 V-shape 보상 활용).
+  # MF 제거 (Sharpe -0.48 — 음수). cash·gold 축소.
   Crisis:              # core 95% | satellite 5%
-    equity_etf:        0.00
-    equity_factor:     0.03
+    equity_etf:        0.10   # 0.00 → 0.10 (Sharpe +2.85 2위)
+    equity_factor:     0.06   # 0.03 → 0.06
     equity_sector:     0.00
     equity_individual: 0.05
     equity_developed:  0.02
     equity_emerging:   0.02
     commodity:         0.05
-    managed_futures:   0.12
+    managed_futures:   0.00   # 0.12 → 0.00 (Sharpe -0.48 13위)
     bond_usd:          0.10
-    bond_tips:         0.00
+    bond_tips:         0.10   # 0.00 → 0.10 (Sharpe +2.28 3위, max)
     bond_krw:          0.10
-    gold:              0.15
-    cash:              0.36   # 0.40 → 0.36 (소폭 축소)
+    gold:              0.12   # 0.15 → 0.12
+    cash:              0.28   # 0.36 → 0.28
 
 # 자산군 → 종목 매핑 (within-class 상대 비중, 고정)
 asset_routing:
