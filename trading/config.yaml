@@ -431,7 +431,7 @@ regime_filter:
 
 # 리밸런싱 파라미터
 rebalancing:
-  drift_threshold:            0.05   # 계좌 내 drift > 5%p 시 리밸런싱 트리거
+  drift_threshold:            0.015  # 계좌 내 drift > 1.5%p 시 리밸런싱 트리거 (sweet spot)
   per_ticker_drift_threshold: 0.05   # 개별 종목 목표 대비 ±5% 이탈 시만 주문 생성
   min_order_krw: 10000
   usd_krw_fallback: 1380.0
