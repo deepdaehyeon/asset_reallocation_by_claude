@@ -105,7 +105,40 @@ Crisis는 주로 **Stagflation/Slowdown에서 악화**. Goldilocks에서 직접 
 ### 다층 흡수 메커니즘
 실제 portfolio는 `confirmed regime`이 아니라 `blend_probs`(HMM+RF 가중평균)로 결정. blend_probs는 매일 부드럽게 변하고 평활 적용 후 매주 한 번 매매로 반영. 즉 분류 변화가 portfolio 변동의 일부만 만듦.
 
-## 6. 본 데이터의 implication for A안 (Transition phase)
+## 6. RegimeFilter 완화 + smoothing 검증 (사후 추가)
+
+사용자 우려:
+1. cooldown 5일이 매매 쿨다운(7일)에 가려 무의미
+2. confirmation 3회가 Stagflation(평균 10.8일)에 비해 보수적
+3. blend_smoothing 적용으로 drift trigger 자주 → 매매 잦은 것 아닌가
+
+검증 결과:
+
+### Calendar 모드 회귀 (confirmation 3→2, cooldown 5→0)
+- Sharpe/MaxDD/Calmar/CAGR 모두 변경 전과 **동일**
+- backtest engine이 RegimeFilter 미적용이라 portfolio metric에 영향 없음
+- 라이브 알림·표시에만 효과
+
+### Drift 모드 smoothing 효과 (라이브 동작 근사)
+
+| alpha | Sharpe | MaxDD | 리밸런싱/년 | 거래비용/년 |
+|------|------:|------:|---------:|----------:|
+| 0.0 (off) | 0.616 | -15.64% | 4.6 | 0.093% |
+| **0.5 (on, 현재)** | **0.755** | -16.00% | **5.0** | **0.068%** |
+
+**사용자 직관 부분 정정**:
+- smoothing이 drift trigger 더 자주 만듦 = **빈도 측면 맞음** (+9%)
+- 그러나 매매당 turnover 작아짐 → 거래비용 더 적음
+- Sharpe +0.139 큰 개선
+
+### 라이브 매매 빈도 (drift 기반 추정)
+- backtest calendar 모드: 50.6회/년 (W-FRI)
+- backtest drift 모드: **5.0회/년**
+- 라이브도 drift 기반이라 **실제 매매는 5회/년 수준**
+
+사용자가 본 "1주 1회 매매"는 backtest calendar의 부산물이지 라이브 동작이 아님.
+
+## 7. 본 데이터의 implication for A안 (Transition phase)
 
 `docs/experiment_2026-05-28_transition_phase.md`의 실패 원인이 이 matrix로 정확히 설명됨:
 
