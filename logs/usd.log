@@ -233,3 +233,6 @@ USD 리밸런싱 완료
 [05/28 23:30:05]   [cooldown skip] 실행된 주문 없음 — last_rebalanced·monthly_traded 미갱신
 [05/28 23:30:05] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 [05/28 23:30:05] USD 리밸런싱 완료
+[main 9145325] logs: auto-update 2026-05-28 23:30
+ 5 files changed, 75 insertions(+)
+[push_logs] 완료: 2026-05-28 23:30
