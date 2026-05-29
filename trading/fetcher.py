@@ -1,12 +1,26 @@
 """역사적 시장 데이터 수집 (레짐 신호용)."""
 from __future__ import annotations
 
+import json
 import os
+import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
 import yfinance as yf
+
+# FRED 호출 안정화 파라미터
+FRED_TIMEOUT_S = 10.0          # 단일 series 호출 timeout
+FRED_RETRIES = 1               # 재시도 횟수 (총 시도 = 1 + retries)
+FRED_RETRY_BACKOFF_S = 2.0     # 재시도 전 대기
+FRED_CACHE_STALE_MAX_H = 24.0  # 캐시 사용 허용 시간 (시간)
+
+_CACHE_DIR = Path(__file__).resolve().parent / ".cache"
+_FRED_CACHE_FILE = _CACHE_DIR / "fred_last.json"
 
 
 def _load_env_from_file() -> None:
@@ -123,6 +137,62 @@ def _zscore_series(s: pd.Series, window: int = 756) -> pd.Series:
     return ((s - mean) / std.replace(0, np.nan)).fillna(0.0)
 
 
+def _fred_get_series(fred: Any, code: str, **kwargs: Any) -> pd.Series:
+    """fred.get_series 호출에 timeout과 재시도를 적용한다.
+
+    fredapi는 자체 timeout이 없어 응답 stall 시 수십 초 매달림 — ThreadPool로 강제 컷.
+    실패 시 RuntimeError를 raise하므로 호출 측에서 try/except로 잡는다.
+    """
+    last_exc: BaseException | None = None
+    for attempt in range(1 + FRED_RETRIES):
+        ex = ThreadPoolExecutor(max_workers=1)
+        try:
+            future = ex.submit(fred.get_series, code, **kwargs)
+            return future.result(timeout=FRED_TIMEOUT_S)
+        except FuturesTimeoutError as e:
+            last_exc = TimeoutError(f"{FRED_TIMEOUT_S:.0f}s timeout")
+        except Exception as e:
+            last_exc = e
+        finally:
+            # timeout 시 백그라운드 스레드가 계속 돌 수 있음 — 기다리지 않고 즉시 반환
+            ex.shutdown(wait=False)
+        if attempt < FRED_RETRIES:
+            time.sleep(FRED_RETRY_BACKOFF_S)
+    raise RuntimeError(f"{type(last_exc).__name__}: {last_exc}") from last_exc
+
+
+def _save_fred_cache(data: dict) -> None:
+    """성공한 FRED 결과를 캐시 파일에 저장 (다음 실패 시 fallback용)."""
+    if not data:
+        return
+    try:
+        _CACHE_DIR.mkdir(exist_ok=True)
+        payload = {"timestamp": datetime.now().isoformat(), "data": data}
+        _FRED_CACHE_FILE.write_text(json.dumps(payload))
+    except OSError:
+        pass
+
+
+def _load_fred_cache_if_fresh() -> dict:
+    """캐시가 STALE_MAX_H 이내면 반환, 아니면 빈 dict.
+
+    사용 시 호출자가 stale 사용 사실을 로그로 표시한다.
+    """
+    if not _FRED_CACHE_FILE.exists():
+        return {}
+    try:
+        payload = json.loads(_FRED_CACHE_FILE.read_text())
+        ts = datetime.fromisoformat(payload["timestamp"])
+        age_h = (datetime.now() - ts).total_seconds() / 3600
+        if age_h <= FRED_CACHE_STALE_MAX_H:
+            print(f"    [FRED] stale cache 사용 ({age_h:.1f}h 전 저장)")
+            return dict(payload.get("data", {}))
+        print(f"    [FRED] cache 만료 ({age_h:.1f}h > {FRED_CACHE_STALE_MAX_H:.0f}h)")
+    except (OSError, ValueError, KeyError):
+        pass
+    return {}
+
+
 def fetch_fred_data() -> dict:
     """
     FRED API로 현재 시점의 매크로 피처를 조회한다.
@@ -142,86 +212,99 @@ def fetch_fred_data() -> dict:
     """
     fred = _get_fred_client()
     if fred is None:
-        return {}
+        # API 키 없어도 캐시는 사용 가능 — 매크로 피처 fallback
+        return _load_fred_cache_if_fresh()
 
     result: dict = {}
+    failures: list[str] = []
 
+    # ── 신용 / 금리 (일별) ─────────────────────────────────────────────────
+    # ICE BAMLH0A0HYM2(HY OAS) 라이선스 회수 → BAA10Y로 대체 (의미는 credit spread proxy)
     try:
-        # ── 신용 / 금리 (일별) ─────────────────────────────────────────────
-        # ICE BAMLH0A0HYM2(HY OAS) 라이선스 회수 → BAA10Y로 대체 (의미는 credit spread proxy)
-        hy = fred.get_series("BAA10Y").dropna()
-        curve = fred.get_series("T10Y2Y").dropna()
-
+        hy = _fred_get_series(fred, "BAA10Y").dropna()
         if len(hy) > 0:
             result["hy_spread"] = float(hy.iloc[-1])
         if len(hy) >= 63:
             result["hy_spread_zscore"] = float(_zscore_series(hy).iloc[-1])
+    except Exception as e:
+        failures.append(f"BAA10Y({type(e).__name__})")
+
+    try:
+        curve = _fred_get_series(fred, "T10Y2Y").dropna()
         if len(curve) > 0:
             result["curve_10y2y"] = float(curve.iloc[-1])
-        # credit_signal은 fetch_fred_data에서 제외 — compute_features의 가격기반 신호 사용
-        # (가격기반 HYG-TLT 모멘텀은 ±0.1 범위, FRED 기반은 ±0.25 범위로 임계값 0.01과 스케일 불일치)
-
-        # ── 기대 인플레이션 (일별) ─────────────────────────────────────────
-        try:
-            bei = fred.get_series("T5YIE").dropna()
-            if len(bei) > 0:
-                result["breakeven_5y"] = float(bei.iloc[-1])
-        except Exception:
-            pass
-
-        # ── CPI (월별) ────────────────────────────────────────────────────
-        try:
-            cpi = fred.get_series("CPIAUCSL").dropna()
-            if len(cpi) >= 13:
-                yoy = (cpi / cpi.shift(12) - 1) * 100
-                result["cpi_yoy"] = float(yoy.dropna().iloc[-1])
-            if len(cpi) >= 18:   # 36개월 윈도우의 min_periods=18
-                mom = cpi.pct_change()
-                # 월별 시리즈는 36개월 윈도우 사용 (영업일 756은 월별 데이터엔 부적합)
-                result["cpi_mom_zscore"] = float(
-                    _zscore_series(mom, window=36).dropna().iloc[-1]
-                )
-        except Exception:
-            pass
-
-        # ── 실업률 (월별) ─────────────────────────────────────────────────
-        try:
-            unrate = fred.get_series("UNRATE").dropna()
-            if len(unrate) >= 4:
-                result["unrate_chg_3m"] = float(unrate.iloc[-1] - unrate.iloc[-4])
-        except Exception:
-            pass
-
-        # ── M2 공급 (월별) ────────────────────────────────────────────────
-        try:
-            m2 = fred.get_series("M2SL").dropna()
-            if len(m2) >= 13:
-                m2_yoy = (m2 / m2.shift(12) - 1) * 100
-                result["m2_yoy"] = float(m2_yoy.dropna().iloc[-1])
-        except Exception:
-            pass
-
-        # ── Fed 자산규모 (주별) ───────────────────────────────────────────
-        try:
-            bs = fred.get_series("WALCL").dropna()
-            if len(bs) >= 53:
-                bs_yoy = (bs / bs.shift(52) - 1) * 100
-                result["fed_bs_yoy"] = float(bs_yoy.dropna().iloc[-1])
-        except Exception:
-            pass
-
-        # ── NFCI (ChicagoFed 금융여건, 주별) ──────────────────────────────
-        try:
-            nfci = fred.get_series("NFCI").dropna()
-            if len(nfci) > 0:
-                result["nfci"] = float(nfci.iloc[-1])
-        except Exception:
-            pass
-
     except Exception as e:
-        print(f"    [FRED] 조회 실패 ({type(e).__name__}): {e}")
+        failures.append(f"T10Y2Y({type(e).__name__})")
 
-    return result
+    # credit_signal은 fetch_fred_data에서 제외 — compute_features의 가격기반 신호 사용
+    # (가격기반 HYG-TLT 모멘텀은 ±0.1 범위, FRED 기반은 ±0.25 범위로 임계값 0.01과 스케일 불일치)
+
+    # ── 기대 인플레이션 (일별) ─────────────────────────────────────────────
+    try:
+        bei = _fred_get_series(fred, "T5YIE").dropna()
+        if len(bei) > 0:
+            result["breakeven_5y"] = float(bei.iloc[-1])
+    except Exception as e:
+        failures.append(f"T5YIE({type(e).__name__})")
+
+    # ── CPI (월별) ────────────────────────────────────────────────────────
+    try:
+        cpi = _fred_get_series(fred, "CPIAUCSL").dropna()
+        if len(cpi) >= 13:
+            yoy = (cpi / cpi.shift(12) - 1) * 100
+            result["cpi_yoy"] = float(yoy.dropna().iloc[-1])
+        if len(cpi) >= 18:
+            mom = cpi.pct_change()
+            result["cpi_mom_zscore"] = float(
+                _zscore_series(mom, window=36).dropna().iloc[-1]
+            )
+    except Exception as e:
+        failures.append(f"CPIAUCSL({type(e).__name__})")
+
+    # ── 실업률 (월별) ─────────────────────────────────────────────────────
+    try:
+        unrate = _fred_get_series(fred, "UNRATE").dropna()
+        if len(unrate) >= 4:
+            result["unrate_chg_3m"] = float(unrate.iloc[-1] - unrate.iloc[-4])
+    except Exception as e:
+        failures.append(f"UNRATE({type(e).__name__})")
+
+    # ── M2 공급 (월별) ────────────────────────────────────────────────────
+    try:
+        m2 = _fred_get_series(fred, "M2SL").dropna()
+        if len(m2) >= 13:
+            m2_yoy = (m2 / m2.shift(12) - 1) * 100
+            result["m2_yoy"] = float(m2_yoy.dropna().iloc[-1])
+    except Exception as e:
+        failures.append(f"M2SL({type(e).__name__})")
+
+    # ── Fed 자산규모 (주별) ───────────────────────────────────────────────
+    try:
+        bs = _fred_get_series(fred, "WALCL").dropna()
+        if len(bs) >= 53:
+            bs_yoy = (bs / bs.shift(52) - 1) * 100
+            result["fed_bs_yoy"] = float(bs_yoy.dropna().iloc[-1])
+    except Exception as e:
+        failures.append(f"WALCL({type(e).__name__})")
+
+    # ── NFCI (ChicagoFed 금융여건, 주별) ──────────────────────────────────
+    try:
+        nfci = _fred_get_series(fred, "NFCI").dropna()
+        if len(nfci) > 0:
+            result["nfci"] = float(nfci.iloc[-1])
+    except Exception as e:
+        failures.append(f"NFCI({type(e).__name__})")
+
+    if failures:
+        print(f"    [FRED] 일부 series 실패: {', '.join(failures)}")
+
+    if result:
+        _save_fred_cache(result)
+        return result
+
+    # 모든 series 실패 → 캐시 fallback
+    print("    [FRED] 모든 series 실패 — 캐시 fallback 시도")
+    return _load_fred_cache_if_fresh()
 
 
 def fetch_fred_history(start: str, end: str) -> pd.DataFrame:
@@ -263,7 +346,7 @@ def fetch_fred_history(start: str, end: str) -> pd.DataFrame:
     raw: dict[str, pd.Series] = {}
     for code, alias in series_map.items():
         try:
-            s = fred.get_series(code, observation_start=fetch_start, observation_end=end)
+            s = _fred_get_series(fred, code, observation_start=fetch_start, observation_end=end)
             s = s.dropna()
             # 빈 시리즈/datetime 아닌 index는 스킵 (ICE 라이선스 회수 등으로 빈 응답이 올 수 있음)
             if len(s) == 0 or not pd.api.types.is_datetime64_any_dtype(s.index):
