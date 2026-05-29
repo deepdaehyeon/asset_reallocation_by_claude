@@ -841,6 +841,10 @@ def run_execution(config: dict, state: dict, messenger: Messenger, args) -> None
 
     messenger.send_start(regime, saved_features, confidence=combined_conf)
 
+    # drift / regime_change / drawdown_emergency / force 트리거에서는 per_ticker 임계 무시.
+    # 소규모 회복 거래(deferred_buys, cooldown override)는 기존 임계 유지.
+    force_full = reason.startswith(("drift", "regime_change", "drawdown_emergency", "force"))
+
     order_log, new_deferred = [], []
     try:
         order_log, new_deferred = rebalancer.rebalance(
@@ -852,6 +856,7 @@ def run_execution(config: dict, state: dict, messenger: Messenger, args) -> None
             threshold=0.0,   # 트리거 이미 확정 — drift 재확인 불필요
             tracker=tracker,
             side=side,
+            force_full_rebalance=force_full,
         )
 
         # 실행 성공 후 deferred_buys 교체 (성공 전 실패 시 이전 deferred_buys 보존)

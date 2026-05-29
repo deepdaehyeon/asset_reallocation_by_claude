@@ -651,6 +651,7 @@ class KisRebalancer:
         threshold: float,
         tracker: Optional[SettlementTracker] = None,
         side: str = "all",
+        force_full_rebalance: bool = False,
     ) -> Tuple[List[str], List[dict]]:
         """
         리밸런싱을 실행한다.
@@ -658,6 +659,10 @@ class KisRebalancer:
         side: "all" | "krw" | "usd"
           - "krw" / "usd": 해당 계좌 종목만 주문 생성 (monitor에서 트리거 확정 후 호출)
           - threshold=0.0 으로 호출하면 drift 재확인 없이 바로 실행
+
+        force_full_rebalance: True면 per_ticker_drift_threshold를 무시하고 min_order_krw 이상
+        모든 차이를 주문 생성한다. drift/regime_change/drawdown_emergency 트리거가 발동된 회차에서
+        portfolio가 의도된 비중으로 수렴하도록 보장 (단일 종목만 거래되어 편향되는 현상 방지).
 
         버퍼 잔여분 내 KRW 매수는 즉시 실행하고, 초과분은 deferred_buys로 반환한다.
         USD 계좌는 버퍼 로직 미적용 (USD 현금으로 직접 집행).
@@ -677,7 +682,13 @@ class KisRebalancer:
                 print("→ 리밸런싱 불필요")
                 return [], []
 
-        all_orders = self._build_orders(current_weights, target_usd, target_krw, total_usd_krw, total_krw_only)
+        if force_full_rebalance:
+            print("  [강제 평준화] per_ticker_drift_threshold 무시 — 모든 차이 주문 생성")
+
+        all_orders = self._build_orders(
+            current_weights, target_usd, target_krw, total_usd_krw, total_krw_only,
+            force_full_rebalance=force_full_rebalance,
+        )
 
         # 단일 실행 회전율 상한 체크 (매수+매도 합산 / 포트폴리오 총액)
         max_run = float(self.config.get("rebalancing", {}).get("max_run_turnover", 0.0))
@@ -794,6 +805,7 @@ class KisRebalancer:
         target_krw: Dict[str, float],
         total_usd_krw: float,
         total_krw_only: float,
+        force_full_rebalance: bool = False,
     ) -> List[Tuple[str, str, float, str]]:
         """
         (ticker, currency, amount_diff_krw, acc_name) 주문 목록 생성.
@@ -805,9 +817,12 @@ class KisRebalancer:
         per_ticker_drift_threshold: 개별 종목의 계좌 내 이탈이
         이 값 미만이면 거래 제외 (불필요한 소규모 거래 방지).
         USD는 USD 계좌 총액, KRW는 해당 KRW 계좌 총액을 기준으로 비교.
+
+        force_full_rebalance=True면 per_ticker_drift_threshold를 0으로 간주 — min_order_krw 이상
+        모든 차이를 주문에 포함. drift 트리거 발동 시 단일 종목 편향 방지용.
         """
         total_krw = total_usd_krw + total_krw_only
-        per_ticker_thr = float(
+        per_ticker_thr = 0.0 if force_full_rebalance else float(
             self.config["rebalancing"].get("per_ticker_drift_threshold", 0.0)
         )
         orders: List[Tuple[str, str, float, str]] = []
