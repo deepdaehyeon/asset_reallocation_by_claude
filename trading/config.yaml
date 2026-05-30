@@ -300,7 +300,11 @@ account_ratio_fallback:
 
 # ── 자산군별 최대 비중 상한 ──────────────────────────────────────────────────
 # 레짐 블렌딩으로 인한 과집중 방지. 초과분은 cash로 이동.
+# 누락 자산군 (의도):
+#   equity_etf, bond_krw, bond_usd, cash — 흡수 자산이라 cap 두면 USD 부족 흡수 경로가 막힘
 class_max_weight:
+  equity_factor:     0.10   # VTV+AVUV — Reflation·Stagflation 8%가 최대, +2pp 여유
+  equity_sector:     0.10   # XLE — Reflation 7%가 최대, +3pp 여유
   equity_individual: 0.20   # Satellite 20% 상한 (4종목 분산으로 종목당 5~6%)
   equity_developed:  0.05   # VEA — 글로벌 분산, 작은 비중 유지
   equity_emerging:   0.03   # VWO — 신흥국, 더 작은 비중
