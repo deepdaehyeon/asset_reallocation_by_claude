@@ -295,6 +295,10 @@ class KisRebalancer:
         # 이번 회차 매도 성공 금액 (acc_name → 누적 KRW). _fetch_krw_orderable fallback에서
         # _krw_acc_cash에 더해 매도대금 보정용. rebalance() 시작 시 reset.
         self._recent_sell_proceeds_krw: Dict[str, float] = {}
+        # KIS rate limit 예방용 주문 간 throttle (초). 0이면 비활성.
+        self.order_throttle_s: float = float(
+            config.get("rebalancing", {}).get("order_throttle_s", 0.25)
+        )
 
     @staticmethod
     def _fetch_usd_krw(fallback: float) -> float:
@@ -747,7 +751,9 @@ class KisRebalancer:
         self._recent_sell_proceeds_krw = {}
 
         # Phase 1: 매도 먼저 실행 — KIS는 체결 즉시 주문가능금액에 반영
-        for ticker, currency, amount_diff_krw, acc_name in sell_orders:
+        for i, (ticker, currency, amount_diff_krw, acc_name) in enumerate(sell_orders):
+            if i > 0 and self.order_throttle_s > 0:
+                time.sleep(self.order_throttle_s)
             result = self._execute_order(ticker, currency, amount_diff_krw, acc_name)
             if result:
                 order_log.append(result)
@@ -785,7 +791,9 @@ class KisRebalancer:
                 scaled_buy_orders.append((t, c, a, acc))
 
         # Phase 3: 매수 실행
-        for ticker, currency, amount_diff_krw, acc_name in scaled_buy_orders:
+        for i, (ticker, currency, amount_diff_krw, acc_name) in enumerate(scaled_buy_orders):
+            if i > 0 and self.order_throttle_s > 0:
+                time.sleep(self.order_throttle_s)
             result = self._execute_order(ticker, currency, amount_diff_krw, acc_name)
             if result:
                 order_log.append(result)
