@@ -399,10 +399,12 @@ anomaly:
 # 초기 실행 등 이전 레짐이 없을 때만 DEFAULT_REGIME(Slowdown)로 폴백.
 # 이유: 항상 Slowdown 폴백은 강세장 초입에서 신뢰도가 낮을 때 기회를 놓치는 체계적 편향.
 regime_filter:
-  # confirmation_count 3 → 2: Stagflation(평균 10.8일 유지)에서 3회 통과 시 레짐 거의 끝.
+  # confirmation_count 2 → 1 (R3, 2026-05-30): 히스테리시스가 vol_targeting 방어 티어
+  #   전환을 지연시켜 위험 구간 초입 risk timing 악화. 백테스트(2010-2025) cf2→cf1로
+  #   Sharpe 0.713→0.753, MaxDD -11.35%→-10.24%. 확정 레짐은 vol 티어만 건드리고 비중은
+  #   blend_probs(평활)가 결정하므로 flip-flop 위험 제한적. docs/experiment_2026-05-30_r3_whipsaw_layers.md
   # cooldown_days 5 → 0: 매매 쿨다운(min_rebalance_interval_days=7)이 binding이라 무의미.
-  #   라이브 알림 노이즈 약간 증가 trade-off (실제 매매 영향 X).
-  confirmation_count: 2
+  confirmation_count: 1
   cooldown_days: 0
   # confidence_threshold: confidence_method 스케일에 맞춰야 한다.
   #   mean  : 0.40 (기존). 비단조 산식이므로 실제 캘리브레이션 의미 약함.
@@ -435,6 +437,10 @@ regime_filter:
 
 # 리밸런싱 파라미터
 rebalancing:
+  # regime_change_trigger 제거 (R3, 2026-05-30): 확정 레짐 변경 시 drift 밴드를 우회하던
+  #   강제 리밸런스. 백테스트(2010-2025)에서 완전 redundant — drift가 주당 ~90% 발동해 비중을
+  #   움직이는 레짐 변화는 이미 포섭. on/off Sharpe Δ≤0.001, 리밸 ≤2회 차이.
+  regime_change_trigger:      false
   drift_threshold:            0.015  # 계좌 내 drift > 1.5%p 시 리밸런싱 트리거 (sweet spot)
   # 0 = 비활성. force_full(drift/regime_change/drawdown/force)이 이미 per_ticker를 무시하므로
   # 실제 적용 경로는 deferred_buys뿐이었음 — 제거해 일관성 확보. min_order_krw가 잔주문 필터.

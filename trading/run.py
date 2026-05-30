@@ -134,7 +134,7 @@ def _compute_trigger(
         if days_since < min_days:
             return False, f"cooldown({days_since}d/{min_days}d)"
 
-    if regime_changed:
+    if regime_changed and config.get("rebalancing", {}).get("regime_change_trigger", True):
         return True, "regime_change"
 
     threshold = float(config["rebalancing"]["drift_threshold"])

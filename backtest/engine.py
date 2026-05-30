@@ -26,6 +26,7 @@ if str(_TRADING) not in sys.path:
 
 from features import compute_features, compute_feature_matrix
 from regime import (
+    DEFAULT_REGIME,
     REGIMES,
     BalancedRFClassifier,
     HmmRegimeClassifier,
@@ -87,8 +88,10 @@ class BacktestEngine:
         drift_threshold: Optional[float] = None,
         cooldown_days: int = 7,
         fred_history: Optional[pd.DataFrame] = None,
+        trigger_mode: bool = False,
     ) -> None:
         self.config = deepcopy(config)
+        self.trigger_mode = trigger_mode
         self.universe_px = universe_px[start:end]
         self.signal_px = signal_px
         self.start = start
@@ -297,6 +300,8 @@ class BacktestEngine:
             index: date
             columns: value, returns, drawdown, regime, rebalanced, tx_cost[, drift]
         """
+        if self.trigger_mode:
+            return self._run_triggered()
         if self.drift_threshold is not None:
             return self._run_drift()
         return self._run_calendar()
@@ -593,6 +598,191 @@ class BacktestEngine:
                 "value":         portfolio_value,
                 "drawdown":      drawdown,
                 "regime":        current_regime,
+                "rule_regime":   current_rule_regime,
+                "combined_conf": current_combined_conf,
+                "rule_conf":     current_rule_conf,
+                "hmm_conf":      current_hmm_conf,
+                "rebalanced":    do_rebal,
+                "tx_cost":       day_tx,
+                "drift":         drift,
+            })
+
+        result = pd.DataFrame(rows).set_index("date")
+        result["returns"] = result["value"].pct_change().fillna(0.0)
+        return result
+
+    def _run_triggered(self) -> pd.DataFrame:
+        """
+        R3 검증용: 라이브 run.py의 whipsaw 억제 레이어를 충실히 모델링한다.
+
+        기존 _run_drift/_run_calendar와 달리, 라이브 트리거 경로 전체를 재현한다:
+          - 주간 cadence(rebal_freq)로 레짐 평가 (라이브는 매 실행 = 주간 가정)
+          - confidence fallback: combined_conf < threshold → 이전 확정 레짐 유지
+          - confirmation 히스테리시스: raw 레짐 N회 연속 → 확정 (per_regime override 포함)
+          - regime_changed 트리거: 확정 레짐 변경 시 drift 밴드 우회 강제 리밸런스 (토글)
+          - drift 트리거: drift > drift_threshold
+
+        자산군 비중은 blend_probs(평활 적용)에서 산출하고, 확정 레짐은
+        vol_targeting 티어 선택 + 트리거에만 영향 — 라이브와 동일.
+
+        토글 (config로 제어, R3 스윕에서 variant별 설정):
+          regime_filter.confirmation_count   — 확정 N회
+          regime_filter.confidence_threshold — 0이면 fallback 비활성
+          rebalancing.regime_change_trigger  — false면 regime_changed 강제 트리거 제거
+        """
+        rf_cfg = self.config.get("regime_filter", {})
+        rb_cfg = self.config.get("rebalancing", {})
+        confirm_n_default = int(rf_cfg.get("confirmation_count", 3))
+        cooldown_default = int(rf_cfg.get("cooldown_days", 0))
+        conf_threshold = float(rf_cfg.get("confidence_threshold", 0.0))
+        per_regime = {
+            r: dict(v) for r, v in (rf_cfg.get("per_regime") or {}).items()
+            if r in REGIMES and isinstance(v, dict)
+        }
+        regime_change_trigger = bool(rb_cfg.get("regime_change_trigger", True))
+        drift_thr = float(rb_cfg.get("drift_threshold", 0.015))
+        trade_cooldown = int(rb_cfg.get("min_rebalance_interval_days", 0))
+        moderate_thr = self.config["risk"]["drawdown_thresholds"]["moderate"]
+
+        # ── 날짜 인지 confirmation 필터 (RegimeFilter의 date.today() 비의존 버전) ──
+        conf_state = {"confirmed": None, "candidate": None, "count": 0, "last_switch": None}
+
+        def _confirm_update(raw: str, today: pd.Timestamp) -> Tuple[str, bool]:
+            """raw 레짐 → (확정 레짐, regime_changed)."""
+            st = conf_state
+            if st["confirmed"] is None:
+                st.update(confirmed=raw, candidate=raw, count=1, last_switch=today)
+                return raw, False
+            if raw == st["confirmed"]:
+                st["candidate"] = raw
+                st["count"] = 1
+                return st["confirmed"], False
+            if raw != st["candidate"]:
+                st["candidate"] = raw
+                st["count"] = 1
+            else:
+                st["count"] += 1
+            n = int(per_regime.get(raw, {}).get("confirmation_count", confirm_n_default))
+            cd = int(per_regime.get(raw, {}).get("cooldown_days", cooldown_default))
+            cooldown_ok = (
+                st["last_switch"] is None
+                or (today - st["last_switch"]).days >= cd
+            )
+            if st["count"] >= n and cooldown_ok:
+                old = st["confirmed"]
+                st.update(confirmed=raw, candidate=raw, count=1, last_switch=today)
+                return raw, (old != raw)
+            return st["confirmed"], False
+
+        px = self.universe_px.copy()
+        all_dates = px.index
+        rebal_dates = set(
+            pd.date_range(self.start, self.end, freq=self.rebal_freq).normalize()
+        )
+
+        portfolio_value = 1.0
+        peak_value = 1.0
+        shares: Dict[str, float] = {}
+        target_weights: Dict[str, float] = {}
+        confirmed_regime = DEFAULT_REGIME
+        current_rule_regime = DEFAULT_REGIME
+        current_combined_conf = 0.0
+        current_rule_conf = 0.0
+        current_hmm_conf = 0.0
+        last_rebal_date: Optional[pd.Timestamp] = None
+
+        rows: List[dict] = []
+
+        for i, date in enumerate(all_dates):
+            available = px.loc[date].dropna()
+
+            if i > 0:
+                portfolio_value = sum(
+                    shares.get(t, 0.0) * float(available[t])
+                    for t in available.index if t in shares
+                )
+                if portfolio_value <= 0:
+                    portfolio_value = rows[-1]["value"]
+            peak_value = max(peak_value, portfolio_value)
+            drawdown = (portfolio_value - peak_value) / peak_value if i > 0 else 0.0
+
+            current_w: Dict[str, float] = {
+                t: shares.get(t, 0.0) * float(available[t]) / portfolio_value
+                for t in available.index if t in shares
+            } if portfolio_value > 0 else {}
+
+            emergency = drawdown <= moderate_thr
+            should_eval = (date.normalize() in rebal_dates) or emergency or i == 0
+
+            do_rebal = False
+            day_tx = 0.0
+            drift = 0.0
+
+            if should_eval:
+                try:
+                    regime_raw, blend_probs, rule_regime, conf, rc, hc = self._get_regime(date)
+                except Exception:
+                    regime_raw = None
+                if regime_raw is not None:
+                    current_rule_regime = rule_regime
+                    current_combined_conf = conf
+                    current_rule_conf = rc
+                    current_hmm_conf = hc
+
+                    # confidence fallback (라이브 run.py:402) — 이전 확정 레짐 유지
+                    raw = regime_raw
+                    if conf_threshold > 0 and conf < conf_threshold:
+                        prev = conf_state["confirmed"]
+                        raw = prev if prev in REGIMES else DEFAULT_REGIME
+
+                    confirmed_regime, regime_changed = _confirm_update(raw, date)
+                    is_transition = self._check_transition(date, confirmed_regime)
+
+                    sig = self.signal_px[:date].tail(65)
+                    feat = compute_features(sig) if len(sig) >= 30 else {}
+                    rv = feat.get("realized_vol", 0.15)
+                    vix = feat.get("vix", 0.0)
+
+                    new_weights = self._target_weights(
+                        blend_probs, rv, portfolio_value,
+                        regime=confirmed_regime, vix=vix, signal_px_slice=sig,
+                        transition_phase=is_transition,
+                    )
+                    new_weights = _normalize_to_available(new_weights, available)
+
+                    drift = sum(
+                        abs(current_w.get(t, 0.0) - new_weights.get(t, 0.0))
+                        for t in set(current_w) | set(new_weights)
+                    )
+                    days_since = (date - last_rebal_date).days if last_rebal_date else 999
+                    do_rebal = (
+                        i == 0
+                        or emergency
+                        or (regime_change_trigger and regime_changed)
+                        or (drift > drift_thr and days_since >= trade_cooldown)
+                    )
+
+                    if do_rebal:
+                        turnover = sum(
+                            abs(new_weights.get(t, 0.0) - current_w.get(t, 0.0))
+                            for t in set(new_weights) | set(current_w)
+                        ) / 2
+                        day_tx = turnover * self.tx_cost
+                        portfolio_value *= (1 - day_tx)
+                        shares = {
+                            t: w * portfolio_value / float(available[t])
+                            for t, w in new_weights.items()
+                            if available.get(t, 0) > 0
+                        }
+                        target_weights = new_weights
+                        last_rebal_date = date
+                        drift = 0.0
+
+            rows.append({
+                "date":          date,
+                "value":         portfolio_value,
+                "drawdown":      drawdown,
+                "regime":        confirmed_regime,
                 "rule_regime":   current_rule_regime,
                 "combined_conf": current_combined_conf,
                 "rule_conf":     current_rule_conf,
