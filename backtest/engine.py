@@ -398,10 +398,11 @@ class BacktestEngine:
                 )
 
                 thresholds = self.config["risk"]["drawdown_thresholds"]
-                new_weights = _apply_drawdown_scale(
-                    new_weights, drawdown, thresholds, self._equity_tickers,
-                    cash_split=self.config["risk"].get("drawdown_cash_split"),
-                )
+                if self.config["risk"].get("drawdown_scaling_enabled", True):
+                    new_weights = _apply_drawdown_scale(
+                        new_weights, drawdown, thresholds, self._equity_tickers,
+                        cash_split=self.config["risk"].get("drawdown_cash_split"),
+                    )
                 new_weights = _normalize_to_available(new_weights, available)
 
                 old_weights: Dict[str, float] = {
@@ -564,10 +565,11 @@ class BacktestEngine:
                 )
 
                 thresholds = self.config["risk"]["drawdown_thresholds"]
-                new_weights = _apply_drawdown_scale(
-                    new_weights, drawdown, thresholds, self._equity_tickers,
-                    cash_split=self.config["risk"].get("drawdown_cash_split"),
-                )
+                if self.config["risk"].get("drawdown_scaling_enabled", True):
+                    new_weights = _apply_drawdown_scale(
+                        new_weights, drawdown, thresholds, self._equity_tickers,
+                        cash_split=self.config["risk"].get("drawdown_cash_split"),
+                    )
                 new_weights = _normalize_to_available(new_weights, available)
 
                 turnover = sum(

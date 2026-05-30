@@ -328,7 +328,7 @@ vol_targeting:
     Crisis:      0.06      # 위기 국면: 리스크 최소화
   use_portfolio_vol: true  # true: EWMA 포트폴리오 변동성 / false: SPY realized vol
   ewma_lambda: 0.94        # RiskMetrics 표준 λ
-  floor:       0.65        # equity 최대 35% 축소
+  floor:       0.50        # equity 최대 50% 축소 (스윕 sweet spot, 2026-05-30)
   equity_asset_classes:
     - equity_etf
     - equity_factor
@@ -453,6 +453,10 @@ rebalancing:
 # moderate: equity 40% 수준으로 축소 (Risk-Off 강제 효과)
 # mild: equity 75% 유지
 risk:
+  # 드로우다운 스케일 제거 (2026-05-30). 실전 발동 0.1%(15년 3일) — 레짐 로테이션이
+  # 포트폴리오 -10% 전에 선제 방어해 사실상 죽은 경로였고, vol_targeting과 equity 이중
+  # 축소(C1) redundancy. thresholds는 백테스트 토글·참고용으로 보존.
+  drawdown_scaling_enabled: false
   drawdown_thresholds:
     mild:             -0.10
     moderate:         -0.20

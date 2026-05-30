@@ -504,23 +504,26 @@ def _apply_risk_controls(
     risk_thresholds = config["risk"]["drawdown_thresholds"]
     equity_floor = float(risk_thresholds.get("equity_floor_pct", 0.10))
 
-    target_usd = apply_risk_controls(
-        target_usd, drawdown, risk_thresholds, equity_tickers & set(target_usd),
-        equity_floor_pct=equity_floor,
-        cash_tickers=["SHY"],  # USD 안전자산(단기채)로 축소분 재배치
-    )
-    target_krw = apply_risk_controls(
-        target_krw, drawdown, risk_thresholds, equity_tickers & set(target_krw),
-        equity_floor_pct=equity_floor,
-        cash_tickers=buffer_tickers or ["469830"],  # KRW 버퍼/현금성 자산으로 재배치
-    )
+    drawdown_enabled = config["risk"].get("drawdown_scaling_enabled", True)
+    if drawdown_enabled:
+        target_usd = apply_risk_controls(
+            target_usd, drawdown, risk_thresholds, equity_tickers & set(target_usd),
+            equity_floor_pct=equity_floor,
+            cash_tickers=["SHY"],  # USD 안전자산(단기채)로 축소분 재배치
+        )
+        target_krw = apply_risk_controls(
+            target_krw, drawdown, risk_thresholds, equity_tickers & set(target_krw),
+            equity_floor_pct=equity_floor,
+            cash_tickers=buffer_tickers or ["469830"],  # KRW 버퍼/현금성 자산으로 재배치
+        )
 
-    if drawdown <= risk_thresholds["severe"]:
-        print(f"    ⚠ SEVERE 드로우다운 ({drawdown:.1%}): equity → floor {equity_floor:.0%} (채권·금 유지)")
-    elif drawdown <= risk_thresholds["moderate"]:
-        print(f"    ⚠ MODERATE 드로우다운 ({drawdown:.1%}): equity ×0.40")
-    elif drawdown <= risk_thresholds["mild"]:
-        print(f"    ⚠ MILD 드로우다운 ({drawdown:.1%}): equity ×0.75")
+    if drawdown_enabled:
+        if drawdown <= risk_thresholds["severe"]:
+            print(f"    ⚠ SEVERE 드로우다운 ({drawdown:.1%}): equity → floor {equity_floor:.0%} (채권·금 유지)")
+        elif drawdown <= risk_thresholds["moderate"]:
+            print(f"    ⚠ MODERATE 드로우다운 ({drawdown:.1%}): equity ×0.40")
+        elif drawdown <= risk_thresholds["mild"]:
+            print(f"    ⚠ MILD 드로우다운 ({drawdown:.1%}): equity ×0.75")
 
     if buffer_tickers:
         target_krw = enforce_buffer_floor(target_krw, buffer_tickers, buffer_min)
