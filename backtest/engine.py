@@ -399,7 +399,8 @@ class BacktestEngine:
 
                 thresholds = self.config["risk"]["drawdown_thresholds"]
                 new_weights = _apply_drawdown_scale(
-                    new_weights, drawdown, thresholds, self._equity_tickers
+                    new_weights, drawdown, thresholds, self._equity_tickers,
+                    cash_split=self.config["risk"].get("drawdown_cash_split"),
                 )
                 new_weights = _normalize_to_available(new_weights, available)
 
@@ -564,7 +565,8 @@ class BacktestEngine:
 
                 thresholds = self.config["risk"]["drawdown_thresholds"]
                 new_weights = _apply_drawdown_scale(
-                    new_weights, drawdown, thresholds, self._equity_tickers
+                    new_weights, drawdown, thresholds, self._equity_tickers,
+                    cash_split=self.config["risk"].get("drawdown_cash_split"),
                 )
                 new_weights = _normalize_to_available(new_weights, available)
 
@@ -622,8 +624,12 @@ def _apply_drawdown_scale(
     drawdown: float,
     thresholds: dict,
     equity_tickers: set,
+    cash_split: Optional[Dict[str, float]] = None,
 ) -> Dict[str, float]:
-    """드로우다운 수준에 따라 equity 비중을 축소한다."""
+    """드로우다운 수준에 따라 equity 비중을 축소한다.
+
+    cash_split: 축소분을 배분할 {티커: 가중치} 맵. None이면 469830 전량 (기존 동작).
+    """
     severe = thresholds["severe"]
     moderate = thresholds["moderate"]
     mild = thresholds["mild"]
@@ -640,11 +646,17 @@ def _apply_drawdown_scale(
 
     eq_total = sum(weights.get(t, 0.0) for t in equity_tickers)
     reduction = eq_total * (1 - scale)
-    cash_ticker = "469830"  # SOL 초단기채 프록시
+
+    split = cash_split or {"469830": 1.0}  # SOL 초단기채 프록시
+    split_total = sum(split.values())
+    if split_total <= 0:
+        split = {"469830": 1.0}
+        split_total = 1.0
 
     adjusted = {
         t: w * scale if t in equity_tickers else w
         for t, w in weights.items()
     }
-    adjusted[cash_ticker] = adjusted.get(cash_ticker, 0.0) + reduction
+    for tk, wt in split.items():
+        adjusted[tk] = adjusted.get(tk, 0.0) + reduction * (wt / split_total)
     return adjusted
