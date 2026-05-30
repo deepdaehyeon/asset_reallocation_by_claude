@@ -155,7 +155,7 @@ class BacktestEngine:
         sig = self.signal_px[start:as_of]
 
         if len(sig) < 30:
-            return "Slowdown", {r: 1.0 / len(REGIMES) for r in REGIMES}, "Slowdown", 0.0
+            return "Slowdown", {r: 1.0 / len(REGIMES) for r in REGIMES}, "Slowdown", 0.0, 0.0, 0.0
 
         features = compute_features(sig)
         rule_regime = detect_regime(features)
@@ -223,11 +223,11 @@ class BacktestEngine:
                 combined_conf = compute_combined_confidence(
                     rule_conf, hmm_conf, method=self.confidence_method
                 )
-                return final, blend, rule_regime, combined_conf
+                return final, blend, rule_regime, combined_conf, rule_conf, hmm_conf
 
         blend[rule_regime] = 1.0
         rule_conf = compute_rule_confidence(features, rule_regime)
-        return rule_regime, blend, rule_regime, rule_conf
+        return rule_regime, blend, rule_regime, rule_conf, rule_conf, 0.0
 
     def _check_transition(self, current_date: pd.Timestamp, current_regime: str) -> bool:
         """직전 confirmed regime이 바뀐 시점부터 transition_days 이내인지 판단."""
@@ -324,10 +324,12 @@ class BacktestEngine:
             available = day_prices.dropna()
 
             if i == 0:
-                regime, blend_probs, rule_regime, conf = self._get_regime(date)
+                regime, blend_probs, rule_regime, conf, rc, hc = self._get_regime(date)
                 current_regime = regime
                 current_rule_regime = rule_regime
                 current_combined_conf = conf
+                current_rule_conf = rc
+                current_hmm_conf = hc
                 is_transition = self._check_transition(date, regime)
 
                 sig = self.signal_px[:date].tail(65)
@@ -354,6 +356,8 @@ class BacktestEngine:
                     "regime":        current_regime,
                     "rule_regime":   current_rule_regime,
                     "combined_conf": current_combined_conf,
+                "rule_conf":     current_rule_conf,
+                "hmm_conf":      current_hmm_conf,
                     "rebalanced":    True,
                     "tx_cost":       0.0,
                 })
@@ -374,10 +378,12 @@ class BacktestEngine:
             day_tx = 0.0
 
             if do_rebal:
-                regime, blend_probs, rule_regime, conf = self._get_regime(date)
+                regime, blend_probs, rule_regime, conf, rc, hc = self._get_regime(date)
                 current_regime = regime
                 current_rule_regime = rule_regime
                 current_combined_conf = conf
+                current_rule_conf = rc
+                current_hmm_conf = hc
                 is_transition = self._check_transition(date, regime)
 
                 sig = self.signal_px[:date].tail(65)
@@ -423,6 +429,8 @@ class BacktestEngine:
                 "regime":        current_regime,
                 "rule_regime":   current_rule_regime,
                 "combined_conf": current_combined_conf,
+                "rule_conf":     current_rule_conf,
+                "hmm_conf":      current_hmm_conf,
                 "rebalanced":    do_rebal,
                 "tx_cost":       day_tx,
             })
@@ -458,10 +466,12 @@ class BacktestEngine:
             available = day_prices.dropna()
 
             if i == 0:
-                regime, blend_probs, rule_regime, conf = self._get_regime(date)
+                regime, blend_probs, rule_regime, conf, rc, hc = self._get_regime(date)
                 current_regime = regime
                 current_rule_regime = rule_regime
                 current_combined_conf = conf
+                current_rule_conf = rc
+                current_hmm_conf = hc
                 is_transition = self._check_transition(date, regime)
 
                 sig = self.signal_px[:date].tail(65)
@@ -489,6 +499,8 @@ class BacktestEngine:
                     "regime":        current_regime,
                     "rule_regime":   current_rule_regime,
                     "combined_conf": current_combined_conf,
+                "rule_conf":     current_rule_conf,
+                "hmm_conf":      current_hmm_conf,
                     "rebalanced":    True,
                     "tx_cost":       0.0,
                     "drift":         0.0,
@@ -527,10 +539,12 @@ class BacktestEngine:
             day_tx = 0.0
             if do_rebal:
                 try:
-                    regime, blend_probs, rule_regime, conf = self._get_regime(date)
+                    regime, blend_probs, rule_regime, conf, rc, hc = self._get_regime(date)
                     current_regime = regime
                     current_rule_regime = rule_regime
                     current_combined_conf = conf
+                    current_rule_conf = rc
+                    current_hmm_conf = hc
                     is_transition = self._check_transition(date, regime)
                 except Exception:
                     # HMM 수렴 실패 시 기존 레짐 유지, 리밸런싱 스킵
@@ -577,6 +591,8 @@ class BacktestEngine:
                 "regime":        current_regime,
                 "rule_regime":   current_rule_regime,
                 "combined_conf": current_combined_conf,
+                "rule_conf":     current_rule_conf,
+                "hmm_conf":      current_hmm_conf,
                 "rebalanced":    do_rebal,
                 "tx_cost":       day_tx,
                 "drift":         drift,
