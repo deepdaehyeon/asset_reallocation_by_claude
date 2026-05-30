@@ -101,6 +101,11 @@ def run_sensitivity(
 
     for val in spec["values"]:
         config = _set_nested(base_config, spec["path"], val)
+        # 라이브와 같은 drift 트리거 모드 — config 변경으로 drift_threshold 자체를 sweep할 때
+        # 외부 override를 우선 (engine_kwargs에 drift_threshold 들어있으면 그걸 사용).
+        rb = config.get("rebalancing", {})
+        engine_kwargs.setdefault("drift_threshold", float(rb.get("drift_threshold", 0.015)))
+        engine_kwargs.setdefault("cooldown_days", int(rb.get("min_rebalance_interval_days", 0)))
         engine = BacktestEngine(
             config=config,
             universe_px=universe_px,

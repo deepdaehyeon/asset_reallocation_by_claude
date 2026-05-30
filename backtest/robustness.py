@@ -75,6 +75,10 @@ def _scale_regime_weights(
 def _run_engine(
     config, universe_px, signal_px, start, end, rebal_freq, tx_cost
 ) -> Tuple[pd.DataFrame, dict]:
+    # 라이브와 같은 drift 트리거 모드 — config의 rebalancing 설정 직접 사용
+    rb = config.get("rebalancing", {})
+    drift_thr = float(rb.get("drift_threshold", 0.015))
+    cooldown = int(rb.get("min_rebalance_interval_days", 0))
     engine = BacktestEngine(
         config=config,
         universe_px=universe_px,
@@ -83,6 +87,8 @@ def _run_engine(
         end=end,
         rebal_freq=rebal_freq,
         tx_cost=tx_cost,
+        drift_threshold=drift_thr,
+        cooldown_days=cooldown,
     )
     result = engine.run()
     return result, compute_metrics(result["returns"])

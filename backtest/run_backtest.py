@@ -108,11 +108,20 @@ def print_section(title: str) -> None:
     print(f"{'━'*54}")
 
 
-def run_full(config, universe_px, signal_px, args, fred_history=None) -> pd.DataFrame:
-    print_section(f"전체 기간 백테스트  [{args.start} ~ {args.end}]")
-    print(f"  거래비용 {args.tx_cost:.2%} / 리밸런싱 {args.rebal}")
+def _live_drift_threshold(config: dict) -> float:
+    """라이브 config의 drift_threshold를 백테스트 기본값으로 사용 — 모드 일치 보장."""
+    return float(config.get("rebalancing", {}).get("drift_threshold", 0.015))
 
-    engine = BacktestEngine(
+
+def _live_cooldown(config: dict) -> int:
+    """라이브 config의 min_rebalance_interval_days를 백테스트 cooldown으로 사용."""
+    return int(config.get("rebalancing", {}).get("min_rebalance_interval_days", 0))
+
+
+def _make_engine(config, universe_px, signal_px, args, fred_history, override_drift=None):
+    """모든 모드 공통 BacktestEngine 생성기 — drift 모드로 라이브와 일치."""
+    drift_thr = override_drift if override_drift is not None else _live_drift_threshold(config)
+    return BacktestEngine(
         config=config,
         universe_px=universe_px,
         signal_px=signal_px,
@@ -120,8 +129,20 @@ def run_full(config, universe_px, signal_px, args, fred_history=None) -> pd.Data
         end=args.end,
         rebal_freq=REBAL_FREQ_MAP[args.rebal],
         tx_cost=args.tx_cost,
+        drift_threshold=drift_thr,
+        cooldown_days=_live_cooldown(config),
         fred_history=fred_history,
     )
+
+
+def run_full(config, universe_px, signal_px, args, fred_history=None) -> pd.DataFrame:
+    print_section(f"전체 기간 백테스트  [{args.start} ~ {args.end}]")
+    print(
+        f"  거래비용 {args.tx_cost:.2%} / drift 모드 "
+        f"(임계 {_live_drift_threshold(config):.1%}, 쿨다운 {_live_cooldown(config)}d)"
+    )
+
+    engine = _make_engine(config, universe_px, signal_px, args, fred_history)
     result = engine.run()
     m = compute_metrics(result["returns"])
 
@@ -189,16 +210,7 @@ def run_full(config, universe_px, signal_px, args, fred_history=None) -> pd.Data
 
 
 def run_crisis(config, universe_px, signal_px, args, fred_history=None) -> pd.DataFrame:
-    engine = BacktestEngine(
-        config=config,
-        universe_px=universe_px,
-        signal_px=signal_px,
-        start=args.start,
-        end=args.end,
-        rebal_freq=REBAL_FREQ_MAP[args.rebal],
-        tx_cost=args.tx_cost,
-        fred_history=fred_history,
-    )
+    engine = _make_engine(config, universe_px, signal_px, args, fred_history)
     result = engine.run()
     bm = build_benchmark(universe_px, signal_px, args.start, args.end)
 
@@ -408,16 +420,7 @@ def run_robustness(config, universe_px, signal_px, args, fred_history=None) -> N
     print("  기준: 성장 레짐 → CAGR > 0% / 방어 레짐 → |전략 DD| < |BM DD|\n")
     print("  (전체 기간 백테스트 실행 중...)")
 
-    engine = BacktestEngine(
-        config=config,
-        universe_px=universe_px,
-        signal_px=signal_px,
-        start=args.start,
-        end=args.end,
-        rebal_freq=rebal_freq,
-        tx_cost=args.tx_cost,
-        fred_history=fred_history,
-    )
+    engine = _make_engine(config, universe_px, signal_px, args, fred_history)
     full_result = engine.run()
 
     intent_df = run_regime_intent_validation(full_result, bm)

@@ -21,6 +21,8 @@ FRED_CACHE_STALE_MAX_H = 24.0  # 캐시 사용 허용 시간 (시간)
 
 _CACHE_DIR = Path(__file__).resolve().parent / ".cache"
 _FRED_CACHE_FILE = _CACHE_DIR / "fred_last.json"
+_USD_KRW_CACHE_FILE = _CACHE_DIR / "usd_krw_last.json"
+USD_KRW_CACHE_STALE_MAX_H = 72.0  # 환율은 매크로보다 변동성 큰 편 — 3일 이내만 신뢰
 
 
 def _load_env_from_file() -> None:
@@ -100,20 +102,57 @@ def fetch_signal_prices(tickers: list[str], lookback_days: int = 130) -> pd.Data
     return prices
 
 
+def _save_usd_krw_cache(rate: float) -> None:
+    """성공한 환율을 캐시에 저장 (yfinance 실패 시 fallback용)."""
+    try:
+        _CACHE_DIR.mkdir(exist_ok=True)
+        payload = {"timestamp": datetime.now().isoformat(), "rate": float(rate)}
+        _USD_KRW_CACHE_FILE.write_text(json.dumps(payload))
+    except OSError:
+        pass
+
+
+def _load_usd_krw_cache_if_fresh() -> float | None:
+    """캐시가 STALE_MAX_H 이내면 환율 반환, 아니면 None."""
+    if not _USD_KRW_CACHE_FILE.exists():
+        return None
+    try:
+        payload = json.loads(_USD_KRW_CACHE_FILE.read_text())
+        ts = datetime.fromisoformat(payload["timestamp"])
+        age_h = (datetime.now() - ts).total_seconds() / 3600
+        if age_h <= USD_KRW_CACHE_STALE_MAX_H:
+            rate = float(payload["rate"])
+            if 900 < rate < 2000:
+                print(f"    [USD/KRW] stale cache 사용: {rate:.1f} ({age_h:.1f}h 전 저장)")
+                return rate
+        print(f"    [USD/KRW] cache 만료 ({age_h:.1f}h > {USD_KRW_CACHE_STALE_MAX_H:.0f}h)")
+    except (OSError, ValueError, KeyError):
+        pass
+    return None
+
+
 def fetch_usd_krw(fallback: float = 1380.0) -> float:
     """
     yfinance로 실시간 USD/KRW 환율을 조회한다.
 
-    조회 실패 시 fallback 값을 반환한다.
+    Fallback 순서:
+      1) yfinance 조회 (성공 시 캐시 저장 후 반환)
+      2) 72h 이내 캐시 (성공한 마지막 환율)
+      3) 인자로 받은 fallback (config의 usd_krw_fallback, 기본 1380)
     """
     try:
         hist = yf.Ticker("KRW=X").history(period="5d")
         if not hist.empty:
             rate = float(hist["Close"].iloc[-1])
-            if 900 < rate < 2000:   # 비정상값 필터
+            if 900 < rate < 2000:
+                _save_usd_krw_cache(rate)
                 return rate
     except Exception:
         pass
+
+    cached = _load_usd_krw_cache_if_fresh()
+    if cached is not None:
+        return cached
     return fallback
 
 
