@@ -436,7 +436,9 @@ regime_filter:
 # 리밸런싱 파라미터
 rebalancing:
   drift_threshold:            0.015  # 계좌 내 drift > 1.5%p 시 리밸런싱 트리거 (sweet spot)
-  per_ticker_drift_threshold: 0.05   # 개별 종목 목표 대비 ±5% 이탈 시만 주문 생성
+  # 0 = 비활성. force_full(drift/regime_change/drawdown/force)이 이미 per_ticker를 무시하므로
+  # 실제 적용 경로는 deferred_buys뿐이었음 — 제거해 일관성 확보. min_order_krw가 잔주문 필터.
+  per_ticker_drift_threshold: 0.0    # 개별 종목 이탈 임계 제거 (min_order_krw만으로 필터)
   min_order_krw: 10000
   usd_krw_fallback: 1380.0
   min_rebalance_interval_days: 0     # 쿨다운 없음 (drift > threshold이면 즉시 매매)
@@ -466,8 +468,12 @@ risk:
 
 # T+2 결제 지연 대응
 settlement:
-  buffer_tickers: ["469830"]
-  buffer_min: 0.07
+  # 버퍼 플로어 제거 (buffer_tickers 비움 → enforce_buffer_floor 미호출).
+  # 근거: 모든 레짐 cash 목표 ≥0.08 > 옛 buffer_min 0.07이라 블렌딩 후 469830은
+  # 항상 7% 이상 → 플로어가 발동할 일이 없는 redundant 안전망이었음.
+  # 드로우다운 축소분 재배치는 run.py에서 ["469830"]로 폴백되어 영향 없음.
+  buffer_tickers: []
+  buffer_min: 0.0
   synthetic_pairs:
     "TSLA": "379810"   # 나스닥100 (TSLA = NASDAQ100 구성종목)
     "PLTR": "379810"   # 나스닥100 (PLTR = NASDAQ100 구성종목)
