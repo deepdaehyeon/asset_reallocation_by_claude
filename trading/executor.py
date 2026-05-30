@@ -292,6 +292,9 @@ class KisRebalancer:
         self._krw_acc_cash: Dict[str, float] = {}
         # 이번 실행에서 주문된 금액(원화 환산) — run.py에서 월간 누적에 합산
         self._last_run_traded_krw: float = 0.0
+        # 이번 회차 매도 성공 금액 (acc_name → 누적 KRW). _fetch_krw_orderable fallback에서
+        # _krw_acc_cash에 더해 매도대금 보정용. rebalance() 시작 시 reset.
+        self._recent_sell_proceeds_krw: Dict[str, float] = {}
 
     @staticmethod
     def _fetch_usd_krw(fallback: float) -> float:
@@ -740,6 +743,9 @@ class KisRebalancer:
         order_log: List[str] = []
         failed_buys: List[dict] = []
 
+        # 이번 회차 매도 추적기 reset — _fetch_krw_orderable fallback 보정용
+        self._recent_sell_proceeds_krw = {}
+
         # Phase 1: 매도 먼저 실행 — KIS는 체결 즉시 주문가능금액에 반영
         for ticker, currency, amount_diff_krw, acc_name in sell_orders:
             result = self._execute_order(ticker, currency, amount_diff_krw, acc_name)
@@ -748,6 +754,12 @@ class KisRebalancer:
                 # 성공 결과는 "매수 .../매도 ..." 접두, 실패는 "[timeout]/[오류]" 접두
                 if not result.startswith("["):
                     actual_traded_krw += abs(amount_diff_krw)
+                    # KRW 매도 성공분을 acc별로 누적 — orderable API 실패 시 fallback 보정
+                    if currency == "KRW":
+                        self._recent_sell_proceeds_krw[acc_name] = (
+                            self._recent_sell_proceeds_krw.get(acc_name, 0.0)
+                            + abs(amount_diff_krw)
+                        )
 
         # Phase 2: KRW 주문가능금액 조회 (매도 완료 후 → 당일 매도대금 반영)
         krw_buys_by_acc: Dict[str, List[Tuple[str, float]]] = {}
@@ -942,10 +954,16 @@ class KisRebalancer:
             )
             return effective
         except Exception as e:
-            fallback = self._krw_acc_cash.get(acc_name, float("inf"))
+            # 매도 직후 KIS API가 실패하면 _krw_acc_cash만으로는 매도대금이 빠져 cap을
+            # 잘못 줄임 (2026-05-27 실제 버그 사례). 이번 회차 매도 성공분을 더해 보정.
+            base_cash = self._krw_acc_cash.get(acc_name, float("inf"))
+            sell_credit = self._recent_sell_proceeds_krw.get(acc_name, 0.0)
+            # 수수료·슬리피지 여유분 1% 차감
+            fallback = (base_cash + sell_credit) * 0.99 if base_cash != float("inf") else base_cash
+            sell_note = f" + 이번 매도 {sell_credit:,.0f}" if sell_credit > 0 else ""
             print(
                 f"  [경고] {acc_name} 주문가능금액 조회 실패: {type(e).__name__}: {e}"
-                f" → 현금 {fallback:,.0f}원 폴백"
+                f" → fallback {fallback:,.0f}원 (현금 {base_cash:,.0f}{sell_note}, ×0.99)"
             )
             return fallback
 
