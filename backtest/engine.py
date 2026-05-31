@@ -122,6 +122,10 @@ class BacktestEngine:
         self.blend_smoothing_alpha = float(
             config.get("regime_filter", {}).get("blend_smoothing_alpha", 0.0)
         )
+        # 층 2: acting regime을 rule(빠른 타이밍) vs ensemble final로 선택. blend는 항상 HMM 유지.
+        self.regime_timing_source = str(
+            config.get("regime_filter", {}).get("regime_timing_source", "ensemble")
+        )
         # 워크포워드 진행 중 직전 blend를 보관 (EWMA 평활용). _get_regime 호출 사이에 유지.
         self._prev_blend: Optional[Dict[str, float]] = None
         # Transition phase 추적: 직전 confirmed regime이 바뀐 시점 기록
@@ -217,10 +221,12 @@ class BacktestEngine:
                         blend = {r: v / s_total for r, v in smoothed.items()}
                 self._prev_blend = dict(blend)
 
-                final = ensemble_regime(
+                ensemble_final = ensemble_regime(
                     rule_regime, blend, self.override_thr,
                     crisis_priority_threshold=self.crisis_priority_threshold,
                 )
+                # 층 2 결론: rule이 ensemble보다 +3~5d 빠른 진입 → 위험조정 견고 개선.
+                final = rule_regime if self.regime_timing_source == "rule" else ensemble_final
                 rule_conf = compute_rule_confidence(features, final)
                 hmm_conf = blend.get(final, 0.0)
                 combined_conf = compute_combined_confidence(

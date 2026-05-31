@@ -349,12 +349,17 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
         state["prev_blend_probs"] = dict(hmm_probs)
 
         crisis_prio = hmm_cfg.get("crisis_priority_threshold", None)
-        raw_regime = ensemble_regime(
+        ensemble_final = ensemble_regime(
             rule_regime, hmm_probs, override_thr,
             crisis_priority_threshold=crisis_prio,
         )
-        if raw_regime != rule_regime:
-            print(f"    앙상블 조정: {rule_regime} → {raw_regime}")
+        # 층 2 결론(docs/experiment_2026-05-31_regime_timing_layer2.md): rule이 ensemble보다
+        # +3~5d 빠른 진입 → 서브기간 6/6 Sharpe 개선. acting regime은 rule, blend는 HMM 유지.
+        timing_source = config.get("regime_filter", {}).get("regime_timing_source", "ensemble")
+        raw_regime = rule_regime if timing_source == "rule" else ensemble_final
+        if ensemble_final != rule_regime:
+            tag = " (미채택, timing_source=rule)" if timing_source == "rule" else ""
+            print(f"    앙상블 조정: {rule_regime} → {ensemble_final}{tag}")
 
         trans_entropy = hmm_clf.get_transition_entropy()
         if not (trans_entropy != trans_entropy):  # NaN 체크
