@@ -83,7 +83,10 @@ def detect_regime(features: dict) -> str:
     vix  = features["vix"]
 
     # 1. Crisis: 유동성 쇼크
-    if rvol > 0.30 or vix > 40:
+    # VIX 종가 임계 40→37: 종가 40은 2024-08 엔캐리 청산(VIX 종가 38.6, 인트라데이 ~65)을
+    # 통째로 놓쳤다. 37은 15년간 추가 발동 8일에 그 낙폭이 실제 Crisis 평균(-3.64%)과 동급.
+    # 근거: docs/experiment_2026-05-31_usdjpy_carry_crisis.md
+    if rvol > 0.30 or vix > 37:
         return "Crisis"
 
     growth_bullish, growth_bearish, infl_rising, infl_low = _growth_inflation_signals(features)
