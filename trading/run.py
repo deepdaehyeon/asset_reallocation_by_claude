@@ -247,7 +247,10 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
             mapping_weights=hmm_cfg.get("mapping_weights"),
             crisis_rvol_threshold=hmm_cfg.get("crisis_rvol_threshold"),
             crisis_rvol_ratio=hmm_cfg.get("crisis_rvol_ratio"),
+            stabilize_mapping=hmm_cfg.get("stabilize_mapping", False),
+            mapping_deadband=hmm_cfg.get("mapping_deadband", 0.75),
         )
+        hmm_clf.set_anchor(state.get("hmm_mapping_anchor"))
         import warnings
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore", category=ConvergenceWarning)
@@ -289,6 +292,9 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
         state["hmm_mapping_method"] = method
         state["hmm_total_runs"] = total_runs
         state["hmm_legacy_fallback_count"] = legacy_count
+        # 다음 실행의 label-switching 정렬 기준(anchor) 갱신
+        if hmm_cfg.get("stabilize_mapping", False) and method == "unsupervised":
+            state["hmm_mapping_anchor"] = hmm_clf.current_anchor
 
         seq = feature_matrix.tail(predict_lookback)
         use_forward_hmm = bool(hmm_cfg.get("use_forward_hmm", False))

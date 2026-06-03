@@ -138,6 +138,10 @@ class BacktestEngine:
         self.mapping_weights = hmm_cfg.get("mapping_weights")
         self.crisis_rvol_threshold = hmm_cfg.get("crisis_rvol_threshold")
         self.crisis_rvol_ratio = hmm_cfg.get("crisis_rvol_ratio")
+        # label-switching 정렬: 워크포워드 일별 루프에서 anchor를 누적 유지 (라이브 state.json 역할).
+        self.stabilize_mapping = bool(hmm_cfg.get("stabilize_mapping", False))
+        self.mapping_deadband = float(hmm_cfg.get("mapping_deadband", 0.75))
+        self._hmm_anchor: list = []
 
         eq_classes = set(config.get("vol_targeting", {}).get(
             "equity_asset_classes",
@@ -181,13 +185,18 @@ class BacktestEngine:
                     mapping_weights=self.mapping_weights,
                     crisis_rvol_threshold=self.crisis_rvol_threshold,
                     crisis_rvol_ratio=self.crisis_rvol_ratio,
+                    stabilize_mapping=self.stabilize_mapping,
+                    mapping_deadband=self.mapping_deadband,
                 )
+                clf.set_anchor(self._hmm_anchor)
                 # hmmlearn EM은 경계 케이스에서 수렴 경고가 잦다.
                 # 수렴 여부는 내부에서 재시도/선택 로직으로 보완하므로, 백테스트 출력은 조용히 유지.
                 import warnings
                 with _quiet(), warnings.catch_warnings():
                     warnings.filterwarnings("ignore", category=ConvergenceWarning)
                     clf.fit(fm)
+                if self.stabilize_mapping and clf.mapping_method == "unsupervised":
+                    self._hmm_anchor = clf.current_anchor
                 seq = fm.tail(self.predict_lookback)
                 if self.use_forward_hmm:
                     hmm_probs = clf.predict_proba_forward(seq, horizon=self.forward_hmm_horizon)

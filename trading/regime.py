@@ -271,12 +271,19 @@ class HmmRegimeClassifier:
         mapping_weights: dict | None = None,
         crisis_rvol_threshold: float | None = None,
         crisis_rvol_ratio: float | None = None,
+        stabilize_mapping: bool = False,
+        mapping_deadband: float = 0.75,
     ) -> None:
         self._model = None
         self._scaler = None
         self._state_to_regime: dict[int, str] = {}
         self._unsupervised_mapping = unsupervised_mapping
         self._mapping_method: str = "unknown"  # "unsupervised" | "legacy" | "legacy-fallback"
+        # label-switching 억제: 재학습 후 군집을 직전 실행(anchor)에 매칭해 라벨 물려주기.
+        self._stabilize_mapping = bool(stabilize_mapping)
+        self._mapping_deadband = float(mapping_deadband)
+        self._anchor: list[dict] = []
+        self._last_state_centroids: dict[int, dict[str, float]] = {}
 
         weights = dict(self.DEFAULT_MAPPING_WEIGHTS)
         if mapping_weights:
@@ -362,6 +369,10 @@ class HmmRegimeClassifier:
             if not self._unsupervised_mapping:
                 self._mapping_method = "legacy"
 
+        # label-switching 억제: 비지도 매핑 성공 시에만 anchor 정렬 적용.
+        if self._stabilize_mapping and self._mapping_method == "unsupervised" and self._anchor:
+            mapping = self._align_to_anchor(mapping)
+
         self._state_to_regime = mapping
 
     def _unsupervised_state_mapping(
@@ -400,6 +411,11 @@ class HmmRegimeClassifier:
                 if c in feature_matrix.columns
             }
             state_stats[s] = means
+
+        # anchor 정렬용 군집 중심 보관 (raw 피처 평균 — 실행 간 비교 가능)
+        self._last_state_centroids = {
+            s: st for s, st in state_stats.items() if st is not None
+        }
 
         if empty_states >= 2:
             return None  # 너무 많은 state가 비어 있음 → 매핑 신뢰도 낮음
@@ -538,6 +554,84 @@ class HmmRegimeClassifier:
     def state_to_regime(self) -> dict[int, str]:
         """학습 후 결정된 state→regime 매핑 (없으면 빈 dict)."""
         return dict(self._state_to_regime)
+
+    def set_anchor(self, anchor: list[dict] | None) -> None:
+        """직전 실행의 군집 중심+라벨(anchor)을 설정한다 (label-switching 정렬용)."""
+        self._anchor = list(anchor) if anchor else []
+
+    @property
+    def current_anchor(self) -> list[dict]:
+        """현재(정렬 후) 매핑을 다음 실행의 anchor로 내보낸다: [{regime, centroid}]."""
+        out: list[dict] = []
+        for s, cent in self._last_state_centroids.items():
+            out.append({
+                "regime": self._state_to_regime.get(s, DEFAULT_REGIME),
+                "centroid": dict(cent),
+            })
+        return out
+
+    def _align_to_anchor(self, mapping: dict[int, str]) -> dict[int, str]:
+        """재학습된 state 군집을 직전 실행(anchor) 군집에 1:1 매칭해 라벨을 물려준다.
+
+        데이터가 거의 안 변했으면(정규화 거리 ≤ deadband) 직전 라벨 유지 →
+        Goldilocks↔Slowdown 가짜 플립 차단. 군집이 크게 이동하면 새 비지도 라벨 채택.
+        Crisis는 변동성 기반이라 정렬 대상에서 제외(위기 감지 보존).
+        """
+        import numpy as np
+
+        centroids = self._last_state_centroids
+        anchor = self._anchor
+        if not centroids or not anchor:
+            return mapping
+
+        new_states = sorted(centroids.keys())
+        anchor_feats: set[str] = set()
+        for a in anchor:
+            anchor_feats |= set(a.get("centroid", {}).keys())
+        feats = [
+            c for c in (self._feature_cols or [])
+            if c in anchor_feats and all(c in centroids[s] for s in new_states)
+        ]
+        if not feats:
+            return mapping
+
+        scale: dict[str, float] = {}
+        for f in feats:
+            sd = float(np.std([centroids[s][f] for s in new_states]))
+            scale[f] = sd if sd > 1e-9 else 1.0
+
+        def dist(s_cent: dict, a_cent: dict) -> float:
+            acc = sum(((s_cent[f] - a_cent.get(f, 0.0)) / scale[f]) ** 2 for f in feats)
+            return (acc / len(feats)) ** 0.5
+
+        cost = np.array([
+            [dist(centroids[s], a.get("centroid", {})) for a in anchor]
+            for s in new_states
+        ])
+
+        try:
+            from scipy.optimize import linear_sum_assignment
+            rows, cols_i = linear_sum_assignment(cost)
+            pairs = list(zip(rows.tolist(), cols_i.tolist()))
+        except Exception:
+            pairs, used = [], set()
+            for i in range(len(new_states)):
+                for j in sorted(range(len(anchor)), key=lambda j: cost[i, j]):
+                    if j not in used:
+                        used.add(j)
+                        pairs.append((i, j))
+                        break
+
+        aligned = dict(mapping)
+        for i, j in pairs:
+            s = new_states[i]
+            prior_regime = anchor[j].get("regime", DEFAULT_REGIME)
+            # Crisis는 정렬로 바꾸지 않음(양방향 보호) + deadband 이내일 때만 물려받음
+            if mapping[s] == "Crisis" or prior_regime == "Crisis":
+                continue
+            if cost[i, j] <= self._mapping_deadband:
+                aligned[s] = prior_regime
+        return aligned
 
     @property
     def mapping_method(self) -> str:

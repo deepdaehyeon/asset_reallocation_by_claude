@@ -372,6 +372,15 @@ hmm:
   #                매핑이 ambiguous하면 legacy로 자동 폴백
   #   false      : legacy detect_regime 다수결 매핑만 사용
   unsupervised_mapping: true
+  # label-switching 억제: 매 실행 HMM 재학습 시 새 state 군집을 직전 실행(anchor)에
+  #   1:1 매칭해 라벨을 물려준다. 데이터가 거의 안 변했으면(정규화 거리 ≤ deadband)
+  #   직전 라벨 유지 → Goldilocks↔Slowdown 가짜 플립 차단. 군집이 크게 이동했을 때만
+  #   새 비지도 라벨 채택. Crisis는 정렬 제외(위기 감지 보존).
+  stabilize_mapping: true
+  # 군집 중심 정규화 거리(피처 std 단위 RMS) 임계. sweep(2010-2025) 결과 0.3이 sweet spot:
+  #   Sharpe +0.053·Calmar +0.033·리밸/비용↓ 이면서 MaxDD/COVID/Bear22 사실상 불변(±0.07pp).
+  #   db≥0.5는 진짜 방어 전환까지 얼려 위기 낙폭 악화(MaxDD -1.3pp+) → 리스크 회피 목표에 역행.
+  mapping_deadband: 0.3
   # Crisis state 식별 임계 — 룰 기반 detect_regime의 rvol>0.30과 통일.
   # state 평균 realized_vol이 threshold 이상이거나, 2위 state 대비 ratio배 이상 높을 때만 Crisis.
   crisis_rvol_threshold: 0.30
