@@ -11,4 +11,7 @@ export $(grep -v '^\s*#' "$REPO/.env" | sed 's/ *= */=/' | xargs)
 # 거래 직후 헤드리스 claude 리뷰 → Slack (거래 실패해도 리뷰는 실행해 보고)
 "$REPO/scripts/review_and_notify.sh" || true
 
+# STATUS.md 스냅샷 갱신 + 로그 push (아침 리밸 반영)
+"$REPO/scripts/push_logs.sh" || true
+
 exit ${RUN_RC:-0}
