@@ -28,8 +28,10 @@ from features import compute_features, compute_feature_matrix
 from regime import (
     DEFAULT_REGIME,
     REGIMES,
+    AnomalyDetector,
     BalancedRFClassifier,
     HmmRegimeClassifier,
+    apply_blend_smoothing,
     compute_combined_confidence,
     compute_rule_confidence,
     detect_regime,
@@ -122,6 +124,14 @@ class BacktestEngine:
         self.blend_smoothing_alpha = float(
             config.get("regime_filter", {}).get("blend_smoothing_alpha", 0.0)
         )
+        # 신뢰도 가변 평활 (옵트인). off면 기존 고정-α 평활과 동일하게 동작.
+        cs_cfg = config.get("regime_filter", {}).get("confidence_smoothing", {}) or {}
+        self.conf_smoothing_enabled = bool(cs_cfg.get("enabled", False))
+        self.conf_smoothing_ref = float(cs_cfg.get("conf_ref", 0.4))
+        anomaly_cfg = config.get("anomaly", {})
+        self.anomaly_enabled = bool(anomaly_cfg.get("enabled", True))
+        self.anomaly_contamination = float(anomaly_cfg.get("contamination", 0.05))
+        self.anomaly_penalty = float(anomaly_cfg.get("confidence_penalty", 0.5))
         # 층 2: acting regime을 rule(빠른 타이밍) vs ensemble final로 선택. blend는 항상 HMM 유지.
         self.regime_timing_source = str(
             config.get("regime_filter", {}).get("regime_timing_source", "ensemble")
@@ -217,17 +227,30 @@ class BacktestEngine:
                 else:
                     blend = hmm_probs
 
-                # blend EWMA 평활 (whipsaw 억제, 외부 비평 #6-c)
+                # blend EWMA 평활 (whipsaw 억제, 외부 비평 #6-c).
+                # 신뢰도 가변 감쇠(옵트인): 라이브 run.py와 동일하게 raw blend +
+                # rule_regime 기준 신뢰도에 anomaly 패널티까지 반영해 채택 속도를 조절.
+                conf_for_smoothing = None
+                if (self.conf_smoothing_enabled
+                        and self.blend_smoothing_alpha > 0
+                        and self._prev_blend is not None):
+                    anomaly_score = 0.0
+                    if self.anomaly_enabled and len(fm) >= self.hmm_min:
+                        anom_det = AnomalyDetector(contamination=self.anomaly_contamination)
+                        anom_det.fit(fm)
+                        anomaly_score = anom_det.anomaly_score(features)
+                    cs_hmm_conf = blend.get(rule_regime, 0.0)
+                    conf_for_smoothing = compute_combined_confidence(
+                        compute_rule_confidence(features, rule_regime), cs_hmm_conf,
+                        method=self.confidence_method,
+                    ) * (1.0 - self.anomaly_penalty * anomaly_score)
                 if self.blend_smoothing_alpha > 0 and self._prev_blend is not None:
-                    α = self.blend_smoothing_alpha
-                    smoothed = {
-                        r: α * self._prev_blend.get(r, 0.0)
-                           + (1 - α) * blend.get(r, 0.0)
-                        for r in REGIMES
-                    }
-                    s_total = sum(smoothed.values())
-                    if s_total > 0:
-                        blend = {r: v / s_total for r, v in smoothed.items()}
+                    blend = apply_blend_smoothing(
+                        blend, self._prev_blend, self.blend_smoothing_alpha,
+                        confidence=conf_for_smoothing,
+                        conf_ref=self.conf_smoothing_ref,
+                        crisis_priority_threshold=self.crisis_priority_threshold,
+                    )
                 self._prev_blend = dict(blend)
 
                 ensemble_final = ensemble_regime(

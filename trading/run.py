@@ -46,6 +46,7 @@ from regime import (
     BalancedRFClassifier,
     HmmRegimeClassifier,
     RegimeFilter,
+    apply_blend_smoothing,
     compute_combined_confidence,
     compute_rule_confidence,
     detect_regime,
@@ -240,6 +241,18 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
     rf_enabled = hmm_cfg.get("rf_enabled", True)
     rf_weight = float(hmm_cfg.get("rf_weight", 0.40))
 
+    # 이상 탐지 점수 — 신뢰도 패널티(아래)와 blend 평활의 신뢰도 가변 감쇠에
+    # 모두 쓰이므로 먼저 계산한다. IsolationForest: 현재 시장이 학습 분포에서
+    # 벗어난 정도(unsupervised, detect_regime 자기참조 없음). 출력은 원위치 유지.
+    anomaly_cfg = config.get("anomaly", {})
+    anomaly_score = 0.0
+    if anomaly_cfg.get("enabled", True) and len(feature_matrix) >= hmm_min:
+        anomaly_det = AnomalyDetector(
+            contamination=float(anomaly_cfg.get("contamination", 0.05))
+        )
+        anomaly_det.fit(feature_matrix)
+        anomaly_score = anomaly_det.anomaly_score(features)
+
     if hmm_enabled and len(feature_matrix) >= hmm_min:
         unsupervised_mapping = hmm_cfg.get("unsupervised_mapping", True)
         hmm_clf = HmmRegimeClassifier(
@@ -337,21 +350,31 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
             hmm_probs = {r: v / total for r, v in raw.items()} if total > 0 else hmm_probs
 
         # blend EWMA 평활 (whipsaw 억제, 외부 비평 #6-c)
-        smoothing_alpha = float(
-            config.get("regime_filter", {}).get("blend_smoothing_alpha", 0.0)
-        )
+        rf_cfg = config.get("regime_filter", {})
+        smoothing_alpha = float(rf_cfg.get("blend_smoothing_alpha", 0.0))
         prev_blend = state.get("prev_blend_probs") or {}
+        # 신뢰도 가변 감쇠(옵트인): 레짐 신뢰도가 낮으면 새 blend 채택을 늦춘다.
+        # raw blend(평활 전) + rule_regime 기준 신뢰도에 anomaly 패널티까지 반영.
+        cs_cfg = rf_cfg.get("confidence_smoothing", {}) or {}
+        conf_for_smoothing = None
+        if cs_cfg.get("enabled", False):
+            cs_penalty = float(anomaly_cfg.get("confidence_penalty", 0.5))
+            cs_hmm_conf = hmm_probs.get(rule_regime) if hmm_probs else None
+            cs_method = rf_cfg.get("confidence_method", "mean")
+            conf_for_smoothing = compute_combined_confidence(
+                compute_rule_confidence(features, rule_regime), cs_hmm_conf,
+                method=cs_method,
+            ) * (1.0 - cs_penalty * anomaly_score)
         if smoothing_alpha > 0 and prev_blend:
-            smoothed = {
-                r: smoothing_alpha * prev_blend.get(r, 0.0)
-                   + (1 - smoothing_alpha) * hmm_probs.get(r, 0.0)
-                for r in REGIMES
-            }
-            s_total = sum(smoothed.values())
-            if s_total > 0:
-                hmm_probs = {r: v / s_total for r, v in smoothed.items()}
+            hmm_probs = apply_blend_smoothing(
+                hmm_probs, prev_blend, smoothing_alpha,
+                confidence=conf_for_smoothing,
+                conf_ref=float(cs_cfg.get("conf_ref", 0.4)),
+                crisis_priority_threshold=hmm_cfg.get("crisis_priority_threshold", None),
+            )
             top = max(hmm_probs, key=hmm_probs.get)
-            print(f"    blend 평활 (α={smoothing_alpha}): {top} {hmm_probs[top]:.0%}")
+            cs_tag = f", conf={conf_for_smoothing:.0%}" if conf_for_smoothing is not None else ""
+            print(f"    blend 평활 (α={smoothing_alpha}{cs_tag}): {top} {hmm_probs[top]:.0%}")
         state["prev_blend_probs"] = dict(hmm_probs)
 
         crisis_prio = hmm_cfg.get("crisis_priority_threshold", None)
@@ -378,17 +401,8 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
     conf_method = config.get("regime_filter", {}).get("confidence_method", "mean")
     combined_conf = compute_combined_confidence(rule_conf, hmm_conf, method=conf_method)
 
-    # ── 이상 탐지 (Option C) ─────────────────────────────────────────────
-    # IsolationForest로 현재 시장이 학습 분포에서 얼마나 벗어났는지 측정.
-    # HMM/RF가 자기참조(detect_regime 라벨) 문제를 안고 있는 반면 이 신호는 unsupervised.
-    anomaly_cfg = config.get("anomaly", {})
-    anomaly_score = 0.0
+    # 이상 탐지 결과 출력 (anomaly_score는 상단 HMM 블록 이전에 계산됨).
     if anomaly_cfg.get("enabled", True) and len(feature_matrix) >= hmm_min:
-        anomaly_det = AnomalyDetector(
-            contamination=float(anomaly_cfg.get("contamination", 0.05))
-        )
-        anomaly_det.fit(feature_matrix)
-        anomaly_score = anomaly_det.anomaly_score(features)
         icon = " ⚠" if anomaly_score > 0.7 else ""
         print(f"    Anomaly    : {anomaly_score:.0%}{icon}")
 

@@ -439,6 +439,15 @@ regime_filter:
   #   0.5  — 약한 평활 ← 현재 (whipsaw 57.6→47.3%, Sharpe -0.013, MaxDD -1.18pp)
   #   0.7~0.9 — 강한 평활 (MaxDD 악화 폭이 커짐 — 보류)
   blend_smoothing_alpha: 0.5
+  # 신뢰도 가변 평활 (옵트인): 레짐 신뢰도가 낮을 때 새 blend 채택을 늦춘다.
+  #   eff_α = 1 - (1 - blend_smoothing_alpha) · clip(confidence / conf_ref, 0, 1)
+  #   신뢰도 낮음 → α↑ (관성↑, 가짜 플립 억제) / 높음 → α=blend_smoothing_alpha
+  #   신뢰도 = rule_conf·HMM 결합(confidence_method) × (1 - anomaly_penalty·anomaly)
+  #   Crisis 면제: raw_blend[Crisis] ≥ crisis_priority_threshold이면 빠른 진입 보존.
+  #   enabled: false — 기본 비활성(기존 고정-α와 동일). 검증 후 채택 여부 결정.
+  confidence_smoothing:
+    enabled: false
+    conf_ref: 0.4
   # 레짐별 override — Crisis는 빠른 진입이 중요하므로 confirmation 1회·쿨다운 0.
   per_regime:
     Crisis:

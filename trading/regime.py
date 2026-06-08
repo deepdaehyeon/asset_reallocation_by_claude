@@ -1150,6 +1150,55 @@ def compute_combined_confidence(
     return float((rule_conf + hmm_conf) / 2)
 
 
+def apply_blend_smoothing(
+    raw_blend: dict[str, float],
+    prev_blend: dict[str, float] | None,
+    alpha_base: float,
+    *,
+    confidence: float | None = None,
+    conf_ref: float = 0.4,
+    crisis_priority_threshold: float | None = None,
+) -> dict[str, float]:
+    """
+    blend 확률에 EWMA 평활을 적용한다. 반환: 정규화된 blend dict.
+
+    new_blend = α·prev_blend + (1-α)·raw_blend
+    α(=prev에 주는 관성 가중)는 raw_blend 채택 속도를 결정한다.
+    α=alpha_base가 기본. confidence가 주어지면 신뢰도에 따라 α를 가변한다:
+      - 신뢰도 낮음 → α↑ (관성↑, 새 레짐 채택↓) → 가짜 플립 억제
+      - 신뢰도 높음 → α=alpha_base (정상 평활)
+      eff_α = 1 - (1 - alpha_base)·clip(confidence/conf_ref, 0, 1)
+
+    Crisis 면제: raw_blend[Crisis] ≥ crisis_priority_threshold이면 가변 감쇠를
+    건너뛰고 alpha_base를 그대로 써서 위기 빠른 진입을 보존한다.
+
+    alpha_base<=0이거나 prev_blend가 비면 raw_blend를 그대로 반환(평활 없음).
+    """
+    if alpha_base <= 0 or not prev_blend:
+        return dict(raw_blend)
+
+    eff_alpha = alpha_base
+    if confidence is not None:
+        exempt = (
+            crisis_priority_threshold is not None
+            and raw_blend.get("Crisis", 0.0) >= crisis_priority_threshold
+        )
+        if not exempt and conf_ref > 0:
+            conf_norm = max(0.0, min(1.0, confidence / conf_ref))
+            eff_alpha = 1.0 - (1.0 - alpha_base) * conf_norm
+
+    keys = set(raw_blend) | set(prev_blend)
+    smoothed = {
+        r: eff_alpha * prev_blend.get(r, 0.0)
+           + (1.0 - eff_alpha) * raw_blend.get(r, 0.0)
+        for r in keys
+    }
+    total = sum(smoothed.values())
+    if total <= 0:
+        return dict(raw_blend)
+    return {r: v / total for r, v in smoothed.items()}
+
+
 def compute_rule_confidence(features: dict, regime: str) -> float:
     """
     규칙 기반 레짐 판단의 신뢰도 [0.0, 1.0]을 반환한다.
