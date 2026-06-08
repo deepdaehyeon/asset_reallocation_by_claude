@@ -941,23 +941,27 @@ class KisRebalancer:
         - oa.amount(ord_psbl_cash)는 당일 매도대금을 반영하지 않아 매도 직후 매수에서 비현실적으로 작음.
         - oa.quantity(max_buy_qty)는 KIS가 수수료 + 결제대기 자금까지 모두 반영해 자체 계산한 권위값.
         - 따라서 cash와의 min 비교는 매도 직후 케이스에서 cap을 잘못 줄임 (실제 버그 사례 2026-05-27).
+        - 가격은 _execute_order와 동일한 ask(_get_price)를 사용 — 종가로 산정하면 ask 프리미엄만큼
+          필요 현금을 과소평가해 마지막 잔여 매수(469830 버퍼)가 '주문가능금액 초과'로 거부됨 (2026-06-08).
         """
         client = self._clients[acc_name]
         try:
             stock = client.stock(ref_ticker)
             try:
-                price = float(stock.quote().close)
+                price = self._get_price(stock, "buy", "KRW")
+                if price <= 0:
+                    price = 1_000.0
             except Exception:
                 price = 1_000.0
             oa = client.account().orderable_amount("KRX", ref_ticker, price=price)
             cash = float(oa.amount)          # ord_psbl_cash (참고용, cap에는 사용 안 함)
             max_qty = int(oa.quantity)        # max_buy_qty — 수수료 + 매도대금 포함 KIS 계산
             qty_based = float(max_qty) * price
-            # 99%만 사용 — 수수료·슬리피지 여유분 확보
-            effective = qty_based * 0.99
+            # 98%만 사용 — 다종목 바스켓의 수수료·세금·ask 슬리피지·정수주 반올림 여유분 확보
+            effective = qty_based * 0.98
             print(
                 f"    [주문가능금액] {acc_name}: {effective:,.0f}원"
-                f" (max_qty={max_qty}×{price:.0f}={qty_based:,.0f}, 99% 적용,"
+                f" (max_qty={max_qty}×{price:.0f}={qty_based:,.0f}, ask·98% 적용,"
                 f" 참고 ord_psbl_cash={cash:,.0f})"
             )
             return effective
@@ -966,12 +970,12 @@ class KisRebalancer:
             # 잘못 줄임 (2026-05-27 실제 버그 사례). 이번 회차 매도 성공분을 더해 보정.
             base_cash = self._krw_acc_cash.get(acc_name, float("inf"))
             sell_credit = self._recent_sell_proceeds_krw.get(acc_name, 0.0)
-            # 수수료·슬리피지 여유분 1% 차감
-            fallback = (base_cash + sell_credit) * 0.99 if base_cash != float("inf") else base_cash
+            # 수수료·슬리피지 여유분 2% 차감
+            fallback = (base_cash + sell_credit) * 0.98 if base_cash != float("inf") else base_cash
             sell_note = f" + 이번 매도 {sell_credit:,.0f}" if sell_credit > 0 else ""
             print(
                 f"  [경고] {acc_name} 주문가능금액 조회 실패: {type(e).__name__}: {e}"
-                f" → fallback {fallback:,.0f}원 (현금 {base_cash:,.0f}{sell_note}, ×0.99)"
+                f" → fallback {fallback:,.0f}원 (현금 {base_cash:,.0f}{sell_note}, ×0.98)"
             )
             return fallback
 
