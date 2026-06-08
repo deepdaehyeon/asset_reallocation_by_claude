@@ -444,10 +444,11 @@ regime_filter:
   #   신뢰도 낮음 → α↑ (관성↑, 가짜 플립 억제) / 높음 → α=blend_smoothing_alpha
   #   신뢰도 = rule_conf·HMM 결합(confidence_method) × (1 - anomaly_penalty·anomaly)
   #   Crisis 면제: raw_blend[Crisis] ≥ crisis_priority_threshold이면 빠른 진입 보존.
-  #   enabled: false — 기본 비활성(기존 고정-α와 동일). 검증 후 채택 여부 결정.
+  #   2026-06-08 채택: ref=0.3 (tx 4.57→4.04%, Sharpe 0.80→0.84, MaxDD -9.9→-9.4%).
+  #   docs/experiment_2026-06-08_confidence_smoothing.md 참조.
   confidence_smoothing:
-    enabled: false
-    conf_ref: 0.4
+    enabled: true
+    conf_ref: 0.3
   # 레짐별 override — Crisis는 빠른 진입이 중요하므로 confirmation 1회·쿨다운 0.
   per_regime:
     Crisis:
