@@ -454,6 +454,15 @@ regime_filter:
   confidence_smoothing:
     enabled: true
     conf_ref: 0.3
+  # 비-Crisis 디리스크 코로보레이션 게이트 (옵트인, 레버 C).
+  #   포화된 HMM이 단독으로 방어(Slowdown/Stagflation)로 blend를 끌어내릴 때, 매크로(rule)가
+  #   위험선호(Goldilocks/Reflation)면 코로보레이션 없는 것으로 보고 방어 질량을 gamma만큼
+  #   회수해 rule_regime으로 재배분. Crisis 질량은 절대 감쇠 안 함 + blend[Crisis]>=
+  #   crisis_priority_threshold면 게이트 전체 면제(위기 빠른 진입 보존).
+  #   docs/experiment_2026-06-09_corroboration_gate.md 검증 후 값 결정.
+  corroboration_gate:
+    enabled: false
+    gamma: 0.0
   # 레짐별 override — Crisis는 빠른 진입이 중요하므로 confirmation 1회·쿨다운 0.
   per_regime:
     Crisis:

@@ -1204,6 +1204,61 @@ def apply_blend_smoothing(
     return {r: v / total for r, v in smoothed.items()}
 
 
+# 비-Crisis 디리스크 코로보레이션 게이트에서 다루는 레짐 집합.
+#   방어(Slowdown/Stagflation)는 매크로(rule) 코로보레이션이 없으면 감쇠 대상.
+#   Crisis는 절대 건드리지 않는다(위기 빠른 진입 보존). Goldilocks/Reflation=위험선호.
+_RISK_ON_REGIMES = ("Goldilocks", "Reflation")
+_DERISK_GATED_REGIMES = ("Slowdown", "Stagflation")
+
+
+def apply_corroboration_gate(
+    blend: dict[str, float],
+    rule_regime: str,
+    *,
+    gamma: float,
+    crisis_priority_threshold: float | None = None,
+) -> dict[str, float]:
+    """
+    비-Crisis 디리스크 코로보레이션 게이트 (레버 C).
+
+    포화된 HMM이 단독으로 방어(Slowdown/Stagflation) 쪽으로 blend를 끌어내릴 때,
+    매크로(rule_regime)가 위험선호(Goldilocks/Reflation)면 디리스크를 코로보레이션
+    없는 것으로 보고 방어 질량을 gamma만큼 회수해 rule_regime으로 재배분한다.
+
+    회수 대상은 Slowdown/Stagflation뿐 — Crisis 질량은 절대 줄이지 않는다(위기 감지 보존).
+    또한 blend[Crisis] >= crisis_priority_threshold이면 게이트 전체를 면제한다.
+
+    적용 조건(모두 충족 시에만 게이팅):
+      1. gamma > 0
+      2. rule_regime ∈ {Goldilocks, Reflation}  (매크로가 위험선호 → 방어와 불일치)
+      3. blend[Crisis] < crisis_priority_threshold  (위기 아님)
+      4. 회수 대상 방어 질량 > 0
+
+    반환: 정규화된 blend dict (조건 미충족 시 입력 그대로 복사).
+    """
+    if gamma <= 0 or rule_regime not in _RISK_ON_REGIMES:
+        return dict(blend)
+    if (crisis_priority_threshold is not None
+            and blend.get("Crisis", 0.0) >= crisis_priority_threshold):
+        return dict(blend)
+
+    derisk_mass = sum(blend.get(r, 0.0) for r in _DERISK_GATED_REGIMES)
+    if derisk_mass <= 0:
+        return dict(blend)
+
+    g = max(0.0, min(1.0, gamma))
+    removed = g * derisk_mass
+    gated = dict(blend)
+    for r in _DERISK_GATED_REGIMES:
+        gated[r] = blend.get(r, 0.0) * (1.0 - g)
+    gated[rule_regime] = gated.get(rule_regime, 0.0) + removed
+
+    total = sum(gated.values())
+    if total <= 0:
+        return dict(blend)
+    return {r: v / total for r, v in gated.items()}
+
+
 def compute_rule_confidence(features: dict, regime: str) -> float:
     """
     규칙 기반 레짐 판단의 신뢰도 [0.0, 1.0]을 반환한다.

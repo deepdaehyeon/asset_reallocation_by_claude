@@ -47,6 +47,7 @@ from regime import (
     HmmRegimeClassifier,
     RegimeFilter,
     apply_blend_smoothing,
+    apply_corroboration_gate,
     compute_combined_confidence,
     compute_rule_confidence,
     detect_regime,
@@ -349,6 +350,14 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
             raw = {r: (1 - w) * hmm_probs[r] + w * rf_probs[r] for r in REGIMES}
             total = sum(raw.values())
             hmm_probs = {r: v / total for r, v in raw.items()} if total > 0 else hmm_probs
+
+        # 비-Crisis 디리스크 코로보레이션 게이트 (레버 C, raw blend에 적용 후 평활)
+        cg_cfg = config.get("regime_filter", {}).get("corroboration_gate", {}) or {}
+        if cg_cfg.get("enabled", False) and float(cg_cfg.get("gamma", 0.0)) > 0:
+            hmm_probs = apply_corroboration_gate(
+                hmm_probs, rule_regime, gamma=float(cg_cfg.get("gamma", 0.0)),
+                crisis_priority_threshold=hmm_cfg.get("crisis_priority_threshold", None),
+            )
 
         # blend EWMA 평활 (whipsaw 억제, 외부 비평 #6-c)
         rf_cfg = config.get("regime_filter", {})

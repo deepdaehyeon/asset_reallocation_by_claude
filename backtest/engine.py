@@ -32,6 +32,7 @@ from regime import (
     BalancedRFClassifier,
     HmmRegimeClassifier,
     apply_blend_smoothing,
+    apply_corroboration_gate,
     compute_combined_confidence,
     compute_rule_confidence,
     detect_regime,
@@ -128,6 +129,10 @@ class BacktestEngine:
         cs_cfg = config.get("regime_filter", {}).get("confidence_smoothing", {}) or {}
         self.conf_smoothing_enabled = bool(cs_cfg.get("enabled", False))
         self.conf_smoothing_ref = float(cs_cfg.get("conf_ref", 0.4))
+        # 비-Crisis 디리스크 코로보레이션 게이트 (옵트인, 레버 C).
+        cg_cfg = config.get("regime_filter", {}).get("corroboration_gate", {}) or {}
+        self.corrob_gate_enabled = bool(cg_cfg.get("enabled", False))
+        self.corrob_gate_gamma = float(cg_cfg.get("gamma", 0.0))
         anomaly_cfg = config.get("anomaly", {})
         self.anomaly_enabled = bool(anomaly_cfg.get("enabled", True))
         self.anomaly_contamination = float(anomaly_cfg.get("contamination", 0.05))
@@ -228,6 +233,13 @@ class BacktestEngine:
                     blend = {r: v / total for r, v in raw.items()} if total > 0 else hmm_probs
                 else:
                     blend = hmm_probs
+
+                # 비-Crisis 디리스크 코로보레이션 게이트 (레버 C, raw blend에 적용 후 평활).
+                if self.corrob_gate_enabled and self.corrob_gate_gamma > 0:
+                    blend = apply_corroboration_gate(
+                        blend, rule_regime, gamma=self.corrob_gate_gamma,
+                        crisis_priority_threshold=self.crisis_priority_threshold,
+                    )
 
                 # blend EWMA 평활 (whipsaw 억제, 외부 비평 #6-c).
                 # 신뢰도 가변 감쇠(옵트인): 라이브 run.py와 동일하게 raw blend +
