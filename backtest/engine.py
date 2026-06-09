@@ -151,6 +151,7 @@ class BacktestEngine:
         # label-switching 정렬: 워크포워드 일별 루프에서 anchor를 누적 유지 (라이브 state.json 역할).
         self.stabilize_mapping = bool(hmm_cfg.get("stabilize_mapping", False))
         self.mapping_deadband = float(hmm_cfg.get("mapping_deadband", 0.75))
+        self.hmm_min_covar = float(hmm_cfg.get("min_covar", 1e-3))
         self._hmm_anchor: list = []
 
         eq_classes = set(config.get("vol_targeting", {}).get(
@@ -197,6 +198,7 @@ class BacktestEngine:
                     crisis_rvol_ratio=self.crisis_rvol_ratio,
                     stabilize_mapping=self.stabilize_mapping,
                     mapping_deadband=self.mapping_deadband,
+                    min_covar=self.hmm_min_covar,
                 )
                 clf.set_anchor(self._hmm_anchor)
                 # hmmlearn EM은 경계 케이스에서 수렴 경고가 잦다.

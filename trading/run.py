@@ -262,6 +262,7 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
             crisis_rvol_ratio=hmm_cfg.get("crisis_rvol_ratio"),
             stabilize_mapping=hmm_cfg.get("stabilize_mapping", False),
             mapping_deadband=hmm_cfg.get("mapping_deadband", 0.75),
+            min_covar=hmm_cfg.get("min_covar", 1e-3),
         )
         hmm_clf.set_anchor(state.get("hmm_mapping_anchor"))
         import warnings

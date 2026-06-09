@@ -273,11 +273,16 @@ class HmmRegimeClassifier:
         crisis_rvol_ratio: float | None = None,
         stabilize_mapping: bool = False,
         mapping_deadband: float = 0.75,
+        min_covar: float = 1e-3,
     ) -> None:
         self._model = None
         self._scaler = None
         self._state_to_regime: dict[int, str] = {}
         self._unsupervised_mapping = unsupervised_mapping
+        # 공분산 floor — 표준화 데이터(분산~1)에서 1e-3은 매우 작아 가우시안 방출이
+        # 뾰족해지고 사후확률이 0/100으로 포화됨. floor를 올리면 방출이 넓어져
+        # 여러 상태가 확률을 나눠 가짐(포화 완화). 단일 HMM 신호의 휘프소 억제 목적.
+        self._min_covar = float(min_covar)
         self._mapping_method: str = "unknown"  # "unsupervised" | "legacy" | "legacy-fallback"
         # label-switching 억제: 재학습 후 군집을 직전 실행(anchor)에 매칭해 라벨 물려주기.
         self._stabilize_mapping = bool(stabilize_mapping)
@@ -334,7 +339,7 @@ class HmmRegimeClassifier:
                 n_iter=300,
                 random_state=seed,
                 tol=1e-3,
-                min_covar=1e-3,
+                min_covar=self._min_covar,
             )
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", category=ConvergenceWarning)

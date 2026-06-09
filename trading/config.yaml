@@ -343,6 +343,11 @@ hmm:
   lookback_days: 500       # HMM 학습 윈도우 (거래일)
   predict_lookback: 60     # 추론 시 사용할 시퀀스 길이 — 전이 확률 문맥 반영
   min_samples: 100
+  # 공분산 floor (GaussianHMM min_covar) — 표준화 데이터 기준.
+  #   1e-3 (현재) — 매우 작음 → 방출 뾰족 → 사후확률 0/100 포화 (단일 HMM 휘프소 원인)
+  #   0.05~0.25 — floor를 올려 방출을 넓힘 → 여러 상태가 확률 분담(포화 완화)
+  #   docs/experiment_2026-06-09_hmm_min_covar.md 검증 후 값 결정.
+  min_covar: 0.001
   # override_threshold 0.60 → 0.50: HMM/RF 다수결을 더 빠르게 채택
   # Crisis 진입 후 21일 +0.06% → -0.30% (후행에서 적시로 회복).
   override_threshold: 0.50
