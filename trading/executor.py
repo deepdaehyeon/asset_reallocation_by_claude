@@ -586,6 +586,7 @@ class KisRebalancer:
             for acc in krw_acc_holdings
         }
         self._krw_acc_cash = krw_acc_cash  # T+2 보정 전 실제 현금 (매수 cap용)
+        self._usd_cash_krw = cash_by_currency.get("USD", 0.0)  # USD 출금가능현금(원화 환산) — USD 매수 cap fallback용
 
         # 유니버스 외 보유 종목 분리 및 안내
         universe_krw = {t: v for t, v in holdings_krw.items() if t in self.universe}
@@ -786,9 +787,22 @@ class KisRebalancer:
                 if d >= self.min_order_krw:
                     scaled_buy_orders.append((t, "KRW", d, acc_name))
 
+        # USD 매수도 주문가능금액으로 cap (KRW와 동일 — 2026-06-08·09 VWO 초과 수정)
+        usd_buys_by_acc: Dict[str, List[Tuple[str, float]]] = {}
         for t, c, a, acc in buy_orders:
             if c == "USD":
-                scaled_buy_orders.append((t, c, a, acc))
+                usd_buys_by_acc.setdefault(acc, []).append((t, a))
+        for acc_name, buys in usd_buys_by_acc.items():
+            ref_ticker = buys[0][0]
+            orderable = self._fetch_usd_orderable(acc_name, ref_ticker)
+            total_buy = sum(d for _, d in buys)
+            if orderable > 0 and total_buy > orderable:
+                scale = orderable / total_buy
+                print(f"  [주문가능 cap] {acc_name}: {total_buy:,.0f}원 → {orderable:,.0f}원 ({scale:.1%})")
+                buys = [(t, d * scale) for t, d in buys]
+            for t, d in buys:
+                if d >= self.min_order_krw:
+                    scaled_buy_orders.append((t, "USD", d, acc_name))
 
         # Phase 3: 매수 실행
         for i, (ticker, currency, amount_diff_krw, acc_name) in enumerate(scaled_buy_orders):
@@ -976,6 +990,47 @@ class KisRebalancer:
             print(
                 f"  [경고] {acc_name} 주문가능금액 조회 실패: {type(e).__name__}: {e}"
                 f" → fallback {fallback:,.0f}원 (현금 {base_cash:,.0f}{sell_note}, ×0.98)"
+            )
+            return fallback
+
+    def _fetch_usd_orderable(self, acc_name: str, ref_ticker: str) -> float:
+        """해외(USD) 계좌의 주문가능금액을 원화 환산으로 조회한다 (매도 직후 호출).
+
+        KRW 경로와 동일한 버그(주문가능금액 초과)가 USD 계좌에서도 발생(2026-06-08·09 VWO).
+        원인: USD 매수는 orderable cap 없이 target×total_usd_krw 스냅샷으로 집행되어,
+        매도 미체결·ask 슬리피지·환전 증거금 누적으로 마지막 잔여 매수가 KIS 한도를 초과.
+
+        cap 결정: KIS의 max_ord_psbl_qty(ovrs 매수가능수량)×ask × usd_krw × 0.98.
+        - ovrs_ord_psbl_amt(amount)·max_ord_psbl_qty(quantity)는 KIS가 매수증거금·환전·수수료를
+          모두 반영해 자체 계산한 권위값 — KIS가 주문 수락/거부에 쓰는 바로 그 기준.
+        - 가격은 _execute_order와 동일한 ask(_get_price)를 사용.
+        조회 실패 시 _usd_cash_krw(매도 전 출금가능현금)×0.98 폴백 — 보수적(작게 잡아 안전).
+        """
+        client = self._clients[acc_name]
+        try:
+            stock = client.stock(ref_ticker)
+            price = self._get_price(stock, "buy", "USD")
+            if price <= 0:
+                raise ValueError(f"{ref_ticker} ask 가격 비정상: {price}")
+            oa = stock.orderable_amount(price=price)
+            amount_usd = float(oa.amount)         # ovrs_ord_psbl_amt (USD, 통화 기준)
+            max_qty = int(oa.quantity)             # max_ord_psbl_qty (통화 기준)
+            qty_based_usd = float(max_qty) * price
+            # amount(주문가능금액)과 qty×price 중 작은 값 — 정수주 반올림으로 qty_based가 약간 작음
+            usable_usd = min(amount_usd, qty_based_usd) if amount_usd > 0 else qty_based_usd
+            effective_krw = usable_usd * self.usd_krw * 0.98
+            print(
+                f"    [주문가능금액] {acc_name}: {effective_krw:,.0f}원"
+                f" (max_qty={max_qty}×${price:.2f}=${qty_based_usd:,.0f},"
+                f" ovrs_ord_psbl=${amount_usd:,.0f}, ask·98% 적용)"
+            )
+            return effective_krw
+        except Exception as e:
+            base_cash = self._usd_cash_krw if self._usd_cash_krw > 0 else float("inf")
+            fallback = base_cash * 0.98 if base_cash != float("inf") else base_cash
+            print(
+                f"  [경고] {acc_name} USD 주문가능금액 조회 실패: {type(e).__name__}: {e}"
+                f" → fallback {fallback:,.0f}원 (USD현금 {base_cash:,.0f}×0.98)"
             )
             return fallback
 
