@@ -35,6 +35,12 @@ def compute_metrics(
     calmar = cagr / abs(max_dd) if max_dd < 0 else 0.0
     win_rate = float((returns > 0).mean())
 
+    # Ulcer Index: 낙폭의 깊이+지속을 함께 반영(RMS of drawdown%). MaxDD가 한 순간만
+    # 보는 것과 달리, 오래·깊게 물려있을수록 커진다 → 장기보유자 체감 고통에 가깝다.
+    ui = float(np.sqrt((dd_series.mul(100) ** 2).mean()))
+    # Martin ratio(=Ulcer Performance Index): Calmar의 Ulcer 버전. 초과수익/Ulcer.
+    martin = (cagr - risk_free) / (ui / 100) if ui > 0 else 0.0
+
     return {
         "total_return": round(total_return, 4),
         "cagr":         round(cagr, 4),
@@ -42,8 +48,95 @@ def compute_metrics(
         "sharpe":       round(sharpe, 3),
         "max_drawdown": round(max_dd, 4),
         "calmar":       round(calmar, 3),
+        "ulcer":        round(ui, 3),
+        "martin":       round(martin, 3),
         "win_rate":     round(win_rate, 3),
         "n_days":       len(returns),
+    }
+
+
+def ulcer_index(returns: pd.Series) -> float:
+    """Ulcer Index: sqrt(mean(drawdown%^2)). 낙폭 깊이+지속 동시 반영, 낮을수록 좋음."""
+    returns = returns.dropna()
+    if len(returns) < 2:
+        return 0.0
+    dd = drawdown_series(returns).mul(100)
+    return float(np.sqrt((dd ** 2).mean()))
+
+
+def recovery_duration(returns: pd.Series) -> Dict[str, float]:
+    """
+    낙폭에서 회복까지 걸린 기간(달력일) 분석 — 장기보유자가 '물려있는 시간'.
+
+    Returns
+    -------
+    dict:
+      max_underwater_days  : 가장 길게 직전 고점 아래 머문 기간(달력일)
+      maxdd_recovery_days  : 최대 낙폭 저점에서 직전 고점 회복까지 걸린 기간
+                             (기간 내 미회복이면 -1 = 아직 물려있음)
+      currently_underwater_days : series 끝 시점에 직전 고점 아래 머문 기간(0이면 신고가)
+    """
+    returns = returns.dropna()
+    if len(returns) < 2:
+        return {"max_underwater_days": 0, "maxdd_recovery_days": -1,
+                "currently_underwater_days": 0}
+
+    cum = (1 + returns).cumprod()
+    idx = cum.index
+    peak_val = cum.iloc[0]
+    peak_date = idx[0]
+    max_uw = 0
+    for date, v in cum.items():
+        if v >= peak_val:
+            uw = (date - peak_date).days
+            if uw > max_uw:
+                max_uw = uw
+            peak_val = v
+            peak_date = date
+    trailing_uw = (idx[-1] - peak_date).days
+    if trailing_uw > max_uw:
+        max_uw = trailing_uw
+
+    # 최대 낙폭 저점 → 회복까지
+    dd = drawdown_series(returns)
+    trough_date = dd.idxmin()
+    peak_before = cum.loc[:trough_date].idxmax()
+    peak_level = cum.loc[peak_before]
+    after = cum.loc[trough_date:]
+    recovered = after[after >= peak_level]
+    if len(recovered) > 0:
+        maxdd_rec = (recovered.index[0] - trough_date).days
+    else:
+        maxdd_rec = -1  # 기간 내 미회복
+
+    return {
+        "max_underwater_days": int(max_uw),
+        "maxdd_recovery_days": int(maxdd_rec),
+        "currently_underwater_days": int(trailing_uw),
+    }
+
+
+def rolling_cagr(returns: pd.Series, years: float = 3.0) -> Dict[str, float]:
+    """
+    롤링 CAGR 분포 — 진입시점에 따라 보유기간(years) 동안 받았을 연환산 수익률.
+    장기보유자의 실제 경험 분포(최악/중앙/최선 + 마이너스 마감 비율).
+    """
+    returns = returns.dropna()
+    window = int(round(years * 252))
+    if len(returns) <= window:
+        return {"years": years, "worst": 0.0, "median": 0.0, "best": 0.0,
+                "pct_negative": 0.0, "n_windows": 0}
+
+    cum = (1 + returns).cumprod()
+    ratio = (cum / cum.shift(window)).dropna()
+    cagr = ratio ** (1.0 / years) - 1.0
+    return {
+        "years":        years,
+        "worst":        round(float(cagr.min()), 4),
+        "median":       round(float(cagr.median()), 4),
+        "best":         round(float(cagr.max()), 4),
+        "pct_negative": round(float((cagr < 0).mean()), 4),
+        "n_windows":    int(len(cagr)),
     }
 
 
