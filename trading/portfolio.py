@@ -217,15 +217,15 @@ def derive_account_weights(
 
     USD 배정 우선순위 (단계 내 pro-rata):
       1순위 — commodity, managed_futures           (대체 불가, 전액 배정)
-      2a순위 — equity_factor/sector/individual    (USD core equity, equity_etf 대체)
+      2a순위 — equity_factor/individual           (USD core equity, equity_etf 대체)
       2b순위 — equity_developed/equity_emerging   (USD intl equity, 한국 대체재 회피로 equity_etf 대체)
-      3순위 — bond_usd, bond_tips                  (USD bonds, bond_krw 대체)
+      3순위 — bond_usd                            (USD bonds, bond_krw 대체)
       잔여 USD → 기배정 항목 비례 확대 (1% 현금 reserve만 유지)
 
     KRW 배정:
       equity_etf = 모든 equity_* 목표 - USD 실제 equity 배분 (자동 흡수)
-      bond_krw = 자체 목표 + bond_usd/bond_tips 부족분
-      gold, cash = 목표 그대로
+      bond_krw = 자체 목표 + bond_usd 부족분
+      equity_sector(218420)·bond_tips(468370)·gold·cash = 목표 그대로 (KRW-native 직접 라우팅)
 
     Args:
         targets: blend_regime_targets() 또는 regime_targets[regime] 반환값
@@ -262,8 +262,8 @@ def derive_account_weights(
         usd_pool[cls] = amt
         usd_remaining -= amt
 
-    # Priority 2a: USD equity core (factor/sector/individual)
-    core_eq = ("equity_factor", "equity_sector", "equity_individual")
+    # Priority 2a: USD equity core (factor/individual) — sector는 KRW-native(218420)로 분리
+    core_eq = ("equity_factor", "equity_individual")
     core_w, core_a = _allocate_group(core_eq, "equity_core")
     usd_remaining -= core_a
 
@@ -272,15 +272,15 @@ def derive_account_weights(
     intl_w, intl_a = _allocate_group(intl_eq, "equity_intl")
     usd_remaining -= intl_a
 
-    # Priority 3: USD bonds (bond_usd + bond_tips)
-    bond_cls = ("bond_usd", "bond_tips")
+    # Priority 3: USD bonds (bond_usd) — bond_tips는 KRW-native(468370)로 분리
+    bond_cls = ("bond_usd",)
     bond_w, bond_a = _allocate_group(bond_cls, "bond_usd")
     usd_remaining -= bond_a
 
     # 로깅
     if core_w - core_a > total * 0.001:
         print(
-            f"    [USD 예산 조정] equity_core(factor+sector+individual) "
+            f"    [USD 예산 조정] equity_core(factor+individual) "
             f"{core_w/total*100:.1f}% → {core_a/total*100:.1f}% (USD 한도 {total_usd_krw/total:.0%})"
         )
     if intl_w - intl_a > total * 0.001:
@@ -291,7 +291,7 @@ def derive_account_weights(
     bond_shortfall = max(0.0, bond_w - bond_a)
     if bond_shortfall > total * 0.001:
         print(
-            f"    [USD 부족 대체] bond(usd+tips) "
+            f"    [USD 부족 대체] bond(usd) "
             f"{bond_w/total*100:.1f}% → {bond_a/total*100:.1f}%, 부족분 {bond_shortfall/total*100:.1f}%를 bond_krw로 대체"
         )
 
@@ -309,12 +309,12 @@ def derive_account_weights(
 
     # ── KRW 배정 ────────────────────────────────────────────────────────────
     all_eq_classes = (
-        "equity_etf", "equity_factor", "equity_sector",
+        "equity_etf", "equity_factor",
         "equity_individual", "equity_developed", "equity_emerging",
     )
     equity_total_target = sum(targets.get(c, 0.0) for c in all_eq_classes)
     usd_eq_allocated = sum(usd_pool.get(c, 0.0) for c in (
-        "equity_factor", "equity_sector", "equity_individual",
+        "equity_factor", "equity_individual",
         "equity_developed", "equity_emerging",
     ))
     equity_etf_of_total = max(0.0, equity_total_target - usd_eq_allocated / total)
@@ -325,7 +325,7 @@ def derive_account_weights(
             krw_w[ticker] = (equity_etf_of_total / krw_ratio) * split
 
         bond_krw_extra = (bond_shortfall / total) / krw_ratio
-        for cls in ("gold", "bond_krw", "cash"):
+        for cls in ("gold", "bond_krw", "cash", "equity_sector", "bond_tips"):
             frac = targets.get(cls, 0.0) / krw_ratio
             if cls == "bond_krw":
                 frac += bond_krw_extra

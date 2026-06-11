@@ -42,11 +42,11 @@ universe:
     currency: USD
     exec_account: USD
     asset_class: equity_factor
-  # ── Equity Sector (USD) — 에너지 섹터 (인플레 헤지) ──────────────────────
-  "XLE":
-    name: "Energy Select Sector SPDR ETF"
-    currency: USD
-    exec_account: USD
+  # ── Equity Sector (KRW) — 에너지 섹터 (인플레 헤지) — XLE 동일 S&P500 에너지 지수 ──
+  "218420":
+    name: "KODEX 미국S&P500에너지(합성)"
+    currency: KRW
+    exec_account: KRW
     asset_class: equity_sector
   # ── Equity Individual (USD) — 4종목 다각화 (EV/AI/반도체/헬스케어) ────────
   "TSLA":
@@ -92,11 +92,11 @@ universe:
     currency: USD
     exec_account: USD
     asset_class: bond_usd
-  # ── Bond TIPS (USD) — 인플레 연동채 (Stagflation 헷지) ────────────────────
-  "VTIP":
-    name: "Vanguard Short-Term TIPS"
-    currency: USD
-    exec_account: USD
+  # ── Bond TIPS (KRW) — 인플레 연동채 (Stagflation 헷지) — broad US TIPS ──────
+  "468370":
+    name: "KODEX iShares 미국인플레이션국채액티브"
+    currency: KRW
+    exec_account: KRW
     asset_class: bond_tips
   # ── Bond (KRW) ──────────────────────────────────────────────────────────
   "305080":
@@ -266,8 +266,8 @@ asset_routing:
   equity_factor:       # USD 계좌 전용 — VTV(Large Value) + AVUV(Small Value)
     VTV:  0.60
     AVUV: 0.40
-  equity_sector:       # USD 계좌 전용 — XLE(에너지) 100%
-    XLE:  1.00
+  equity_sector:       # KRW 계좌 전용 — 218420(미국S&P500에너지) 100%
+    "218420": 1.00
   equity_individual:   # USD 계좌 전용 — 4종목 분산 (EV/AI/반도체/헬스케어)
     NVDA: 0.30
     LLY:  0.25
@@ -284,8 +284,8 @@ asset_routing:
   bond_usd:            # USD 계좌 전용
     IEF:  0.58
     SHY:  0.42
-  bond_tips:           # USD 계좌 전용 — 인플레 연동채
-    VTIP: 1.00
+  bond_tips:           # KRW 계좌 전용 — 인플레 연동채
+    "468370": 1.00
   bond_krw:            # KRW 계좌 전용
     "305080": 1.00
   gold:                # KRW 계좌 전용
@@ -304,13 +304,13 @@ account_ratio_fallback:
 #   equity_etf, bond_krw, bond_usd, cash — 흡수 자산이라 cap 두면 USD 부족 흡수 경로가 막힘
 class_max_weight:
   equity_factor:     0.10   # VTV+AVUV — Reflation·Stagflation 8%가 최대, +2pp 여유
-  equity_sector:     0.10   # XLE — Reflation 7%가 최대, +3pp 여유
+  equity_sector:     0.10   # 218420 — Reflation 7%가 최대, +3pp 여유
   equity_individual: 0.20   # Satellite 20% 상한 (4종목 분산으로 종목당 5~6%)
   equity_developed:  0.05   # VEA — 글로벌 분산, 작은 비중 유지
   equity_emerging:   0.03   # VWO — 신흥국, 더 작은 비중
   commodity:         0.20   # DBC — Stagflation 20%가 최대
   managed_futures:   0.12   # DBMF — 횡보장 약점 고려
-  bond_tips:         0.10   # VTIP — Stagflation 8%가 최대, 약간의 여유
+  bond_tips:         0.10   # 468370 — Stagflation 8%가 최대, 약간의 여유
   gold:              0.18   # 전천후 헤지 — 과대 비중 방지
 
 # ── 변동성 타겟팅 ────────────────────────────────────────────────────────────
@@ -534,13 +534,9 @@ settlement:
     "AVUV": "379800"   # S&P500 (소형가치 대체재 없음)
     "VEA":  "379800"   # S&P500 (선진 ex-US KRW 대체재 없음, US fallback)
     "VWO":  "379800"   # S&P500 (신흥국 KRW 대체재 없음, US fallback)
-    "XLE":                 # 에너지 stocks → 금+S&P500 50/50 (인플레 헷지 + 시장 베타)
-      "411060": 0.50
-      "379800": 0.50
     "IEF":  "305080"   # TIGER 미국채10년 (듀레이션 일치)
     "SHY":  "469830"   # SOL 초단기채권 (단기채)
-    "VTIP": "411060"   # 금 (인플레 연동채 → 인플레 헷지 자산)
-    "DBC":                 # broad commodity → 금+WTI 50/50
+    "DBC":               # broad commodity → 금+WTI 50/50
       "411060": 0.50
       "261220": 0.50
     "DBMF": "411060"   # 금 (CTA 트렌드 헷지 → 전천후 자산)

@@ -53,8 +53,26 @@
    공짜가 아님. core+satellite(core50)에서 NVDA를 satellite 알파로 유지하는 선택지와 비교.
 3. **USD 목표는 대체 후 수요에 맞춰 재산정** — 40% 고정이 아니라 대체 반영한 레짐별 수요로.
 
+## 적용 결과 (2026-06-12 라이브 반영 — 에너지+TIPS만, NVDA 유지)
+
+사용자 결정: **에너지(218420)+TIPS(468370)만** KRW-native화, **NVDA는 satellite 알파로 USD 유지**.
+라우팅 수술까지 포함해 라이브 config·코드에 반영 완료:
+
+- `trading/config.yaml`: universe XLE→218420·VTIP→468370(둘 다 currency/exec_account KRW),
+  asset_routing equity_sector→{218420:1.00}·bond_tips→{468370:1.00}, synthetic_pairs에서
+  XLE·VTIP 합성쌍 제거(KRW-native라 합성 불필요).
+- `trading/portfolio.py` `derive_account_weights`: equity_sector를 USD 2a waterfall에서,
+  bond_tips를 USD 3순위에서 제외 → KRW 직접 라우팅 블록(gold·bond_krw·cash와 동렬)으로 이동.
+- `backtest/data.py` PROXY_MAP: 218420→XLE, 468370→TIP 영구 추가.
+
+라이브 config 풀 백테스트(2010~2025): **CAGR 10.2% / MaxDD -10.7% / Sharpe 0.81 / Martin 2.04 /
+3y최악 2.7%** — baseline(10.1%/-9.9%/0.81/2.13) 대비 수익·Sharpe 동등, MaxDD만 broad-TIPS
+듀레이션으로 ~0.8%p 깊음. **깨끗한 배관 교체로 확인.** Reflation 타깃 라우팅 점검도 통과
+(218420·468370이 KRW 계좌로, XLE/VTIP 누수 0).
+
 ## 한계
 
 - 218420 합성형 괴리·유동성, 468370 헤지여부는 매수 전 재확인.
-- NVDA→SOX 비용은 표본구간 NVDA 실현수익에 민감(hindsight). 미래 보장 아님.
-- 라이브 라우팅 수술은 미반영 — 별도 백테스트(라우팅 변경 후 USD 제약 효과)로 검증 필요.
+- NVDA→SOX 비용은 표본구간 NVDA 실현수익에 민감(hindsight). 미래 보장 아님 — 그래서 NVDA는 USD 유지.
+- USD 40% 선충전 시 대체로 USD 수요가 줄어 초과분 발생 가능(§USD 40% 선충전과의 상호작용) —
+  목표 USD는 대체 후 레짐별 수요로 재산정 권장.
