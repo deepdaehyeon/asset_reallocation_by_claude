@@ -279,6 +279,10 @@ class KisRebalancer:
         self.min_order_krw: float = float(
             config["rebalancing"].get("min_order_krw", 10_000)
         )
+        # 유동성 얇은 종목별 주문 분할·재시도 설정 {ticker: {max_order_krw, max_retries, price_chase, retry_interval_s}}
+        self.illiquid_cfg: Dict[str, dict] = config["rebalancing"].get(
+            "illiquid_order_handling", {}
+        )
         self.messenger = messenger
         auth_path = auth_path or Path(__file__).parent / "auth.yaml"
         self._clients = self._init_clients(auth_path)
@@ -1045,13 +1049,15 @@ class KisRebalancer:
         currency: str,
         max_retries: int = 10,
         retry_interval: int = 100,
+        chase: float = 0.001,
     ) -> Tuple[bool, float]:
         """미체결 주문 대기 루프. retry_interval초마다 가격 조정 후 재주문, max_retries회 초과 시 취소 후 타임아웃.
 
         재주문 전 이전 주문을 반드시 취소한다.
         취소하지 않으면 여러 주문이 동시에 시장에 열려 있다가 다음 날 일괄 체결될 수 있다.
+        chase: 재시도당 가격 추격폭 (buy는 +, sell는 -). 유동성 얇은 종목은 크게 잡아 체결 유도.
         """
-        rate = 1.001 if action == "buy" else 0.999
+        rate = (1.0 + chase) if action == "buy" else (1.0 - chase)
         cnt = 0
         retries = 0
 
@@ -1212,20 +1218,60 @@ class KisRebalancer:
                     print(f"  [경고] {ticker}: 주문 수량 {qty}주 → 실보유 {held_qty}주로 조정")
                     qty = held_qty
 
-            print(f"  {action} {_label_ticker(ticker, self.universe)} {qty}주 @ {price:,.2f} {currency}")
-
             order_fn = getattr(stock, action)
-            order = order_fn(qty=qty, price=price)
-            filled, price = self._wait_for_fill(
-                order, lambda p: order_fn(qty=qty, price=p),
-                ticker, action, qty, price, currency,
-            )
-            if not filled:
+            label = "매수" if action == "buy" else "매도"
+
+            # 유동성 얇은 종목: 주문 분할 + 재시도 확대 (호가 깊이 초과 timeout 방지)
+            iq = self.illiquid_cfg.get(ticker, {})
+            wait_kwargs = {}
+            if iq:
+                if iq.get("max_retries") is not None:
+                    wait_kwargs["max_retries"] = int(iq["max_retries"])
+                if iq.get("retry_interval_s") is not None:
+                    wait_kwargs["retry_interval"] = int(iq["retry_interval_s"])
+                if iq.get("price_chase") is not None:
+                    wait_kwargs["chase"] = float(iq["price_chase"])
+            chunk_qty = qty
+            if iq.get("max_order_krw"):
+                cap_local = float(iq["max_order_krw"]) / (
+                    self.usd_krw if currency == "USD" else 1.0
+                )
+                chunk_qty = max(1, math.floor(cap_local / price))
+
+            split = chunk_qty < qty
+            if split:
+                print(
+                    f"  {action} {_label_ticker(ticker, self.universe)} {qty}주 "
+                    f"@ {price:,.2f} {currency} — {chunk_qty}주씩 분할"
+                )
+            else:
+                print(f"  {action} {_label_ticker(ticker, self.universe)} {qty}주 @ {price:,.2f} {currency}")
+
+            filled_qty = 0
+            remaining = qty
+            last_price = price
+            while remaining > 0:
+                q = min(chunk_qty, remaining)
+                order = order_fn(qty=q, price=last_price)
+                ok, last_price = self._wait_for_fill(
+                    order, lambda p, _q=q: order_fn(qty=_q, price=p),
+                    ticker, action, q, last_price, currency, **wait_kwargs,
+                )
+                if not ok:
+                    break
+                if split:
+                    _append_order_log(ticker, action, q, last_price, currency, self.usd_krw, "ok")
+                filled_qty += q
+                remaining -= q
+                price = last_price  # 다음 청크 기준가 갱신
+
+            if filled_qty == 0:
                 return f"[timeout] {action} {ticker} {qty}주"
 
-            label = "매수" if action == "buy" else "매도"
-            _append_order_log(ticker, action, qty, price, currency, self.usd_krw, "ok")
-            return f"{label} {_label_ticker(ticker, self.universe)} {qty}주 @ {price:,.2f} {currency}"
+            if not split:
+                _append_order_log(ticker, action, filled_qty, last_price, currency, self.usd_krw, "ok")
+            note = "" if remaining == 0 else f" (부분체결 {filled_qty}/{qty}, 잔량 다음 실행)"
+            return f"{label} {_label_ticker(ticker, self.universe)} {filled_qty}주 @ {last_price:,.2f} {currency}{note}"
 
         except Exception as e:
             print(f"  [error] {ticker}: {e}")

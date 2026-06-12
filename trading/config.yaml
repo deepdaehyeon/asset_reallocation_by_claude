@@ -502,6 +502,14 @@ rebalancing:
   usd_cash_min: 0.01                 # USD 계좌 최소 현금 비율 (1%) — 수수료·환전 여유분
   krw_cash_min: 0.01                 # KRW 계좌 최소 현금 비율 (1%) — 수수료·거래 거절 방지
   order_throttle_s: 0.25             # 주문 사이 대기 (초) — KIS rate limit 예방, 0=비활성
+  # 유동성 얇은 종목: 매수/매도를 분할하고 미체결 재시도를 확대해 체결률을 높인다.
+  # 계기: 468370(TIPS, AUM ~125억) 신규 진입 시 9.5M 단일주문이 호가 깊이 초과로 timeout(2026-06-12).
+  illiquid_order_handling:
+    "468370":
+      max_order_krw: 2000000   # 이 금액 이하로 분할 (약 165주씩)
+      max_retries: 15          # 미체결 재시도 횟수 (기본 10)
+      price_chase: 0.003       # 재시도당 가격 추격폭 (기본 0.001 = 0.1%)
+      retry_interval_s: 40     # 재가격 전 대기(초) (기본 100)
 
 # 리스크 제어
 # severe: equity를 floor(10%)까지 축소, 채권·금·현금 유지 — 반등 구간 미스 방지
