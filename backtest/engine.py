@@ -40,6 +40,7 @@ from regime import (
 )
 from portfolio import (
     apply_class_caps,
+    apply_core_satellite,
     apply_dynamic_class_caps,
     apply_risk_controls,
     apply_vol_targeting,
@@ -329,6 +330,7 @@ class BacktestEngine:
                 eff_vol = realized_vol
 
             blended = apply_vol_targeting(blended, eff_vol, self.config, regime=regime)
+            blended = apply_core_satellite(blended, self.config)
             class_max = self.config.get("class_max_weight", {})
             blended = apply_dynamic_class_caps(blended, class_max, vix) if vix > 0 else apply_class_caps(blended, class_max)
             usd_w, krw_w = derive_account_weights(

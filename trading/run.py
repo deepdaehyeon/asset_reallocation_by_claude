@@ -30,6 +30,7 @@ from portfolio import (
     apply_class_caps,
     apply_dynamic_class_caps,
     apply_risk_controls,
+    apply_core_satellite,
     apply_synthetic_reallocation,
     apply_vol_targeting,
     blend_regime_targets,
@@ -506,6 +507,7 @@ def _compute_targets(
     Returns (target_usd, target_krw)
     """
     blended = apply_vol_targeting(blended_targets, realized_vol, config, regime=regime)
+    blended = apply_core_satellite(blended, config, verbose=True)
     class_max = config.get("class_max_weight", {})
     if vix > 0:
         blended = apply_dynamic_class_caps(blended, class_max, vix)

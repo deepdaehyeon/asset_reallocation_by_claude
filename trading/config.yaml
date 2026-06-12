@@ -345,6 +345,15 @@ vol_targeting:
     - equity_developed
     - equity_emerging
 
+# core+satellite: 자산의 core_ratio만큼을 고정 레짐(core_regime) 비중으로 묶고,
+# 나머지를 현행 엔진(레짐 블렌드+vol타겟)으로 운용한다. 고정 코어는 매일 거래를 안 만들어
+# 라이브 churn을 줄이고, 회복 구간에 풀로 참여해 underwater 기간을 단축한다.
+# 채택 근거·스윕: docs/experiment_2026-06-12_core_satellite.md (고정 4지표 기준 core30 채택).
+core_satellite:
+  enabled: true
+  core_ratio: 0.30          # 코어(Goldilocks 고정) 비중 — 4지표 종합 스윗스팟
+  core_regime: Goldilocks   # 코어로 고정할 레짐
+
 # HMM + RF 앙상블 레짐 모델
 hmm:
   enabled: true

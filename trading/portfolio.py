@@ -55,6 +55,32 @@ def blend_regime_targets(
     return blended
 
 
+def apply_core_satellite(sat: dict, config: dict, verbose: bool = False) -> dict:
+    """
+    core+satellite 혼합: 일부를 고정 레짐(기본 Goldilocks) 코어로 묶는다.
+
+    sat은 이미 blend+vol타겟이 적용된 satellite 비중(현행 엔진 산출).
+    core는 고정 레짐 타겟(vol·blend 없음). 반환 = core_ratio·core + (1-core_ratio)·sat.
+
+    config["core_satellite"] = {enabled, core_ratio, core_regime}. enabled=False이거나
+    core_ratio<=0이면 sat을 그대로 반환(무회귀).
+    """
+    cs = config.get("core_satellite", {})
+    if not cs.get("enabled", False):
+        return sat
+    cf = float(cs.get("core_ratio", 0.0))
+    if cf <= 0:
+        return sat
+    core_regime = cs.get("core_regime", "Goldilocks")
+    core = blend_regime_targets({core_regime: 1.0}, config)
+    classes = set(core) | set(sat)
+    combined = {c: cf * core.get(c, 0.0) + (1.0 - cf) * sat.get(c, 0.0) for c in classes}
+    if verbose:
+        print(f"    [core+satellite] core {cf:.0%} ({core_regime} 고정) "
+              f"+ satellite {1 - cf:.0%} (엔진)")
+    return combined
+
+
 # ── 포트폴리오 EWMA 변동성 계산 ──────────────────────────────────────────────
 
 def compute_portfolio_ewma_vol(
