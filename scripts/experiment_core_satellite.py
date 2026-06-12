@@ -49,7 +49,7 @@ from engine import (  # noqa: E402
     merge_to_total_weights,
 )
 from fetcher import fetch_fred_history  # noqa: E402
-from metrics import compute_metrics, rolling_cagr  # noqa: E402
+from metrics import compute_metrics, rolling_cagr, recovery_duration  # noqa: E402
 from prototype_forward_regime_predictability import run_engine  # noqa: E402
 from compare_rule_timing_ab import START, END  # noqa: E402
 
@@ -112,6 +112,7 @@ def row(label, res):
     m = compute_metrics(r)
     rc3 = rolling_cagr(r, years=3.0)
     rc5 = rolling_cagr(r, years=5.0)
+    rec = recovery_duration(r)
     return {
         "전략": label,
         "CAGR": m.get("cagr", 0.0),
@@ -120,6 +121,9 @@ def row(label, res):
         "Martin": m.get("martin", 0.0),
         "r3w": rc3["worst"], "r3m": rc3["median"],
         "r5w": rc5["worst"], "r5m": rc5["median"],
+        # 회복기간(달력일): 최대낙폭 회복 / 최장 underwater
+        "rec_dd": rec["maxdd_recovery_days"],
+        "uw_max": rec["max_underwater_days"],
         "리밸": int(res["rebalanced"].sum()),
         "tx": float(res["tx_cost"].sum()),
     }
@@ -136,29 +140,29 @@ def main():
     fred_history = fetch_fred_history(START, END)
 
     rows = []
-    print("baseline(블렌드ON)...")
-    rows.append(row("baseline(블렌드ON)", run_engine(BacktestEngine, universe_px, signal_px, fred_history, base)))
-    print("하드레짐(블렌드OFF)...")
-    rows.append(row("하드레짐(블렌드OFF)", run_engine(HardRegimeEngine, universe_px, signal_px, fred_history, base)))
-    print("core50+sat...")
-    rows.append(row("core50+sat", run_engine(make_coresat(0.5), universe_px, signal_px, fred_history, base)))
-    print("core70+sat...")
-    rows.append(row("core70+sat", run_engine(make_coresat(0.7), universe_px, signal_px, fred_history, base)))
-    print("순수홀드(Goldilocks)...")
-    rows.append(row("순수홀드(Goldilocks)", run_engine(StaticGoldilocksEngine, universe_px, signal_px, fred_history, no_vol)))
+    print("baseline(블렌드ON, core0)...")
+    rows.append(row("baseline(core0)", run_engine(BacktestEngine, universe_px, signal_px, fred_history, base)))
+    for frac in (0.30, 0.50, 0.70):
+        print(f"core{int(frac*100)}+sat...")
+        rows.append(row(f"core{int(frac*100)}+sat", run_engine(make_coresat(frac), universe_px, signal_px, fred_history, base)))
+    print("순수홀드(core100, Goldilocks)...")
+    rows.append(row("순수홀드(core100)", run_engine(StaticGoldilocksEngine, universe_px, signal_px, fred_history, no_vol)))
 
-    print(f"\n{'='*104}\n  core+satellite & 레짐 블렌드 ON/OFF — 수익·위험·churn ({START}~{END})\n{'='*104}")
-    h = (f"  {'전략':>18}{'CAGR':>8}{'MaxDD':>9}{'Ulcer':>8}{'Martin':>8}"
-         f"{'3y최악':>8}{'3y중앙':>8}{'5y최악':>8}{'리밸':>7}{'tx누적':>9}")
+    # 고정 평가 기준(CLAUDE.md 규칙4): 롤링 CAGR · Ulcer · 회복기간 · Martin
+    print(f"\n{'='*116}\n  core 비중 스윕 — 고정 4지표(롤링CAGR·Ulcer·회복기간·Martin) ({START}~{END})\n{'='*116}")
+    h = (f"  {'전략':>16}{'롤3y최악':>9}{'롤3y중앙':>9}{'롤5y최악':>9}{'Ulcer':>8}"
+         f"{'회복일':>8}{'최장UW':>8}{'Martin':>8}{'│CAGR':>8}{'MaxDD':>8}{'tx':>7}")
     print(h)
-    print("  " + "─" * (len(h) + 6))
+    print("  " + "─" * (len(h) + 4))
     for r in rows:
-        print(f"  {r['전략']:>18}{r['CAGR']:>8.1%}{r['MaxDD']:>8.1%}{r['Ulcer']:>8.2f}"
-              f"{r['Martin']:>8.2f}{r['r3w']:>8.1%}{r['r3m']:>8.1%}{r['r5w']:>8.1%}"
-              f"{int(r['리밸']):>7}{r['tx']:>8.2%}")
+        rec = "미회복" if r["rec_dd"] < 0 else f"{int(r['rec_dd'])}"
+        print(f"  {r['전략']:>16}{r['r3w']:>9.1%}{r['r3m']:>9.1%}{r['r5w']:>9.1%}{r['Ulcer']:>8.2f}"
+              f"{rec:>8}{int(r['uw_max']):>8}{r['Martin']:>8.2f}{r['CAGR']:>8.1%}{r['MaxDD']:>8.1%}{r['tx']:>7.2%}")
 
-    print("\n  주의: 백테스트는 USD 단일통화·단일 포트폴리오 — 라이브 USD합성 순환매 미반영.")
-    print("        '리밸/tx'는 블렌드+drift 리밸런싱(전략적 churn)이지 합성 아티팩트가 아님.")
+    print("\n  고정기준 해석: '롤링CAGR'은 경로의존 수익, 'Ulcer/회복일/최장UW'는 하락 고통,")
+    print("  'Martin'(=CAGR/Ulcer)은 위험조정 효율. CAGR·MaxDD는 우측 보조참고.")
+    print("  회복일=최대낙폭 저점→직전고점 회복 달력일, 최장UW=가장 길게 물려있던 달력일.")
+    print("  주의: 백테스트는 USD 단일통화·단일 포트폴리오 — 라이브 USD합성 순환매 미반영.")
 
 
 if __name__ == "__main__":
