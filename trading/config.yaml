@@ -125,6 +125,12 @@ universe:
     name: "SOL 초단기채권"
     currency: KRW
     asset_class: cash
+  # ── Cash (USD) — 초과 USD 잔여 흡수 (regime_targets 미포함, USD waterfall 잔여) ──
+  "SGOV":
+    name: "iShares 0-3 Month Treasury Bond ETF"
+    currency: USD
+    exec_account: USD
+    asset_class: cash_usd
   # ── Synthetic Bridge (KRW) — T+2 합성 노출 전용, regime_targets 미포함 ────
   "261220":
     name: "KODEX WTI원유선물(H)"
@@ -292,6 +298,8 @@ asset_routing:
     "411060": 1.00
   cash:                # KRW 계좌 전용
     "469830": 1.00
+  cash_usd:            # USD 계좌 전용 — 초과 USD 잔여 흡수 (단기 T-Bill)
+    SGOV: 1.00
 
 # dry-run 또는 계좌 조회 실패 시 사용할 KRW/USD 비율 폴백
 account_ratio_fallback:

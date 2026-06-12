@@ -220,7 +220,7 @@ def derive_account_weights(
       2a순위 — equity_factor/individual           (USD core equity, equity_etf 대체)
       2b순위 — equity_developed/equity_emerging   (USD intl equity, 한국 대체재 회피로 equity_etf 대체)
       3순위 — bond_usd                            (USD bonds, bond_krw 대체)
-      잔여 USD → 기배정 항목 비례 확대 (1% 현금 reserve만 유지)
+      잔여 USD → cash_usd(SGOV, 단기 T-Bill)로 보존 (1% 현금 reserve만 유지)
 
     KRW 배정:
       equity_etf = 모든 equity_* 목표 - USD 실제 equity 배분 (자동 흡수)
@@ -295,11 +295,11 @@ def derive_account_weights(
             f"{bond_w/total*100:.1f}% → {bond_a/total*100:.1f}%, 부족분 {bond_shortfall/total*100:.1f}%를 bond_krw로 대체"
         )
 
-    # 잔여 USD → 기배정 항목 비례 확대
-    allocated = sum(usd_pool.values())
-    if allocated > 0 and usd_remaining > 1.0:
-        scale = usd_investable / allocated
-        usd_pool = {k: v * scale for k, v in usd_pool.items()}
+    # 잔여 USD → USD 초단기채(cash_usd/SGOV)로 보존.
+    # 리스크자산 과배분(옛 비례 확대) 대신 단기 T-Bill로 holding → 단기금리 수취·근(near)무위험.
+    if usd_remaining > 0:
+        usd_pool["cash_usd"] = usd_pool.get("cash_usd", 0.0) + usd_remaining
+        usd_remaining = 0.0
 
     # USD 계좌 비중
     usd_w: dict = {}

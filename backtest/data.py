@@ -20,6 +20,7 @@ PROXY_MAP: Dict[str, str] = {
     "261220": "USO",   # KODEX WTI원유선물(H) → USO (WTI crude oil proxy)
     "218420": "XLE",   # KODEX 미국S&P500에너지 → XLE (동일 지수)
     "468370": "TIP",   # KODEX iShares 미국인플레이션국채 → TIP (broad US TIPS)
+    "SGOV": "BIL",     # iShares 0-3M T-Bill → BIL (USD 잔여 현금 흡수)
 }
 
 # 실제 상장 전 구간은 NaN → 해당 티커 비중을 available 자산에 비례 재배분
