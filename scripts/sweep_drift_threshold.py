@@ -27,7 +27,7 @@ warnings.filterwarnings("ignore", message="Model is not converging.*")
 
 from data import load_all_prices  # noqa: E402
 from engine import BacktestEngine  # noqa: E402
-from metrics import compute_metrics  # noqa: E402
+from metrics import compute_metrics, rolling_cagr, recovery_duration  # noqa: E402
 from compare_rule_timing_ab import START, END, REBAL_FREQ, TX_COST, crisis_maxdd  # noqa: E402
 
 CRISIS_WINDOWS = {"COVID 2020": ("2020-02-19", "2020-04-30"),
@@ -45,11 +45,17 @@ def run_cell(dt, config, universe_px, signal_px, fred_history):
         cooldown_days=int(rb.get("min_rebalance_interval_days", 0)),
         fred_history=fred_history,
     ).run()
-    m = compute_metrics(res["returns"])
+    r = res["returns"].dropna()
+    m = compute_metrics(r)
+    rc3 = rolling_cagr(r, years=3.0)
+    rc5 = rolling_cagr(r, years=5.0)
+    rec = recovery_duration(r)
     return {
         "drift": dt,
-        "CAGR": m.get("cagr", 0.0), "Sharpe": m.get("sharpe", 0.0),
-        "MaxDD": m.get("max_drawdown", 0.0), "Calmar": m.get("calmar", 0.0),
+        "CAGR": m.get("cagr", 0.0), "MaxDD": m.get("max_drawdown", 0.0),
+        "Ulcer": m.get("ulcer", 0.0), "Martin": m.get("martin", 0.0),
+        "r3w": rc3["worst"], "r3m": rc3["median"], "r5w": rc5["worst"],
+        "rec_dd": rec["maxdd_recovery_days"], "uw_max": rec["max_underwater_days"],
         "리밸": int(res["rebalanced"].sum()), "tx누적": float(res["tx_cost"].sum()),
         "COVID": crisis_maxdd(res["returns"], *CRISIS_WINDOWS["COVID 2020"]),
         "Bear22": crisis_maxdd(res["returns"], *CRISIS_WINDOWS["Bear 2022"]),
@@ -72,18 +78,24 @@ def main() -> None:
     rows = [run_cell(dt, copy.deepcopy(base), universe_px, signal_px, fred_history) for dt in GRID]
     df = pd.DataFrame(rows).set_index("drift")
 
-    print(f"\n{'='*92}")
-    print(f"  drift_threshold sweep (stabilize_mapping on, db={base['hmm'].get('mapping_deadband')}) — 현행={cur:.1%}")
-    print(f"{'='*92}")
-    hdr = (f"  {'drift':>7}{'CAGR':>7}{'Sharpe':>8}{'MaxDD':>9}{'Calmar':>8}"
-           f"{'리밸':>7}{'tx누적':>9}{'COVID':>9}{'Bear22':>9}")
+    print(f"\n{'='*116}")
+    print(f"  drift_threshold sweep — 고정 4지표(롤링CAGR·Ulcer·회복기간·Martin), "
+          f"stabilize on db={base['hmm'].get('mapping_deadband')} — 현행={cur:.1%}")
+    print(f"{'='*116}")
+    hdr = (f"  {'drift':>7}{'롤3y최악':>9}{'롤3y중앙':>9}{'롤5y최악':>9}{'Ulcer':>8}"
+           f"{'회복일':>8}{'최장UW':>8}{'Martin':>8}{'리밸':>7}{'tx':>7}{'│MaxDD':>8}")
     print(hdr)
     print("  " + "─" * (len(hdr) - 2))
+    best = df["Martin"].idxmax()
     for dt, r in df.iterrows():
-        mark = " ◀ 현행" if abs(dt - cur) < 1e-9 else ""
-        print(f"  {dt:>6.1%}{r['CAGR']:>7.1%}{r['Sharpe']:>8.2f}{r['MaxDD']:>8.1%}"
-              f"{r['Calmar']:>8.2f}{int(r['리밸']):>7}{r['tx누적']:>8.2%}"
-              f"{r['COVID']:>8.1%}{r['Bear22']:>8.1%}{mark}")
+        mark = " ◀현행" if abs(dt - cur) < 1e-9 else ""
+        if dt == best:
+            mark += " ★Martin최대"
+        rec = "미회복" if r["rec_dd"] < 0 else f"{int(r['rec_dd'])}"
+        print(f"  {dt:>6.1%}{r['r3w']:>9.1%}{r['r3m']:>9.1%}{r['r5w']:>9.1%}{r['Ulcer']:>8.2f}"
+              f"{rec:>8}{int(r['uw_max']):>8}{r['Martin']:>8.2f}{int(r['리밸']):>7}{r['tx누적']:>7.2%}"
+              f"{r['MaxDD']:>8.1%}{mark}")
+    print("  Martin 1차 판정, 동률·근소차는 회복기간·롤3y최악으로. tx·리밸은 회전비용 보조참고.")
     return df
 
 

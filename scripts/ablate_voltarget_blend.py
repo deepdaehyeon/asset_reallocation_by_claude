@@ -33,7 +33,7 @@ warnings.filterwarnings("ignore", message="Model is not converging.*")
 
 from data import load_all_prices  # noqa: E402
 from engine import BacktestEngine, _quiet  # noqa: E402
-from metrics import compute_metrics  # noqa: E402
+from metrics import compute_metrics, rolling_cagr, recovery_duration  # noqa: E402
 from regime import REGIMES  # noqa: E402
 from portfolio import (  # noqa: E402
     apply_class_caps, apply_dynamic_class_caps, apply_vol_targeting,
@@ -115,36 +115,47 @@ def main() -> None:
     for label, (ub, uv) in cells.items():
         print(f"  [{label}]  blend={'ON' if ub else 'OFF'}  vt={'ON' if uv else 'OFF'}")
         res = make_engine(config, universe_px, signal_px, fred_history, ub, uv).run()
-        m = compute_metrics(res["returns"])
+        r = res["returns"].dropna()
+        m = compute_metrics(r)
+        rc3 = rolling_cagr(r, years=3.0)
+        rc5 = rolling_cagr(r, years=5.0)
+        rec = recovery_duration(r)
         rows.append({
-            "cell": label, "CAGR": m.get("cagr", 0.0), "Sharpe": m.get("sharpe", 0.0),
-            "MaxDD": m.get("max_drawdown", 0.0), "Calmar": m.get("calmar", 0.0),
+            "cell": label, "CAGR": m.get("cagr", 0.0), "MaxDD": m.get("max_drawdown", 0.0),
+            "Ulcer": m.get("ulcer", 0.0), "Martin": m.get("martin", 0.0),
+            "r3w": rc3["worst"], "r3m": rc3["median"], "r5w": rc5["worst"],
+            "rec_dd": rec["maxdd_recovery_days"], "uw_max": rec["max_underwater_days"],
             "COVID": crisis_maxdd(res["returns"], *CRISIS_WINDOWS["COVID 2020"]),
             "Bear22": crisis_maxdd(res["returns"], *CRISIS_WINDOWS["Bear 2022"]),
         })
     df = pd.DataFrame(rows).set_index("cell")
 
-    print(f"\n{'='*88}")
-    print("  vol targeting · blend 절제 2×2 (타이밍 고정=rule)")
-    print(f"{'='*88}")
-    hdr = f"  {'cell':<14}{'CAGR':>7}{'Sharpe':>8}{'MaxDD':>9}{'Calmar':>8}{'COVID':>9}{'Bear22':>9}"
+    print(f"\n{'='*104}")
+    print("  vol targeting · blend 절제 2×2 — 고정 4지표(롤링CAGR·Ulcer·회복기간·Martin), 타이밍=rule")
+    print(f"{'='*104}")
+    hdr = (f"  {'cell':<14}{'롤3y최악':>9}{'롤3y중앙':>9}{'롤5y최악':>9}{'Ulcer':>8}"
+           f"{'회복일':>8}{'최장UW':>8}{'Martin':>8}{'│CAGR':>8}{'MaxDD':>8}")
     print(hdr)
     print("  " + "─" * (len(hdr) - 2))
     for label, r in df.iterrows():
-        print(f"  {label:<14}{r['CAGR']:>6.1%}{r['Sharpe']:>8.2f}{r['MaxDD']:>8.1%}"
-              f"{r['Calmar']:>8.2f}{r['COVID']:>8.1%}{r['Bear22']:>8.1%}")
+        rec = "미회복" if r["rec_dd"] < 0 else f"{int(r['rec_dd'])}"
+        print(f"  {label:<14}{r['r3w']:>9.1%}{r['r3m']:>9.1%}{r['r5w']:>9.1%}{r['Ulcer']:>8.2f}"
+              f"{rec:>8}{int(r['uw_max']):>8}{r['Martin']:>8.2f}{r['CAGR']:>8.1%}{r['MaxDD']:>8.1%}")
 
     full = df.loc["full (현행)"]
-    print(f"\n{'='*88}")
-    print("  델타 (cell − full) — 음수 MaxDD/Calmar = 장치 끄면 악화 = 장치가 방어 엔진")
-    print(f"{'='*88}")
+    print(f"\n{'='*104}")
+    print("  델타 (cell − full) — 음수 Martin / 양수 Ulcer·회복일 = 장치 끄면 악화 = 장치가 방어 엔진")
+    print(f"{'='*104}")
     for label in ("blend_off", "vt_off", "both_off"):
         r = df.loc[label]
-        print(f"  {label:<10} ΔSharpe {r['Sharpe']-full['Sharpe']:>+6.3f} | "
-              f"ΔMaxDD {(r['MaxDD']-full['MaxDD'])*100:>+6.2f}pp | "
-              f"ΔCalmar {r['Calmar']-full['Calmar']:>+6.3f} | "
+        d_rec = (r["rec_dd"] - full["rec_dd"]) if (r["rec_dd"] >= 0 and full["rec_dd"] >= 0) else float("nan")
+        print(f"  {label:<10} ΔMartin {r['Martin']-full['Martin']:>+6.2f} | "
+              f"ΔUlcer {r['Ulcer']-full['Ulcer']:>+6.2f} | "
+              f"Δ롤3y최악 {(r['r3w']-full['r3w'])*100:>+6.2f}pp | "
+              f"Δ회복일 {d_rec:>+7.0f} | "
               f"ΔCOVID {(r['COVID']-full['COVID'])*100:>+6.2f}pp | "
               f"ΔBear22 {(r['Bear22']-full['Bear22'])*100:>+6.2f}pp")
+    print("  (COVID/Bear22 위기 MaxDD는 방어력 보조참고)")
 
     return df
 

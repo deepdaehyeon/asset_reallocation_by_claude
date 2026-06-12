@@ -36,7 +36,7 @@ from fetcher import fetch_fred_history  # noqa: E402
 from regime import REGIMES  # noqa: E402
 from data import load_all_prices  # noqa: E402
 from engine import BacktestEngine  # noqa: E402
-from metrics import compute_metrics  # noqa: E402
+from metrics import compute_metrics, rolling_cagr, recovery_duration  # noqa: E402
 
 CONFIG_PATH = ROOT / "trading" / "config.yaml"
 START = "2010-01-01"
@@ -187,71 +187,71 @@ def main() -> None:
     # ── 메트릭 집계 ───────────────────────────────────────────────────────────
     rows = []
     for label, ret in variants.items():
-        m = compute_metrics(ret)
+        r = ret.dropna()
+        m = compute_metrics(r)
+        rc3 = rolling_cagr(r, years=3.0)
+        rc5 = rolling_cagr(r, years=5.0)
+        rec = recovery_duration(r)
         rows.append({
             "variant": label,
-            "CAGR": m.get("cagr", 0.0),
-            "Vol": m.get("volatility", 0.0),
-            "Sharpe": m.get("sharpe", 0.0),
-            "MaxDD": m.get("max_drawdown", 0.0),
-            "Calmar": m.get("calmar", 0.0),
+            "CAGR": m.get("cagr", 0.0), "MaxDD": m.get("max_drawdown", 0.0),
+            "Ulcer": m.get("ulcer", 0.0), "Martin": m.get("martin", 0.0),
+            "r3w": rc3["worst"], "r3m": rc3["median"], "r5w": rc5["worst"],
+            "rec_dd": rec["maxdd_recovery_days"], "uw_max": rec["max_underwater_days"],
             "COVID_DD": crisis_maxdd(ret, *CRISIS_WINDOWS["COVID 2020"]),
             "Bear22_DD": crisis_maxdd(ret, *CRISIS_WINDOWS["Bear 2022"]),
         })
     df = pd.DataFrame(rows).set_index("variant")
 
-    # ── 출력 ──────────────────────────────────────────────────────────────────
-    print(f"\n{'='*92}")
-    print("  엔드투엔드 가치 — 레짐 전략 vs 정적 기준선")
-    print(f"{'='*92}")
-    hdr = (
-        f"  {'variant':<16} {'CAGR':>7} {'Vol':>7} {'Sharpe':>7} "
-        f"{'MaxDD':>8} {'Calmar':>7} {'COVID':>8} {'Bear22':>8}"
-    )
+    # ── 출력 (고정 4지표: 롤링CAGR·Ulcer·회복기간·Martin) ────────────────────────
+    print(f"\n{'='*112}")
+    print("  엔드투엔드 가치 — 레짐 전략 vs 정적 기준선 (고정 4지표)")
+    print(f"{'='*112}")
+    hdr = (f"  {'variant':<16}{'롤3y최악':>9}{'롤3y중앙':>9}{'롤5y최악':>9}{'Ulcer':>8}"
+           f"{'회복일':>8}{'최장UW':>8}{'Martin':>8}{'│CAGR':>8}{'MaxDD':>8}")
     print(hdr)
     print("  " + "─" * (len(hdr) - 2))
     for label, row in df.iterrows():
-        mark = " ◀ 전략" if label == "full" else ""
-        print(
-            f"  {label:<16} {row['CAGR']:>6.1%} {row['Vol']:>6.1%} "
-            f"{row['Sharpe']:>7.2f} {row['MaxDD']:>7.1%} {row['Calmar']:>7.2f} "
-            f"{row['COVID_DD']:>7.1%} {row['Bear22_DD']:>7.1%}{mark}"
-        )
+        mark = " ◀전략" if label == "full" else ""
+        rec = "미회복" if row["rec_dd"] < 0 else f"{int(row['rec_dd'])}"
+        print(f"  {label:<16}{row['r3w']:>9.1%}{row['r3m']:>9.1%}{row['r5w']:>9.1%}{row['Ulcer']:>8.2f}"
+              f"{rec:>8}{int(row['uw_max']):>8}{row['Martin']:>8.2f}{row['CAGR']:>8.1%}{row['MaxDD']:>8.1%}{mark}")
 
-    # ── 판정 ──────────────────────────────────────────────────────────────────
+    # ── 판정 (Martin 1차, 회복기간·롤3y최악 보조) ────────────────────────────────
     fixed_labels = [f"fixed:{r}" for r in REGIMES]
     full = df.loc["full"]
-    best_sharpe_fixed = df.loc[fixed_labels, "Sharpe"].idxmax()
-    best_calmar_fixed = df.loc[fixed_labels, "Calmar"].idxmax()
+    best_martin_fixed = df.loc[fixed_labels, "Martin"].idxmax()
+    # 회복기간은 짧을수록(미회복=-1은 최악) 우위 → 미회복을 +inf로 치환해 비교
+    def _rec_key(x):
+        return float("inf") if x < 0 else x
+    rec_vals = df.loc[fixed_labels, "rec_dd"].map(_rec_key)
+    best_rec_fixed = rec_vals.idxmin()
 
-    print(f"\n{'='*92}")
-    print("  판정")
-    print(f"{'='*92}")
-    print(f"  full Sharpe {full['Sharpe']:.2f} / MaxDD {full['MaxDD']:.1%} / Calmar {full['Calmar']:.2f}")
-    print(
-        f"  최선 fixed (Sharpe): {best_sharpe_fixed} "
-        f"= {df.loc[best_sharpe_fixed, 'Sharpe']:.2f}"
-    )
-    print(
-        f"  최선 fixed (Calmar): {best_calmar_fixed} "
-        f"= {df.loc[best_calmar_fixed, 'Calmar']:.2f}"
-    )
+    print(f"\n{'='*112}")
+    print("  판정 — Martin 1차 판정, 회복기간·롤3y최악 보조 (CLAUDE.md 규칙4)")
+    print(f"{'='*112}")
+    full_rec = "미회복" if full["rec_dd"] < 0 else f"{int(full['rec_dd'])}d"
+    print(f"  full: Martin {full['Martin']:.2f} / Ulcer {full['Ulcer']:.2f} / "
+          f"롤3y최악 {full['r3w']:+.1%} / 회복 {full_rec}")
+    print(f"  최선 fixed (Martin):  {best_martin_fixed} = {df.loc[best_martin_fixed, 'Martin']:.2f}")
+    print(f"  최선 fixed (회복기간): {best_rec_fixed} = {_rec_key(df.loc[best_rec_fixed,'rec_dd']):.0f}d")
 
-    beats_sharpe = full["Sharpe"] > df.loc[best_sharpe_fixed, "Sharpe"]
-    beats_calmar = full["Calmar"] > df.loc[best_calmar_fixed, "Calmar"]
-    beats_dd = full["MaxDD"] > df.loc[best_sharpe_fixed, "MaxDD"]  # 덜 깊으면 우위
+    beats_martin = full["Martin"] > df.loc[best_martin_fixed, "Martin"]
+    beats_rec = _rec_key(full["rec_dd"]) < _rec_key(df.loc[best_martin_fixed, "rec_dd"])
+    beats_r3w = full["r3w"] > df.loc[best_martin_fixed, "r3w"]
 
     print()
-    print(f"  full > 최선fixed Sharpe?  {'예' if beats_sharpe else '아니오'}")
-    print(f"  full > 최선fixed Calmar?  {'예' if beats_calmar else '아니오'}")
-    print(f"  full MaxDD 더 얕음?        {'예' if beats_dd else '아니오'}")
+    print(f"  full > 최선fixed Martin?   {'예' if beats_martin else '아니오'}")
+    print(f"  full 회복기간 더 짧음?      {'예' if beats_rec else '아니오'}")
+    print(f"  full 롤3y최악 더 높음?      {'예' if beats_r3w else '아니오'}")
 
-    if beats_sharpe and (beats_calmar or beats_dd):
+    if beats_martin and (beats_rec or beats_r3w):
         print("\n  → 레짐 스위칭이 위험조정 가치를 더한다 (야드스틱 충족).")
-    elif beats_calmar or beats_dd:
-        print("\n  → 레짐 스위칭은 주로 방어(낙폭) 가치. Sharpe 우위는 불분명.")
+    elif beats_rec or beats_r3w:
+        print("\n  → 레짐 스위칭은 주로 방어(하락 고통 단축) 가치. Martin 우위는 불분명.")
     else:
         print("\n  → 레짐 스위칭이 최선 정적 기준선을 못 이김. 추가 검증 필요.")
+    print("  (COVID/Bear22 위기 MaxDD는 표에 미표시 — 방어 보조참고는 별도 절제실험 #2 참조)")
 
     return df
 
