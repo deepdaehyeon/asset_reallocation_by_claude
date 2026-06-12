@@ -336,7 +336,7 @@ vol_targeting:
     Crisis:      0.06      # 위기 국면: 리스크 최소화
   use_portfolio_vol: true  # true: EWMA 포트폴리오 변동성 / false: SPY realized vol
   ewma_lambda: 0.94        # RiskMetrics 표준 λ
-  floor:       0.50        # equity 최대 50% 축소 (스윕 sweet spot, 2026-05-30)
+  floor:       0.80        # equity 최대 20% 축소 — 고정 4지표 재스윕 채택 (2026-06-12)
   equity_asset_classes:
     - equity_etf
     - equity_factor
