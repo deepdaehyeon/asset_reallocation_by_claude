@@ -83,5 +83,27 @@ floor를 0.65로 내리면 4지표가 전반 개선되고 사다리가 비로소
 
 - in-sample·USD 단일통화. floor 0.65는 백테스트 tx +0.37%p이나, 라이브 과회전 주범은 USD합성이지
   vol targeting 회전이 아니므로 이 증가는 부차적([[project-live-turnover-vs-backtest-gap]]).
-- c39f5a2의 0.80 채택 근거가 4지표 밖(라이브 회전·운영)에 있었는지 확인 필요 — 있었다면 그 제약과
-  본 4지표 우위를 함께 저울질해야 함.
+## 추가 검증 — c39f5a2(floor 0.80)와의 충돌 규명 (2026-06-13)
+
+사용자 확인: c39f5a2의 0.80 채택은 **순수 4지표 판단**이었다. 그런데 본 실험은 같은 4지표로
+0.65 우위를 냈다 — 충돌. 원인을 추적한 결과 **리밸런싱 모드 차이**로 완전히 규명됐다:
+
+| 하네스 | drift_threshold | 리밸 모드 | floor 우위 |
+|---|---|---|---|
+| `compare_vol_targeting.py` (c39f5a2 근거) | 미전달 → None | **캘린더(매주 금)** | 0.80 (Martin 2.55 > 0.65의 2.50) |
+| `sweep_regime_vol_targeting.py` (본 실험) | config 0.015 | **drift 기반(>1.5%)** | **0.65 (Martin 2.54 > 0.80의 2.43)** |
+
+`BacktestEngine`은 `drift_threshold=None`이면 `_run_calendar()`(매주 금 리밸), 값이 있으면
+`_run_drift()`(drift>1.5%일 때만 리밸)를 쓴다(`engine.py:359`). `compare_vol_targeting.py:67`은
+drift_threshold를 전달하지 않아 **캘린더 리밸**을 돌렸고, 본 실험은 config의 0.015를 읽어
+**drift 리밸**(라이브 모드)을 돌렸다. floor 선호가 리밸 모드에 따라 뒤집힌다.
+
+**라이브 config는 drift 기반 리밸런싱**(`rebalancing.drift_threshold: 0.015`)이므로 본 실험이
+라이브를 정확히 재현한다 → **floor 0.65가 라이브 기준 정당**. c39f5a2는 4지표 판단이 맞았으나
+*라이브와 다른 캘린더 하네스* 위에서 내린 것이었다. (교훈: floor·vol 실험은 반드시
+drift_threshold를 config에서 읽어 라이브 리밸 모드로 돌려야 한다.)
+
+## 한계
+
+- in-sample·USD 단일통화. floor 0.65는 백테스트 tx +0.37%p이나, 라이브 과회전 주범은 USD합성이지
+  vol targeting 회전이 아니므로 이 증가는 부차적([[project-live-turnover-vs-backtest-gap]]).
