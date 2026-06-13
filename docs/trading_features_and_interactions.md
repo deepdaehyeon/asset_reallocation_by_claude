@@ -3,7 +3,7 @@
 > **요약**: ① 기본 로직(레짐 감지·블렌딩·vol targeting·레짐 기반 리밸런싱)을 제외하고, 실제 매매에 영향을 주는 모든 부수 기능을 코드(`engine.py`·`portfolio.py`·`regime.py`·`run.py`·`executor.py`·`settlement.py`)·`config.yaml`에서 추출해 (A) 비중 형성, (B) 리밸런싱 트리거, (C) 실행·계좌·결제 3계층으로 리스트업했다. ② 각 기능의 현재 on/off·값·핵심 상호작용·근거 문서를 표로 정리하고, 한 기능 실험이 다른 기능에 의해 교란/희석되는 조합(예: core30이 vol·gate를 위성 70%로 희석, vol_targeting↔drawdown_scaling 이중축소, floor 실험↔리밸 모드)을 상호작용 맵에 명시했다. ③ 이 문서는 새 기능 실험 전 반드시 확인해 "함께 켜져 있어 결과를 흐릴 수 있는 기능"을 사용자에게 미리 알리고 실험 범위(고정/토글 대상)를 합의하기 위한 레퍼런스다(CLAUDE.md 규칙5).
 
 - 최종 갱신: 2026-06-13
-- 범위: 기본 4대 로직 제외 — **레짐 감지/블렌딩, vol targeting, 레짐 기반 리밸런싱**은 제외하고 그 외 트레이딩 영향 기능 전부.
+- 범위: **기본 엔진 로직(레짐 블렌딩·vol targeting 포함) + 모든 부수 기능**. 매매에 영향을 주는 기능 전부.
 - 상태 표기: ✅켜짐 / ⛔꺼짐(코드·knob 보존) / 🔒고정값
 
 ---
@@ -12,6 +12,15 @@
 
 엔진 적용 순서(`engine.py` `_target_weights`/`_compute_targets`):
 `blend_regime_targets` → **corroboration_gate**(blend) → **vol_targeting** → **core_satellite** → **class caps(동적/정적)** → **derive_account_weights**.
+
+### A0. 기본 엔진 로직 (핵심 2대 — 시스템의 뼈대)
+
+| # | 기능 | 위치 | 상태/값 | 하는 일 | 핵심 상호작용 |
+|---|---|---|---|---|---|
+| A0-1 | **레짐 블렌딩 (blend_regime_targets)** | `portfolio.py:11` | ✅ | 단일 레짐을 고르지 않고 HMM 사후확률로 5개 레짐 목표비중을 가중평균(연속 노출). 갑작스런 전환 충격 완화 | **거의 모든 A′ 기능(A7~A18)이 이 blend를 가공.** core30(A1)이 30%를 덮고, vol(A0-2)이 그 위에서 equity 축소. 평활(A12·A13)이 이 blend를 늦춤 |
+| A0-2 | **vol targeting** | `portfolio.py:168` | ✅ floor 0.65, 레짐별 목표 | 포트폴리오 EWMA 변동성이 레짐 목표(G0.13~C0.06) 초과 시 equity를 비례 축소(floor까지), 축소분 cash | **A6 drawdown_scaling과 이중축소(끈 이유).** A1 core30이 위성 70%로 희석. A4 VIX캡과 같은 위기에 동시 작동. floor 결론이 B1 리밸 모드에 의존 |
+
+### A1~. 부수 기능
 
 | # | 기능 | 위치 | 상태/값 | 하는 일 | 핵심 상호작용 |
 |---|---|---|---|---|---|
