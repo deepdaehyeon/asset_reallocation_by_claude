@@ -1,5 +1,7 @@
 # 실험: C안 Phase 2a — supervised 분류기에서 forward_quantile_v2 검증
 
+> **요약**: ① Phase 1에서 분리도가 +4.85pp 회복된 forward_quantile_v2 라벨을 BalancedRF에 학습시켜 OOS 성과를 baseline과 비교했다. ② forward_quantile_v2 기준 Sharpe 0.61(-0.08), MCC +0.534로 baseline(Sharpe 0.69, MCC +0.647) 대비 일관되게 열위였으며, features → forward stats 예측 능력의 한계가 근본 원인으로 확인됐다. ③ C안 보류 결정 — HMM 통합(Phase 2b) 없이도 같은 한계에 부딪힐 가능성이 높아 코드를 옵트인으로만 보존했다.
+
 *작성일: 2026-05-27*
 *상태: 백테스트 결과 baseline 대비 열위. **C안 전체에 대한 본질적 의문 제기. Phase 2b(HMM 통합) 보류 권장.***
 

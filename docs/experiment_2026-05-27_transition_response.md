@@ -1,5 +1,7 @@
 # 실험: Transition 후행 손실 완화 (override 완화 + Crisis 우선 + forward HMM)
 
+> **요약**: ① override_threshold 완화(0.60→0.50), Crisis blend 우선 진입(≥0.30), HMM 1-step forward prediction 세 가지 변경으로 레짐 전환 후행 손실 완화를 시도했다. ② Crisis 진입 후 21일 수익이 +0.06%(후행) → -0.30%(적시)로 전환됐고, portfolio Sharpe·MaxDD에는 영향이 미미(-0.004~-0.007)했으며, forward HMM은 추가 효과가 거의 없었다. ③ A안(override_threshold 0.50만) 채택 권장 — Crisis 적시성을 개선하면서 다른 부작용이 없고, forward_hmm은 복잡도 대비 효과가 미미해 보류됐다.
+
 *작성일: 2026-05-27*
 *상태: 실험 완료. **Crisis 적시성 명확히 개선, portfolio metric 영향 미미**. 채택은 사용자 결정.*
 

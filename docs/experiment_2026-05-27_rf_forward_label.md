@@ -1,5 +1,7 @@
 # 실험: RF forward-looking 라벨링 도입 (자기참조 제거)
 
+> **요약**: ① RF 학습 라벨을 동시점 detect_regime 대신 t+N 시점 레짐(N=21/63일)·quantile 기반 라벨로 교체하는 4라운드 실험을 수행했다. ② 자기참조는 실제로 끊겼으나(Override 30%→50-65%) 4라운드 전부에서 위험 레짐 미감지가 2~3배 늘었고 MaxDD도 악화됐으며, FRED publication lag 적용(Round 3)이 진짜 백테스트를 복원하는 가장 큰 수확이었다. ③ 채택 보류 — rf_forward_window=0 유지, 자기참조 제거가 능사가 아님(위험 감지 약화)이 4라운드 일관 결론이며, publication lag 적용만 라이브에 반영됐다.
+
 *작성일: 2026-05-27 (Round 1·2·3 통합)*
 *상태: 채택 보류 (`rf_forward_window=0` 유지). 가장 큰 수확은 #3(FRED publication lag) 반영으로 baseline 자체의 신뢰성 회복.*
 

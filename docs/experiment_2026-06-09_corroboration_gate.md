@@ -1,5 +1,7 @@
 # 실험: 비-Crisis 디리스크 코로보레이션 게이트 (레버 C)
 
+> **요약**: ① 매크로(rule)가 위험선호인데 HMM 단독으로 Slowdown blend를 끌어내리는 현상을 막기 위해, rule이 Goldilocks/Reflation일 때만 HMM 방어 질량을 gamma 비율로 감쇠하는 코로보레이션 게이트를 구현하고 gamma 0.0~1.0을 스윕했다. ② gamma=0.5에서 Sharpe +0.04(0.84→0.88)·CAGR +0.7pp로 A/B 레버와 달리 실질적 위험조정 개선을 확인했으나, MaxDD -9.4%→-10.1%·COVID -0.7pp로 빠른 폭락 방어를 내줬으며 회전은 줄지 않았다. ③ 기본 off 유지(사용자 판단 대기) — Calmar 평탄으로 free lunch가 아닌 리스크 프리미엄 수취이며, 1순위 목표인 리스크 회피와 방향이 어긋나나 세 레버 중 유일한 진짜 알파로 gamma=0.25 절충 채택도 합리적이다.
+
 - 날짜: 2026-06-09
 - 코드: `apply_corroboration_gate()` (trading/regime.py), run.py·engine.py 배선,
   config `regime_filter.corroboration_gate.{enabled, gamma}`

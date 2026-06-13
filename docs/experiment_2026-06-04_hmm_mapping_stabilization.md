@@ -1,5 +1,7 @@
 # HMM label-switching 정렬(stabilize_mapping) — 가짜 레짐 플립 차단
 
+> **요약**: ① 매 실행 HMM 재학습 시 state→regime 매핑이 뒤집혀(Slowdown↔Goldilocks 100% 극단 플립) 불필요한 왕복 회전이 발생하는 원인을 추적하고, Hungarian 최적 매칭으로 직전 군집 anchor에 정렬하는 stabilize_mapping을 구현해 deadband(0.3~1.0) 스윕으로 검증했다. ② db=0.3에서 Sharpe +0.053·Calmar +0.033·tx누적 4.87%→4.57% 개선을 달성하면서 MaxDD·COVID·Bear22는 ±0.07pp 불변으로, 가짜 플립만 제거하고 진짜 방어 전환은 보존했다. ③ db=0.3 채택(`hmm.stabilize_mapping: true, hmm.mapping_deadband: 0.3`) — 리스크 무손실 + 회전·비용 개선이 dominant하며, db 상향은 Sharpe는 오르지만 낙폭이 크게 붕괴돼 기각됐다.
+
 - **일자**: 2026-06-04
 - **스크립트**: `scripts/validate_mapping_stabilization.py`
 - **구간**: 2010-01-01 ~ 2025-04-30 (current config, timing_source=rule)

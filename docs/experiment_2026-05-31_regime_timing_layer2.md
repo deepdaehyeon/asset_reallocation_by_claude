@@ -1,5 +1,7 @@
 # 층 2 — 위험레짐 진입/이탈 적시성(timing) 검증
 
+> **요약**: ① SPY 드로우다운 ≥8% 에피소드 11건을 기준으로 confirmed vs rule 진입 래그·커버리지를 측정하고(Step 1), rule-timing(final=rule, blend=HMM)·rule-only 두 변형으로 A/B 백테스트를 수행했으며(Step 2), 6개 서브기간 견고성을 검증했다(Step 3). ② confirmed 래그 중앙값 +11d vs rule +8d로 +3d 차이가 있으며, rule-timing이 ΔSharpe +0.063·ΔMaxDD +0.64pp를 6/6 서브기간 전부에서 일관되게 달성했으나 recall@10%가 -9.7pp 감소하고 COVID에서 현행이 미세 우위인 트레이드오프가 존재했다. ③ rule-timing 방향의 개선이 데이터상 정당화됐으나 라이브 동작 변경이므로 사용자 결정 대기, rule-only는 MaxDD -14.0%로 기각됐다.
+
 - **일자**: 2026-05-31
 - **스크립트**: `scripts/analyze_regime_timing.py`
 - **구간**: 2010-01-01 ~ 2025-04-30 (walk-forward, current config)

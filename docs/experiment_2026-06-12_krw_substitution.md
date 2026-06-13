@@ -1,5 +1,7 @@
 # 실험: USD→KRW ETF 대체의 수익 영향
 
+> **요약**: ① VTIP→468370(TIPS KRW)·XLE→218420(에너지 KRW)·NVDA→381180(반도체 SOX) 세 대체의 수익 영향을 백테스트로 검증했다. ② 에너지+TIPS 대체(sub_clean)는 CAGR·Sharpe 사실상 동등(10.1%/0.80 vs 10.1%/0.81)이었으나, NVDA를 반도체 바스켓으로 교체 시 CAGR -0.5pp·Sharpe -0.06·Martin -0.16의 후행(hindsight) 비용이 발생했다. ③ 에너지+TIPS 대체 채택(라이브 반영), NVDA는 satellite 알파로 USD 유지 결정 — 468370 첫 라이브 체결에서 AUM 부족으로 timeout이 발생해 주문 분할 재시도 로직도 executor.py에 추가됐다.
+
 - 날짜: 2026-06-12
 - 코드: `scripts/experiment_krw_substitution.py`
 - 대체(사용자 결정): VTIP→468370(TIPS), XLE→218420(에너지), NVDA→381180(반도체 SOX)

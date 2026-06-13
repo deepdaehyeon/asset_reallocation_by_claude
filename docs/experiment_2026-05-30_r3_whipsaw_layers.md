@@ -1,5 +1,7 @@
 # R3 — whipsaw 억제 레이어 단순화 (엔진 이식 후 그리드 스윕)
 
+> **요약**: ① regime_change_trigger·confirmation_count·confidence fallback 세 whipsaw 억제 레이어를 2×2×2 그리드로 토글하며 라이브 트리거 경로를 백테스트 엔진에 이식해 검증했다. ② regime_change_trigger는 완전히 redundant(drift가 이미 흡수), confirmation_count 2→1은 Sharpe +0.040·MaxDD +1.1pp 개선이었으며, confidence fallback 제거는 소폭 개선이었으나 anomaly 패널티 미반영 한계로 판단이 불확실했다. ③ H1(regime_change_trigger 제거)·H3(confirmation 2→1) 채택, H2(fallback 제거)는 라이브 데이터 누적 후 재평가로 보류됐다.
+
 - **일자**: 2026-05-30
 - **스크립트**: `scripts/compare_r3_whipsaw.py` + `backtest/engine.py::_run_triggered`
 - **구간**: 2010-01-01 ~ 2025-04-30 (W-FRI cadence, tx_cost 0.1%, drawdown OFF, floor 0.50)

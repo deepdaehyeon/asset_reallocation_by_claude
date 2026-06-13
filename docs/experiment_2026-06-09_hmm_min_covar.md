@@ -1,5 +1,7 @@
 # 실험: HMM 공분산 floor (min_covar) — 사후확률 포화 완화 시도
 
+> **요약**: ① HMM 사후확률이 0/100으로 포화돼 휘프소가 발생한다는 가설 하에 min_covar를 0.001~0.50으로 스윕해 포화 완화 효과를 검증했다. ② min_covar를 올려도 리밸 횟수가 오히려 증가(542→545~546)하고 Sharpe(0.84→0.79~0.82)·Bear22 낙폭(-8.5%→-8.9%)이 악화됐으며, blend EWMA·RF 블렌딩·confidence_smoothing 등이 이미 포화를 흡수하고 있어 더 흐릿하게 만들면 결정력만 잃는다는 사실을 확인했다. ③ baseline 0.001 유지 — 처방이 가설대로 작동하지 않았으며, 최근 휘프소 완화는 이미 적용·검증된 confidence_smoothing이 담당한다.
+
 - 날짜: 2026-06-09
 - 코드: `HmmRegimeClassifier(min_covar=...)` (trading/regime.py), run.py·engine.py 배선, config `hmm.min_covar`
 - 스윕: `scripts/sweep_hmm_min_covar.py`

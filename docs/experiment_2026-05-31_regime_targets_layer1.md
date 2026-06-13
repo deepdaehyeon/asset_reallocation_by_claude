@@ -1,5 +1,7 @@
 # 층 1 — regime_targets 가치 검증 (C안 A/B 재측정 + V-shape 편향 재랭킹)
 
+> **요약**: ① C안(regime_targets 수동 조정)의 현재 엔진 기준 재측정(Step 1)과 forward-21일 Sharpe vs 동시점(contemp) Sharpe 비교로 V-shape 편향을 정량화했다(Step 2). ② C안이 현재 엔진에서 Sharpe를 -0.041 악화·Crisis 일별 방어를 약화시키며, C안이 추가한 비중 4건(Crisis equity_etf·bond_tips, Stagflation equity_factor, Reflation MF)이 모두 contemp 기준 우위가 사라지거나 음수인 V-shape 편향 의심 항목임을 확인했다. ③ current 유지 — C-v2(편향만 되돌리기)도 검증했으나 엔드투엔드 개선이 없어 regime_targets 추가 튜닝을 중단하고, 가치는 비중이 아닌 진입/이탈 적시성에서 찾는다는 결론을 도출했다.
+
 - **일자**: 2026-05-31
 - **스크립트**: `scripts/compare_regime_targets_ab.py` (Step 1), `scripts/rerank_regime_targets_robust.py` (Step 2)
 - **구간**: 2010-01-01 ~ 2025-04-30 (walk-forward, 유니버스 20종목)

@@ -1,5 +1,7 @@
 # 실험: 신뢰도 가변 blend 평활 (confidence_smoothing)
 
+> **요약**: ① 신뢰도가 낮을 때(anomaly 스파이크 등) 새 blend 채택 속도를 늦추는 가변 EWMA α(신뢰도 비례)를 구현하고 conf_ref 0.2~0.5 스윕으로 검증했다. ② ref=0.3에서 tx 누적 4.57%→4.04%(12% 감소)를 Sharpe +0.04·Calmar +0.08·MaxDD -0.5pp 개선과 함께 달성했으며, 회전 건수가 아닌 건당 회전 폭이 줄어 사용자의 "빠른 회전" 우려를 정량적으로 완화했다. ③ ref=0.3이 sweet spot으로 채택 후보(옵트인 기본값 off) — 위기 방어 약화는 노이즈 범위이나 차이 폭이 작아 과대 해석을 금하며, 라이브 채택 여부는 사용자 결정이다.
+
 - 날짜: 2026-06-08
 - 코드: `apply_blend_smoothing` (trading/regime.py), run.py·engine.py 배선, config `regime_filter.confidence_smoothing`
 - 스윕: `scripts/sweep_confidence_smoothing.py`

@@ -1,5 +1,7 @@
 # 재실험: 고정 4지표 전환 후 우선순위 높음 5건
 
+> **요약**: ① 평가 기준을 롤링CAGR·Ulcer·회복기간·Martin으로 고정한 후, Sharpe/MaxDD 기준으로 결론을 냈던 vol_targeting_sweep·voltarget_blend_ablation·drift_threshold_resweep·regime_value_endtoend·risk_hardening 5건을 재실험했다. ② vol targeting floor를 조일수록 Martin이 하락하고 underwater 기간이 늘어나는 새 발견이 있었으며(현행 0.50은 중하위, 0.65가 4지표 우위), drift 새 최적은 1.0%이나 라이브 회전 리스크로 1.5% 유지 권장됐고, regime_value와 risk_hardening은 baseline 우위가 재확인됐다. ③ vol targeting floor 0.50→0.65는 4지표 우위가 확인됐으나 단일통화 백테스트 한계로 별도 사용자 확인 후 변경, 나머지는 현행 유지로 결론이 났다.
+
 *작성일: 2026-06-12*
 *상태: 완료 (5/5). 코드 변경 없음 — floor·drift 조정은 사용자 확인 대기.*
 

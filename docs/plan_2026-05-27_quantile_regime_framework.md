@@ -1,5 +1,7 @@
 # 계획: forward return quantile binning 기반 레짐 재설계 (C안)
 
+> **요약**: ① Goldilocks 흡수·후행 Crisis 등 detect_regime의 본질 결함을 해결하기 위해 레짐 라벨을 forward N일 (수익률, 변동성) quantile 기반으로 재정의하는 C안의 4단계(Phase 1~4) 실행 계획을 수립했다. ② 옵션 2(5개 레짐 이름 유지 + quantile 매핑)와 추론 방식 B(HMM 비지도 매핑 + supervised 보강)를 권장안으로 채택하고, 각 Phase별 소요 시간(총 2.5일)과 채택 기준(Sharpe -0.05 허용·MaxDD 악화 ≤2pp·Goldilocks 분리도 양수)을 정의했다. ③ 계획 단계로 코드 변경 없음 — 이후 Phase 1~2 실험(experiment_2026-05-27_quantile_phase1/2a)이 실제로 수행됐으며 Phase 2a에서 OOS 성과 열위로 C안이 보류됐다.
+
 *작성일: 2026-05-27*
 *상태: 계획 단계. 코드 변경 없음. 별도 작업으로 진행 결정 시 단계적 PR.*
 

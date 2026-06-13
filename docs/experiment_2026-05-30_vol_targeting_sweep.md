@@ -1,5 +1,7 @@
 # Vol Targeting 파라미터 스윕 (drawdown 제거 전제)
 
+> **요약**: ① drawdown scaling 제거 후 vol_targeting이 단독으로 리스크를 담당하는 전제에서 floor(0.35~0.80)·tv_mult(0.70~1.30) 두 레버를 스윕해 sweet spot을 탐색했다. ② floor 레버가 tv_mult보다 효율적이며, floor 0.50에서 Calmar 1.015(최고)·MaxDD -9.73%로 현행 floor 0.65 대비 Sharpe 거의 동일하면서 꼬리위험을 추가로 줄임을 확인했다. ③ floor 0.65 → 0.50 변경 권장 — tv_mult는 1.0 유지, 단 in-sample 최적화이므로 차이가 MaxDD 0.87pp라 보수적으로 0.65 유지도 정당하다.
+
 - **일자**: 2026-05-30
 - **스크립트**: `scripts/compare_vol_targeting.py`
 - **구간**: 2010-01-01 ~ 2025-04-30 (walk-forward, W-FRI 리밸런스, tx_cost 0.1%)

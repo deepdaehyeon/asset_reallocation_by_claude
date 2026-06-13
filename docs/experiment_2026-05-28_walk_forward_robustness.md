@@ -1,5 +1,7 @@
 # 실험: Walk-Forward Robustness 분석
 
+> **요약**: ① 현재 라이브 config(drift 1.5%)를 적용한 시스템을 5년 sub-period 3개·3년 sliding window 13개·연도별 15개로 시간 안정성을 검증했다. ② 3년 sliding 13개 window 전부 Sharpe 양수(0.67~2.00), 연도별 양수 12/음수 3(2015/2018/2022 — 자산 동반 하락 해)이었으며, 마지막 5년이 첫 5년 대비 +5.5pp CAGR 우위는 in-sample bias보다 시장 환경(코로나 후 강세장) 영향이 주요 원인임을 확인했다. ③ A안(현재 결과 수용) 권장 — robustness 신호가 양호하고 in-sample bias 우려는 작으며, Data Validation 같은 다른 우선순위로 이동하는 것이 효율적이다.
+
 *작성일: 2026-05-28*
 *기간: 2010-01-01 ~ 2025-04-30, 현재 라이브 config (drift 1.5%)*
 

@@ -1,5 +1,7 @@
 # 실험: #1 Phase 1 — regime_targets 격차 진단
 
+> **요약**: ① 13개 자산 클래스별 forward 21일 Sharpe를 레짐별로 측정해 현재 regime_targets 비중과의 격차를 진단했다. ② Crisis에서 equity_etf(Sharpe +2.85)·bond_tips(+2.28)가 완전 누락(0%)이고 managed_futures(-0.48)가 12%로 과중한 핵심 불일치를 발견했으며, Reflation·Slowdown·Stagflation에서도 MF 과중/TIPS 저비중 패턴이 반복됐다. ③ C안(부분 수동 조정) 권장으로 Phase 2 진행 여부 사용자 결정을 요청했으며, in-sample bias·V-shape 편향·survivorship bias 등 적용 시 주의 메타이슈도 명시됐다.
+
 *작성일: 2026-05-28*
 *상태: 분석 완료. 격차 큰 레짐 식별. Phase 2(walk-forward 최적화/shrinkage)는 사용자 결정.*
 

@@ -1,5 +1,7 @@
 # 실험: 신뢰도 결합 산식 비교 (외부 비평 #4 본질 해결)
 
+> **요약**: ① 기존 `(rule_conf + hmm_conf) / 2` 산식의 단조성 결함(Spearman ρ = -0.325)을 해결하기 위해 mean·min·product 세 가지 결합 방식을 백테스트로 비교했다. ② 백테스트 성과(Sharpe/MaxDD/Calmar)는 세 방식이 동일했으나 단조성은 mean -0.325 → min +0.595 / product +0.681로 극적으로 회복됐으며, min 채택 시 fallback rate가 38.8%→72.4%로 증가해 threshold를 0.40→0.20으로 낮춰야 했다. ③ min 방식이 채택됐으며(confidence_threshold 0.20 동반 조정), product는 fallback 과잉 우려로 기각됐다.
+
 *작성일: 2026-05-27*
 *상태: 비교 완료. **min 또는 product 채택 권장**, fallback threshold 동시 조정 필요.*
 

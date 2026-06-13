@@ -1,5 +1,7 @@
 # 실험: detect_regime 임계 시뮬레이션 (외부 비평 #6-a, Goldilocks 분리도)
 
+> **요약**: ① Goldilocks 정의 임계(growth_bullish ≥ 2→3)와 fallback 방향(Goldilocks→Slowdown) 변형 4개 시나리오에서 레짐별 forward 21일 수익률 분리도를 시뮬레이션했다. ② strict_gold 변형에서 Goldilocks 평균 수익 +0.81%→+0.93%(+0.12pp), 순위 5/5→4/5로 미세 개선에 그쳤으며, 본질 문제는 detect_regime 임계가 아니라 ensemble·RegimeFilter 단계에 있음을 확인했다. ③ A안(보류) 채택 — 임계 조정만으로는 분리도가 의미 있게 회복되지 않아 detect_regime은 현행 유지하고 본질 해결은 ensemble 단계 개선으로 방향을 정했다.
+
 *작성일: 2026-05-27*
 *상태: 시뮬레이션 완료. **미세 개선만 확인. 채택 여부는 사용자 결정.** detect_regime 본질 재설계는 별도 큰 작업으로 남김.*
 

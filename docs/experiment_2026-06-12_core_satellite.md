@@ -1,5 +1,7 @@
 # 실험: core+satellite 구조 + 레짐 블렌드 ON/OFF
 
+> **요약**: ① Goldilocks 고정 core(0~70%)와 레짐 스위칭 satellite를 결합하는 core+satellite 구조를 레짐 블렌드 ON/OFF와 함께 비교했으며, 재측정에서 롤링CAGR·Ulcer·회복기간·Martin 4지표로 core 비중 0/30/50/70/100을 스윕했다. ② 블렌드 OFF(하드레짐)는 tx 7.22%로 ON(3.84%)의 2배로 오히려 회전이 늘었으며, 고정 4지표 기준에서 core30이 Martin 2.41(최고)·회복일 82일(최단)·롤3y최악 4.8%로 baseline(Martin 1.89·회복일 205일)을 압도해 스윗스팟이었다. ③ core30+satellite 채택 — 라이브 일일 churn을 core 비중만큼 줄이고 Martin 효율이 최고이며, baseline의 최장 underwater 714일을 522일로 단축하는 회복속도 개선이 장기보유자에게 핵심 이점이다.
+
 - 날짜: 2026-06-12
 - 코드: `scripts/experiment_core_satellite.py`
 - 사용자 제안: core(Goldilocks 고정) + satellite(레짐 스위칭) 구조.

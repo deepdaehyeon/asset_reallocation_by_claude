@@ -1,5 +1,7 @@
 # 실험: 미래 레짐(forward-return) 예측 가능성 — 엄격 walk-forward 프로토타입
 
+> **요약**: ① 오라클 라벨(H=21일 최고 forward 수익 레짐)을 walk-forward RF로 예측하고, 그 예측으로 거래했을 때의 성과를 baseline과 비교했다. ② OOS 예측력이 MCC=0.038(≈랜덤)으로 features에 미래 레짐 정보가 거의 없으며, 예측으로 거래 시 MaxDD -9.4%→-16.7%로 거의 2배 악화됐다. ③ 세 번째 독립 확인으로 "forward 신호화 기각" 결론 — 천장 갭은 실현 불가능한 노이즈이며, 개선은 forward 예측이 아닌 현재 분류 정확도와 진입 적시성 쪽에 남는다.
+
 - 날짜: 2026-06-10
 - 코드: `scripts/prototype_forward_regime_predictability.py`
 - 질문: 오라클 천장([[experiment_2026-06-10_oracle_regime_ceiling]])의 알파가 "현재 분류"

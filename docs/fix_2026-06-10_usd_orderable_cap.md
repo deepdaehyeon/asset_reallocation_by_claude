@@ -1,5 +1,7 @@
 # 수정: USD 매수 "주문가능금액 초과" — orderable cap을 USD 경로에도 적용
 
+> **요약**: ① KRW 경로에는 있으나 USD 경로에는 없던 주문가능금액 cap이 빠져 있어 이틀 연속 VWO 매수가 KIS에서 거부된 버그를 수정했다. ② _fetch_usd_orderable 메서드를 추가해 KIS 주문가능금액(max_ord_psbl_qty × ask, ovrs_ord_psbl_amt 중 작은 값)을 직접 조회하고 USD 매수도 비례 스케일다운하도록 구현했다. ③ 코드 반영 완료 — 다음 정규 USD 실행(23:30)에서 자연 검증되며, 조회 실패 시 보수적 폴백(usd_cash_krw × 0.98)으로 안전하게 처리된다.
+
 - 날짜: 2026-06-10
 - 파일: `trading/executor.py`
 - 증상: USD 리밸런싱(23:30)에서 잔여 매수가 KIS에 거부.

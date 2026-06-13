@@ -1,5 +1,7 @@
 # vol targeting · blend 절제 — 두 장치가 밥값을 하는가
 
+> **요약**: ① blend·vol targeting 2×2 절제(ON/OFF)로 두 장치가 각각 어떤 역할을 하는지 격리했다. ② full(현행)이 CAGR·Sharpe 최저이나 MaxDD -9.9%·Calmar 0.98로 전 변형 최고이며, both_off 시 MaxDD -20.1%(2배 악화)·Bear22 -17.4%로 두 장치가 낙폭 억제 엔진임을 확인했고, vol targeting은 급성 위기 방어, blend는 평시 낙폭 평활이라는 서로 다른 역할을 한다. ③ 두 장치 유지 결정 — 수익·Sharpe 극대화가 목표라면 방해물이지만, 프로젝트 목표가 리스크 회피이므로 Calmar·MaxDD 기준으로 현행이 dominant이며 이것이 신호 튜닝이 노이즈인 근본 이유임을 확인했다.
+
 - **일자**: 2026-06-01
 - **스크립트**: `scripts/ablate_voltarget_blend.py`
 - **구간**: 2010-01-01 ~ 2025-04-30 (current config, 타이밍=rule 고정)

@@ -1,5 +1,7 @@
 # drift_threshold 재탐색 — stabilize_mapping 적용 후
 
+> **요약**: ① stabilize_mapping(db=0.3) 적용 후 drift_threshold가 HMM 레이블 안정화로 최적점이 이동했는지 0.5%~8.0% 재스윕으로 검증했다. ② 1.5%가 Sharpe 0.80·MaxDD -9.9%·Calmar 1.02·Bear22 -8.2%로 전 지표 최고를 유지했으며, 더 조이면 과회전, 더 풀면 방치 비용이 발생하는 비단조 표면에서 1.5% 봉우리가 명확했다. ③ drift_threshold 1.5% 유지 — stabilize_mapping과의 정합성이 검증됐고 최적점 이동이 없어 변경 없이 현행 유지한다.
+
 - **일자**: 2026-06-04
 - **스크립트**: `scripts/sweep_drift_threshold.py`
 - **구간**: 2010-01-01 ~ 2025-04-30 (current config, timing=rule, **stabilize_mapping on / db=0.3**)

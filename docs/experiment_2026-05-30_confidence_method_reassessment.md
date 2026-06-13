@@ -1,5 +1,7 @@
 # confidence_method 재평가 — G 작업 검증 결과 (2026-05-30)
 
+> **요약**: ① anomaly 패널티(-50%)에서 min+0.20 조합의 stuck 위험을 해결하기 위해 product+0.10으로 전환 가능성을 백테스트로 검증했다. ② 백테스트 Sharpe/MaxDD는 mean·min·product 모두 동일했으나, product 전환 시 fallback rate가 86.3%로 급증해 G가 우려한 "stuck 빈도"가 오히려 악화됨을 발견했다. ③ min + threshold 0.20 유지 결정 — product의 단조성 우위(+0.036)가 fallback 1.5배 증가를 정당화하지 못하며, stuck 근본 원인인 anomaly 패널티 강도 재조정은 라이브 데이터 누적 후 별도 결정한다.
+
 ## 배경
 
 이전 분석 (2026-05-29)에서 G 항목으로 "`confidence_method=min` + `confidence_threshold=0.20`이 anomaly 패널티(-50%)에 취약 → stuck 가능"이라 식별. config 주석 권장값(`product` + 0.10)으로 전환 검증.

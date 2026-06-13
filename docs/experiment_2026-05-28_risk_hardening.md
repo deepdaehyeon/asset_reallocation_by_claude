@@ -1,5 +1,7 @@
 # 실험: 시스템 자체 강화 (vol_targeting / drawdown scale)
 
+> **요약**: ① vol_targeting 20% 축소·floor 0.50·drawdown 임계 early trigger·세 개 결합 등 5개 시나리오로 어려운 해(2015/2018/2022) 보호 강화 가능성을 검증했다. ② baseline이 Sharpe 0.737·Calmar 0.969로 모든 강화 시나리오를 지배했으며, 어느 변형도 2015/2018/2022 Sharpe를 의미 있게 개선하지 못했고 오히려 전체 Sharpe가 하락했다. ③ baseline 유지 결정 — 어려운 해 손실의 본질이 자산 동반 하락으로 vol/drawdown 장치 자체로는 해결 불가능하며, 해결하려면 절대 stop-loss·correlation 모니터링·옵션 헤지 같은 별도 메커니즘이 필요하다.
+
 *작성일: 2026-05-28*
 *상태: baseline이 sweet spot으로 확인. 추가 강화 보류.*
 

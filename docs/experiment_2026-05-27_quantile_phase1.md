@@ -1,5 +1,7 @@
 # 실험: C안 Phase 1 — forward return quantile 라벨 분리도 검증
 
+> **요약**: ① forward 21일 (수익률, 변동성) quantile 기반으로 5개 레짐을 재정의했을 때의 분리도와 분포를 in-sample 검증했다. ② Goldilocks 분리도가 -1.19pp → +4.85pp로 극적으로 회복됐고 5/5 최하위에서 1/5 최고위로 역전됐으나, whipsaw 비율은 78.9% vs 77.2%로 비슷하게 유지됐다. ③ Phase 1 통과로 in-sample 상 라벨 품질 향상을 확인했으며, 실제 supervised 학습에서도 이 효과가 보존되는지 검증하는 Phase 2 진행이 권장됐다.
+
 *작성일: 2026-05-27*
 *상태: Phase 1 통과 — Goldilocks 분리도 +4.85pp 회복. Phase 2 진행 가능.*
 

@@ -1,5 +1,7 @@
 # 실험: A안 — Transition phase 비중 (채택 보류)
 
+> **요약**: ① 레짐 전환 후 7~21일 동안 보수적 Transition 비중(cash 24%, equity 25%)을 적용하는 A안을 백테스트로 검증했다. ② 모든 N(7/14/21일)에서 Sharpe가 -0.09~-0.13, CAGR -0.96~-1.48pp로 baseline 대비 명백히 열위였으며, 주 원인은 Goldilocks 진입 시 7일간 equity 25% 고수에 따른 강세장 기회 손실이었다. ③ 채택 보류 — 시스템에 이미 transition을 흡수하는 다층 안전망이 있어 추가 Transition 비중은 over-protection이지만, 코드는 옵트인으로 영구 보존돼 향후 per_regime gating 등 변형 재시도가 가능하다.
+
 *작성일: 2026-05-28*
 *상태: 모든 N에서 baseline 대비 명백한 열위. **A안 단순 형태 채택 보류**. 코드는 옵트인으로 보존.*
 

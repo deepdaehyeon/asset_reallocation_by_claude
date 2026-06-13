@@ -1,5 +1,7 @@
 # 실험: B안 OOS 검증 — 첫 10년 진단 vs 마지막 5년 백테스트
 
+> **요약**: ① 전체 기간 진단과 첫 10년(2010-2019) 진단의 비중 권장 일관성을 비교하고, MF 변경을 제외한 Robust 비중으로 마지막 5년(2020-2024) OOS 백테스트를 수행했다. ② Original·Robust·Current 세 비중 모두 OOS Sharpe 차이 ±0.02, MaxDD 1pp 이내로 사실상 동등하여 in-sample bias는 marginal이고 +5.5pp CAGR 격차는 시장 환경(코로나 후 강세장) 영향이 대부분임을 확인했다. ③ Current 유지 — 세 비중의 portfolio 효과가 동등하고 운영 안정성이 가장 높으며, 시스템 다층 안전망이 비중 차이를 흡수함이 증명됐다.
+
 *작성일: 2026-05-28*
 *상태: in-sample bias marginal로 확인. regime_targets 조정의 portfolio 영향 사실상 없음.*
 

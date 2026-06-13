@@ -1,5 +1,7 @@
 # 분석: USD 종목 → 국내상장(KRW) ETF 대체 가능성 지도
 
+> **요약**: ① 합성 순환매를 줄이기 위한 USD→KRW ETF 대체 가능성을 자산군별로 조사해 깨끗한 대체(A), 통화 비중 이동(B), 대체 불가(C) 세 범주로 분류했다. ② 468370(TIPS)·218420(에너지)만 경제적 동일성이 성립하는 깨끗한 대체이며, 현행 Goldilocks USD 수요 0.40의 절반을 차지하는 equity_individual(NVDA 등)은 1:1 KRW 대체가 없어 합성 근본 제거가 불가능하고, DBMF·DBC·VEA·factor 자산군은 KRW 대체재 자체가 부재했다. ③ A(깨끗한 대체 먼저), B(equity_individual 통화 이동은 별도 전략 결정), C(대체 불가 자산군은 USD 선충전으로 대응)의 3단계 권고를 도출했다.
+
 - 날짜: 2026-06-12
 - 목적: 합성 순환매를 줄이기 위해 USD 종목을 KRW-native로 대체할 수 있는지 자산군별 확인.
   채권은 이미 완료(IEF/SHY→305080, [[experiment-2026-06-11-bond-krw-consolidation]]).

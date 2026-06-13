@@ -1,5 +1,7 @@
 # 디커플링/상관구조를 레짐 변화점 신호로 — 진단
 
+> **요약**: ① 유니버스 평균 상관(avg_corr)·주식-채권 상관(sb_corr)·횡단면 분산(disp) 세 상관 신호의 forward max-drawdown 예측력과 기존 vol 신호와의 중복성을 검증했다. ② avg_corr·disp는 vol과 중복(상관 +0.34~+0.65)이라 새 정보가 없고, sb_corr만 vol과 직교(-0.09)하면서 2022 bear 등 "채권이 헤지를 멈춘" 레짐을 ~4주 선행(중앙값 -29d)하는 독립 신호임을 확인했다. ③ avg_corr·disp는 피처 추가 불가 결론, sb_corr은 광범위 detect_regime 피처 대신 "채권 헤지 실패" 경보 오버레이로 좁게 활용 가능하나 별도 A/B 검증이 선행 조건이다.
+
 - **일자**: 2026-06-01
 - **스크립트**: `scripts/diagnose_correlation_regime_signal.py`
 - **구간**: 2010-01-01 ~ 2025-04-30

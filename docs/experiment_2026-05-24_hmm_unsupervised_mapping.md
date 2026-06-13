@@ -1,5 +1,7 @@
 # HMM Unsupervised State-Regime Mapping — 실험 결과
 
+> **요약**: ① HMM state-regime 매핑을 detect_regime 자기참조 다수결 방식에서 state별 피처 평균(변동성·모멘텀·신용·인플레)을 이용한 비지도 라벨링으로 교체하는 실험을 수행했다. ② 10년 기준 MaxDD가 -11.97% → -10.05%로 1.92pp 개선, Sharpe도 0.911→0.949로 개선됐으며 MCC는 +0.012 향상됐다. ③ 채택됨 — config `hmm.unsupervised_mapping: true`가 기본값으로 적용됐으며, 매핑이 불명확할 때는 legacy 매핑으로 자동 폴백하는 안전망도 구축됐다.
+
 **일자**: 2026-05-24
 **Phase**: TODO Option A — HMM/RF 자기참조 학습 제거
 **관련 커밋**: 7343714 (Option C anomaly detector) 이후 진행
