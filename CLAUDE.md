@@ -14,3 +14,26 @@
    - **회복 기간(recovery period)** — 최대 낙폭에서 원금 회복까지 걸린 기간(underwater duration). 장기보유자의 체감 고통.
    - **Martin Ratio** — CAGR / Ulcer (Ulcer 조정 수익). 위험조정 효율의 1차 판정 지표.
    - 근거: 본 포트폴리오의 1순위 목표는 하락 회피이고 사용자는 3~5년 장기보유자라, 수익 절댓값보다 *하락의 깊이·길이와 그에 대비한 수익 효율*이 의사결정 기준이다.
+
+5. **새 기능 실험 전 상호작용 확인 (2026-06-13 결정)** — 새로운 기능을 실험·설계할 때는 먼저 `docs/trading_features_and_interactions.md`(트레이딩 부수 기능 지도 + 상호작용 맵)를 확인한다. 실험 대상과 상호작용해 결과를 교란·희석할 수 있는 기능(예: core30이 vol targeting을 희석, 백테스트 리밸 모드가 floor 결론을 뒤집음)을 **실험 시작 전에 사용자에게 미리 알리고**, 어떤 기능을 고정할지/함께 토글할지 실험 범위를 사용자와 합의한 뒤 진행한다. 기능을 추가·변경했으면 이 문서도 함께 갱신한다.
+
+
+
+Large files policy:
+
+Never read:
+- *.parquet
+- *.csv
+- *.feather
+- *.pkl
+- *.joblib
+
+Unless explicitly requested by the user.
+- Open log file only when needed.
+
+Documentation policy:
+- Use docs/*.md as project knowledge.
+
+1. Read only the SUMMARY section first.
+2. Read the full document only if the summary is insufficient.
+3. Prefer summaries over full document reads.
