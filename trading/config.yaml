@@ -203,12 +203,12 @@ regime_targets:
     equity_individual: 0.10
     equity_developed:  0.02
     equity_emerging:   0.02
-    commodity:         0.05
+    commodity:         0.00   # 0.05 → 0 (SL2 OOS: 약체 원자재 → gold/bond, 양 시대 ΔMartin+ 2026-06-15)
     managed_futures:   0.05   # 0.12 → 0.05 (Sharpe +0.07 12위)
     bond_usd:          0.00   # 2026-06-11 채권 KRW 통합 — 합성 잔차 제거 (→ bond_krw)
     bond_tips:         0.07   # 0.00 → 0.07 (Sharpe +1.19 3위)
-    bond_krw:          0.27   # 0.15 + bond_usd 0.12 (KRW-native)
-    gold:              0.14
+    bond_krw:          0.28   # 0.27 → 0.28 (SL2 +0.01)
+    gold:              0.18   # 0.14 → 0.18 (SL2: 둔화기 양 시대 안정 방어자산, cap 만석)
     cash:              0.08
 
   # ── Stagflation: 성장↓ + 인플레↑ ───────────────────────────────────────────
