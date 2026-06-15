@@ -1766,3 +1766,44 @@
 [06/15 09:30:32]     [USD] drift=4.1%  →  ✓ 트리거  (drift(4.1%))
 [06/15 09:30:32] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 [06/15 09:30:32] 모니터링 완료
+[06/15 23:00:06] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[06/15 23:00:06] [1] 시장 데이터 수집 중...
+[06/15 23:00:07]     수집 기간  : 503일
+[06/15 23:01:20]     FRED 조회  : hy_spread, hy_spread_zscore, curve_10y2y, breakeven_5y, cpi_yoy, cpi_mom_zscore, unrate_chg_3m, m2_yoy, fed_bs_yoy, nfci
+[06/15 23:01:20] [2] 피처 계산 중...
+[06/15 23:01:20]     momentum_1m : +0.66%
+[06/15 23:01:20]     momentum_3m : +12.58%
+[06/15 23:01:20]     realized_vol: 15.93% (연환산)
+[06/15 23:01:20]     VIX         : 16.3
+[06/15 23:01:20]     credit_signal: -0.82%
+[06/15 23:01:20]     HY 스프레드 : 1.55% (FRED)
+[06/15 23:01:20]     10Y-2Y 커브 : +0.39% (FRED)
+[06/15 23:01:20]     자산 간 상관계수: 0.18
+[06/15 23:01:20] [3] 레짐 감지 중...
+[06/15 23:01:20]     매핑       : unsupervised | state 변화 4/5 | 레짐 집합 변화 ['Crisis', 'Reflation']
+[06/15 23:01:20]     누적 legacy 사용: 0/29 (0%)
+[06/15 23:01:21]     규칙 기반  : Goldilocks
+[06/15 23:01:21]     HMM 예측   : Stagflation (100%) | Stagflation:100% / Goldilocks:0% / Slowdown:0% / Reflation:0% / Crisis:0%
+[06/15 23:01:21]     RF(balanced): Goldilocks (95%) | crisis=1%  stag=0%
+[06/15 23:01:21]     blend 평활 (α=0.5, conf=22%): Stagflation 57%
+[06/15 23:01:21]     전환 엔트로피: 0.244 (0=안정 / 높을수록 불안정)
+[06/15 23:01:21]     Anomaly    : 85% ⚠
+[06/15 23:01:21]     신뢰도     : 20%  (규칙기반 57% | HMM 35% | anomaly 패널티 -15%)
+[06/15 23:01:21]     → 레짐: Goldilocks
+[06/15 23:01:21]     연속 노출  : Goldilocks 35% / Slowdown 7% / Stagflation 57%
+[06/15 23:01:21] [4] 계좌 잔고 조회 중...
+[06/15 23:01:21]     USD/KRW: 1,512.9 (실시간)
+[06/15 23:01:22]     총 자산: 221,627,133 원  │  USD 32.0% / KRW 68.0%
+[06/15 23:01:22]     드로우다운: -0.32%
+[06/15 23:01:22] [5] 목표 비중 산출 중...
+[06/15 23:01:22]     [블렌딩] equity_etf:19%  gold:15%  equity_individual:12%  commodity:12%  cash:12%  equity_factor:7%  managed_futures:6%  bond_tips:5%  bond_krw:5%  equity_sector:3%  equity_developed:2%  equity_emerging:2%
+[06/15 23:01:22]     포트폴리오 EWMA vol: 0.00% (λ=0.94)
+[06/15 23:01:22]     변동성 타겟팅: rvol 15.9% / 목표 13% → equity ×0.82  (cash +8.3%)
+[06/15 23:01:22]     [core+satellite] core 30% (Goldilocks 고정) + satellite 70% (엔진)
+[06/15 23:01:22]     [USD 예산 조정] equity_core(factor+individual) 18.4% → 15.8% (USD 한도 32%)
+[06/15 23:01:22]     [USD 부족 대체] equity_intl(developed+emerging) 4.0% → 0.0%, 부족분 equity_etf로 대체
+[06/15 23:01:22] [6] 트리거 계산 중...
+[06/15 23:01:22]     [KRW] drift=8.5%  →  ✓ 트리거  (deferred_buys)
+[06/15 23:01:22]     [USD] drift=4.1%  →  ✓ 트리거  (drift(4.1%))
+[06/15 23:01:22] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[06/15 23:01:22] 모니터링 완료
