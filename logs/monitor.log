@@ -1717,3 +1717,52 @@
 [06/12 23:01:03]     [USD] drift=7.3%  →  ✓ 트리거  (drift(7.3%))
 [06/12 23:01:04] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 [06/12 23:01:04] 모니터링 완료
+[06/15 09:30:04] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[06/15 09:30:04] [1] 시장 데이터 수집 중...
+[06/15 09:30:05]     수집 기간  : 504일
+[06/15 09:30:27]     FRED 조회  : hy_spread, hy_spread_zscore, curve_10y2y, breakeven_5y, cpi_yoy, cpi_mom_zscore, unrate_chg_3m, m2_yoy, fed_bs_yoy, nfci
+[06/15 09:30:27] [2] 피처 계산 중...
+[06/15 09:30:27]     momentum_1m : -0.08%
+[06/15 09:30:27]     momentum_3m : +11.17%
+[06/15 09:30:27]     realized_vol: 15.23% (연환산)
+[06/15 09:30:27]     VIX         : 17.7
+[06/15 09:30:27]     credit_signal: -0.99%
+[06/15 09:30:27]     HY 스프레드 : 1.55% (FRED)
+[06/15 09:30:27]     10Y-2Y 커브 : +0.39% (FRED)
+[06/15 09:30:27]     자산 간 상관계수: 0.18
+[06/15 09:30:27] [3] 레짐 감지 중...
+[06/15 09:30:28]     매핑       : unsupervised | state 변화 2/5
+[06/15 09:30:28]     누적 legacy 사용: 0/28 (0%)
+[06/15 09:30:28]     규칙 기반  : Goldilocks
+[06/15 09:30:28]     HMM 예측   : Stagflation (100%) | Stagflation:100% / Reflation:0% / Slowdown:0% / Goldilocks:0% / Crisis:0%
+[06/15 09:30:28]     RF(balanced): Goldilocks (88%) | crisis=1%  stag=0%
+[06/15 09:30:28]     blend 평활 (α=0.5, conf=21%): Stagflation 56%
+[06/15 09:30:28]     전환 엔트로피: 0.210 (0=안정 / 높을수록 불안정)
+[06/15 09:30:28]     Anomaly    : 83% ⚠
+[06/15 09:30:28]     신뢰도     : 19%  (규칙기반 57% | HMM 33% | anomaly 패널티 -14%)
+[06/15 09:30:28]     → 레짐: Goldilocks
+[06/15 09:30:28]     연속 노출  : Goldilocks 33% / Slowdown 10% / Stagflation 56%
+[06/15 09:30:28] [4] 계좌 잔고 조회 중...
+[06/15 09:30:29]     USD/KRW: 1,505.4 (실시간)
+[06/15 09:30:30]   [재시도] KRW_2 잔고 조회 실패 (1/3), 1s 후 재시도: KisHTTPError: HTTP 요청에 실패했습니다.
+[06/15 09:30:30] (500) Internal Server Error
+[06/15 09:30:30] {"rt_cd":"1","msg1":"원장에서 허용 가능한 초당 거래건수를 초과하였습니다.","msg_cd":"EGW00215"}
+
+[06/15 09:30:30] [  Request  ]: GET https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/trading/inquire-balance
+[06/15 09:30:30] Headers: {'User-Agent': 'PyKis/2.1.6', 'Accept-Encoding': 'gzip, deflate, br', 'Accept': '*/*', 'Connection': 'keep-alive', 'tr_id': 'TTTC8434R', 'appkey': '***', 'appsecret': '***', 'Authorization': 'Bearer ***'}
+[06/15 09:30:30] Params: {'AFHR_FLPR_YN': ['N'], 'INQR_DVSN': ['02'], 'UNPR_DVSN': ['01'], 'FUND_STTL_ICLD_YN': ['Y'], 'FNCG_AMT_AUTO_RDPT_YN': ['N'], 'PRCS_DVSN': ['00'], 'CANO': ['64521213'], 'ACNT_PRDT_CD': ['01']}
+[06/15 09:30:30] Body: [EMPTY BODY]
+[06/15 09:30:32]     총 자산: 220,654,221 원  │  USD 31.9% / KRW 68.1%
+[06/15 09:30:32]     드로우다운: -0.76%
+[06/15 09:30:32] [5] 목표 비중 산출 중...
+[06/15 09:30:32]     [블렌딩] equity_etf:18%  gold:15%  commodity:12%  equity_individual:12%  cash:11%  equity_factor:7%  managed_futures:6%  bond_krw:6%  bond_tips:5%  equity_sector:3%  equity_developed:2%  equity_emerging:2%
+[06/15 09:30:32]     포트폴리오 EWMA vol: 0.00% (λ=0.94)
+[06/15 09:30:32]     변동성 타겟팅: rvol 15.2% / 목표 13% → equity ×0.85  (cash +6.5%)
+[06/15 09:30:32]     [core+satellite] core 30% (Goldilocks 고정) + satellite 70% (엔진)
+[06/15 09:30:32]     [USD 예산 조정] equity_core(factor+individual) 18.8% → 15.7% (USD 한도 32%)
+[06/15 09:30:32]     [USD 부족 대체] equity_intl(developed+emerging) 4.1% → 0.0%, 부족분 equity_etf로 대체
+[06/15 09:30:32] [6] 트리거 계산 중...
+[06/15 09:30:32]     [KRW] drift=28.3%  →  ✓ 트리거  (drift(28.3%))
+[06/15 09:30:32]     [USD] drift=4.1%  →  ✓ 트리거  (drift(4.1%))
+[06/15 09:30:32] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[06/15 09:30:32] 모니터링 완료
