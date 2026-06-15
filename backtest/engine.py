@@ -179,6 +179,7 @@ class BacktestEngine:
         Returns: (ensemble_regime, blend_probs, rule_regime, combined_conf)
         combined_conf: (rule_conf + hmm_conf) / 2 — 라이브 run.py와 동일 산식 (anomaly 패널티 제외).
         """
+        self._current_as_of = as_of  # stagflation_subregime 오버레이가 참조 (리밸 직전 항상 호출됨)
         start = as_of - pd.Timedelta(days=self.hmm_lookback + 60)
         sig = self.signal_px[start:as_of]
 
@@ -314,8 +315,9 @@ class BacktestEngine:
         vol_cfg = self.config.get("vol_targeting", {})
 
         with _quiet():
+            blend_cfg = self._subregime_config(getattr(self, "_current_as_of", None))
             blended = blend_regime_targets(
-                blend_probs, self.config, transition_phase=transition_phase
+                blend_probs, blend_cfg, transition_phase=transition_phase
             )
 
             # portfolio EWMA vol
@@ -338,6 +340,33 @@ class BacktestEngine:
             )
 
         return merge_to_total_weights(usd_w, krw_w, usd_val, krw_val)
+
+    def _subregime_config(self, as_of):
+        """stagflation_subregime 오버레이: 긴축형 스태그(실질금리↑) 시 Stagflation
+        목표비중을 tightening_targets로 교체한 config를 반환. 비활성/조건 미달이면
+        self.config 그대로(동작 불변). blend_regime_targets에만 영향, 다른 키 보존.
+        """
+        sub = self.config.get("stagflation_subregime", {})
+        if not sub.get("enabled") or as_of is None:
+            return self.config
+        if self.fred_history is None or self.fred_history.empty:
+            return self.config
+        feat = sub.get("split_feature", "real_rate_chg_3m")
+        if feat not in self.fred_history.columns:
+            return self.config
+        hist = self.fred_history[feat][:as_of].dropna()
+        if hist.empty:
+            return self.config
+        if float(hist.iloc[-1]) < float(sub.get("threshold", 0.0)):
+            return self.config  # 디스인플레형(실질금리↓·하락) → 현행 스태그 유지
+        tight = sub.get("tightening_targets")
+        if not tight:
+            return self.config
+        cfg = dict(self.config)
+        rt = dict(self.config["regime_targets"])
+        rt["Stagflation"] = tight
+        cfg["regime_targets"] = rt
+        return cfg
 
     # ── 메인 실행 ────────────────────────────────────────────────────────────
 
