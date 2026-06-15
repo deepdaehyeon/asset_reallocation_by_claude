@@ -315,7 +315,7 @@ class BacktestEngine:
         vol_cfg = self.config.get("vol_targeting", {})
 
         with _quiet():
-            blend_cfg = self._subregime_config(getattr(self, "_current_as_of", None))
+            blend_cfg = self._subregime_config(getattr(self, "_current_as_of", None), regime)
             blended = blend_regime_targets(
                 blend_probs, blend_cfg, transition_phase=transition_phase
             )
@@ -331,7 +331,7 @@ class BacktestEngine:
             else:
                 eff_vol = realized_vol
 
-            blended = apply_vol_targeting(blended, eff_vol, self.config, regime=regime)
+            blended = apply_vol_targeting(blended, eff_vol, blend_cfg, regime=regime)
             blended = apply_core_satellite(blended, self.config)
             class_max = self.config.get("class_max_weight", {})
             blended = apply_dynamic_class_caps(blended, class_max, vix) if vix > 0 else apply_class_caps(blended, class_max)
@@ -341,10 +341,14 @@ class BacktestEngine:
 
         return merge_to_total_weights(usd_w, krw_w, usd_val, krw_val)
 
-    def _subregime_config(self, as_of):
-        """stagflation_subregime 오버레이: 긴축형 스태그(실질금리↑) 시 Stagflation
-        목표비중을 tightening_targets로 교체한 config를 반환. 비활성/조건 미달이면
-        self.config 그대로(동작 불변). blend_regime_targets에만 영향, 다른 키 보존.
+    def _subregime_config(self, as_of, acting_regime=""):
+        """stagflation_subregime 오버레이: 긴축형 스태그(실질금리↑) 시 Stagflation의
+        목표비중(tightening_targets)·vol 목표(tightening_vol)·vol floor(tightening_floor)를
+        교체한 config를 반환. 비활성/조건 미달/디스인플레형이면 self.config 그대로(동작 불변).
+
+        gating: tightening_targets는 blend로 자연 게이팅(Stagflation 슬롯), tightening_vol은
+        apply_vol_targeting 내부 regime 룩업으로 자연 게이팅. tightening_floor는 전역값이라
+        acting_regime == "Stagflation"일 때만 적용(다른 레짐 floor 오염 방지).
         """
         sub = self.config.get("stagflation_subregime", {})
         if not sub.get("enabled") or as_of is None:
@@ -360,12 +364,26 @@ class BacktestEngine:
         if float(hist.iloc[-1]) < float(sub.get("threshold", 0.0)):
             return self.config  # 디스인플레형(실질금리↓·하락) → 현행 스태그 유지
         tight = sub.get("tightening_targets")
-        if not tight:
+        tight_vol = sub.get("tightening_vol")
+        tight_floor = sub.get("tightening_floor")
+        if tight_floor is not None and acting_regime != "Stagflation":
+            tight_floor = None  # floor는 전역값 → Stagflation 작동 시에만
+        if not tight and tight_vol is None and tight_floor is None:
             return self.config
         cfg = dict(self.config)
-        rt = dict(self.config["regime_targets"])
-        rt["Stagflation"] = tight
-        cfg["regime_targets"] = rt
+        if tight:
+            rt = dict(self.config["regime_targets"])
+            rt["Stagflation"] = tight
+            cfg["regime_targets"] = rt
+        if tight_vol is not None or tight_floor is not None:
+            vc = dict(self.config.get("vol_targeting", {}))
+            if tight_vol is not None:
+                rtv = dict(vc.get("regime_target_vol", {}))
+                rtv["Stagflation"] = float(tight_vol)
+                vc["regime_target_vol"] = rtv
+            if tight_floor is not None:
+                vc["floor"] = float(tight_floor)
+            cfg["vol_targeting"] = vc
         return cfg
 
     # ── 메인 실행 ────────────────────────────────────────────────────────────
