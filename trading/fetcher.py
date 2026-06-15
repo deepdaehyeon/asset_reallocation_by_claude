@@ -357,7 +357,8 @@ def fetch_fred_history(start: str, end: str) -> pd.DataFrame:
 
     반환 컬럼 (일별 인덱스, 월별·주별 시리즈는 forward-fill 적용):
         cpi_yoy, cpi_mom_zscore, unrate_chg_3m, breakeven_5y,
-        m2_yoy, fed_bs_yoy, hy_spread, hy_spread_zscore, curve_10y2y
+        m2_yoy, fed_bs_yoy, hy_spread, hy_spread_zscore, curve_10y2y,
+        real_rate_10y, real_rate_chg_3m
     """
     fred = _get_fred_client()
     if fred is None:
@@ -377,6 +378,9 @@ def fetch_fred_history(start: str, end: str) -> pd.DataFrame:
         # 스케일: BAA10Y 평균 ~2.5%, std ~0.8%, GFC peak 6%, COVID 4% (HY 대비 압축됨).
         "BAA10Y":         "hy_raw",
         "T10Y2Y":         "curve_10y2y",
+        # DFII10: 10년 물가연동국채 실질수익률(일별). 스태그 하위국면 분기 진단용
+        # (2010년대 저/음 실질금리 vs 2022 양 실질금리). 아직 HMM 피처 아님.
+        "DFII10":         "real_rate_raw",
         # NFCI: Chicago Fed National Financial Conditions Index (주별, 매주 수요일 발표).
         # 음수=loose(평상), 양수=tight(위험). 평균 ~-0.3, std ~0.6, GFC peak 3.06.
         "NFCI":           "nfci",
@@ -422,6 +426,8 @@ def fetch_fred_history(start: str, end: str) -> pd.DataFrame:
         "hy_spread_zscore":  1,
         "curve_10y2y":       1,   # T10Y2Y: 일별
         "nfci":              7,   # NFCI: 주별, 다음 수요일 발표 → ~7 BDay
+        "real_rate_10y":     1,   # DFII10: 일별
+        "real_rate_chg_3m":  1,
     }
 
     def _publish(s: pd.Series, key: str) -> pd.Series:
@@ -481,6 +487,13 @@ def fetch_fred_history(start: str, end: str) -> pd.DataFrame:
         result["curve_10y2y"] = (
             _publish(raw["curve_10y2y"], "curve_10y2y").reindex(idx, method="ffill", limit=3)
         )
+
+    # 실질금리 10y (daily) — 수준 + 3개월(63영업일) 변화. 스태그 하위국면 분기 진단용.
+    if "real_rate_raw" in raw:
+        rr_d = raw["real_rate_raw"]
+        result["real_rate_10y"] = _publish(rr_d, "real_rate_10y").reindex(idx, method="ffill", limit=5)
+        rr_chg = rr_d - rr_d.shift(63)
+        result["real_rate_chg_3m"] = _publish(rr_chg, "real_rate_chg_3m").reindex(idx, method="ffill", limit=5)
 
     # warm-up 구간 제거 → start 이후만 반환
     result = result.loc[start:end]
