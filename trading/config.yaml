@@ -164,18 +164,18 @@ regime_targets:
   # 가장 Risk-On. cash 축소(15→8), equity_etf 확장(40→42), 해외 분산 추가.
   Goldilocks:          # core 80% | satellite 20%
     equity_etf:        0.42   # S&P500 + 나스닥100 — 광범위 성장 (cash에서 흡수)
-    equity_factor:     0.05   # VTV+AVUV 소량
-    equity_sector:     0.00
+    equity_factor:     0.08   # 2026-06-16 사용자: 0.05 → 0.08 (라이브 직접 반영)
+    equity_sector:     0.03   # 2026-06-16 사용자: 0.00 → 0.03 (라이브 직접 반영)
     equity_individual: 0.20   # TSLA+PLTR+NVDA+LLY (4종목 분산)
-    equity_developed:  0.03   # VEA — 유럽·일본 분산
+    equity_developed:  0.05   # 2026-06-16 사용자: 0.03 → 0.05 (라이브 직접 반영)
     equity_emerging:   0.02   # VWO — 신흥국 분산
     commodity:         0.05
     managed_futures:   0.05
     bond_usd:          0.00
     bond_tips:         0.00   # 인플레 안정 → TIPS 불필요
     bond_krw:          0.00
-    gold:              0.10
-    cash:              0.08   # 0.15 → 0.08 (Goldilocks 현금 과다 축소)
+    gold:              0.05   # 2026-06-16 사용자: 0.10 → 0.05 (라이브 직접 반영)
+    cash:              0.05   # 2026-06-16 사용자: 0.08 → 0.05 (라이브 직접 반영)
 
   # ── Reflation: 성장↑ + 인플레↑ ─────────────────────────────────────────────
   # TIPS + commodity + MF (인플레·트렌드 동반). gold 축소 (Reflation Sharpe 0.01).
