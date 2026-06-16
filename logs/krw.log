@@ -1005,3 +1005,6 @@
 [06/16 10:04:25] KRW 리밸런싱 완료
 [slack_review] 전송 완료
 [snapshot] /Users/kimdhyeon/asset_reallocation_by_claude/STATUS.md 생성 완료
+[main 9c26a52] logs: auto-update 2026-06-16 10:05
+ 4 files changed, 90 insertions(+), 6 deletions(-)
+[push_logs] 완료: 2026-06-16 10:05
