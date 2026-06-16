@@ -3,7 +3,8 @@
 ## SUMMARY
 - **무엇을**: 비중 조정이 흡수되는 고원 상태에서 진짜 레버는 vol targeting의 손잡이라는 가설([[project-voltarget-blend-defense-engine]]) 하에, 그중 반응속도 `ewma_lambda`(EWMA 감쇠, 낮을수록 빠름)를 0.97·0.94(현행)·0.90·0.85·0.80으로 스윕해 빠른 디리스킹이 4지표(Ulcer·Martin·회복)를 개선하는지 엔드투엔드 워크포워드 OOS로 검증. core30·drift·drawdown_scaling off 등 라이브 config 고정, ewma_lambda만 교체. `scripts/sweep_voltarget_lambda_oos.py`.
 - **핵심 수치**: 5개 λ 전부 **완전 동일**(TEST Martin 3.31·CAGR 18.0%·Ulcer 4.23·MaxDD −15.4%·회복 564, TRAIN Martin 1.58 — 소수점까지 byte-identical). Δ 전부 +0.00. → λ가 백테스트 결과에 **영(0) 영향**.
-- **채택 여부·결론**: **가설 미검증(실험 무효) — null의 원인이 배선 결함이라 "반응속도는 무효"로 결론할 수 없음.** 원인: 백테스트는 `_target_weights`에 `signal_px_slice=signal_px.tail(65)`를 넘기는데(engine.py:662·585), `compute_portfolio_ewma_vol`의 weights는 *유니버스 티커*(379800·VTV…) 키이고 `signal_px`는 *신호 티커*(SPY·^VIX·TLT·HYG…)뿐이라 **교집합이 공집합 → port_vol=0 → eff_vol=realized_vol(SPY 기반, features.py `_ewma_vol`의 고정 λ=0.94)로 폴백**. 즉 config의 `ewma_lambda`는 **백테스트에서 죽은 손잡이**(완전 동일 결과가 그 증거). **부수 발견(중요)**: 라이브(run.py:647-653)는 `market["prices"]`=실제 보유(유니버스) 가격으로 port_vol을 계산해 config λ가 살아있음 → **백테스트는 vol targeting 입력을 SPY 광역 프록시로, 라이브는 실제 포트폴리오 EWMA vol로 쓰는 괴리**. 가설을 제대로 검증하려면 백테스트를 라이브와 일치(유니버스 가격 주입)시켜야 하며, 이는 *모든 과거 백테스트의 vol targeting 입력을 바꾸는 엔진 변경*이라 기준선이 이동 → 사용자 승인 필요.
+- **채택 여부·결론**: **가설 미검증(실험 무효) — null의 원인이 배선 결함이라 "반응속도는 무효"로 결론할 수 없음.** 원인: 백테스트는 `_target_weights`에 `signal_px_slice=signal_px.tail(65)`를 넘기는데(engine.py:662·585), `compute_portfolio_ewma_vol`의 weights는 *유니버스 티커*(379800·VTV…) 키이고 `signal_px`는 *신호 티커*(SPY·^VIX·TLT·HYG…)뿐이라 **교집합이 공집합 → port_vol=0 → eff_vol=realized_vol(SPY 기반, features.py `_ewma_vol`의 고정 λ=0.94)로 폴백**. 즉 config의 `ewma_lambda`는 **백테스트에서 죽은 손잡이**(완전 동일 결과가 그 증거).
+- **정정(2026-06-17, 이전 '괴리' 주장 철회)**: 라이브(run.py:647-653)도 **동일하게 죽어 있다.** `market["prices"]`는 `fetch_signal_prices(signal_cfg["tickers"])` = *신호 티커*뿐(SPY·^VIX·TLT·HYG·DX-Y·DJP·^VIX9D)인데 `ticker_w`는 *유니버스 티커* 키 → `compute_portfolio_ewma_vol`에서 교집합 공집합 → `port_vol=0` → `eff_vol=realized_vol`(SPY, 고정 λ=0.94)로 폴백. config로 확인: `set(signal.tickers) & set(universe) = ∅`. **∴ `use_portfolio_vol` 경로는 라이브·백테스트 양쪽 모두 비활성이며, 둘 사이 괴리는 없다(이전 SUMMARY/한계의 '괴리' 서술은 오류였음).** 진짜 수정은 "백테스트를 라이브에 맞추기"가 아니라 **양쪽 모두에 실제 보유(유니버스) 가격을 주입**해 경로를 살리는 것 — 이는 라이브 코드(run.py)까지 건드리고 모든 과거 백테스트 기준선을 이동시키므로 사용자 승인 필요(규칙3·5).
 
 ## 결과 (참고 — λ 무관 동일)
 | 창 | 설정 | Martin | CAGR | Ulcer | 최장UW | 롤3y최악 | MaxDD | tx |
@@ -19,7 +20,7 @@
 - `portfolio.py:103` `tickers = [t for t in weights if t in prices.columns and weights[t]>0]`. weights=ticker_w(유니버스 키), prices=signal_px(신호 티커) → **tickers=[] → return 0.0**.
 - `:330` `eff_vol = port_vol if port_vol>0 else realized_vol` → 항상 realized_vol.
 - realized_vol = `compute_features(sig)["realized_vol"]` = `_ewma_vol`(features.py, EWMA_VOL_LAMBDA=0.94 **하드코딩**). config ewma_lambda 미참조.
-- ∴ λ를 어떻게 바꿔도 입력 vol 불변 → 결과 byte-identical. 라이브(run.py:653)는 prices=유니버스라 정상 작동 → 괴리.
+- ∴ λ를 어떻게 바꿔도 입력 vol 불변 → 결과 byte-identical. **라이브(run.py:653)도 prices=신호티커라 동일하게 폴백 → 괴리 없음(2026-06-17 정정).**
 
 ## 함의 / 다음 단계 (사용자 결정 필요)
 1. **백테스트 충실화(권장)**: 엔진이 vol 계산에 유니버스 가격 슬라이스를 쓰도록 수정 → 라이브와 일치 + ewma_lambda 스윕 가능. 단 *모든 백테스트의 vol targeting 입력이 SPY프록시→실포트로 바뀌어* 기준선 이동(과거 floor·ladder 결론 재확인 필요). 규칙3·5 대상 — 승인 후 진행.
@@ -28,5 +29,5 @@
 
 ## 한계
 - 본 실험은 null이지만 *신호 부재 증거가 아님* — 배선상 손잡이가 비활성. 반응속도 가설은 여전히 미검증.
-- 백테스트 vol targeting 입력 ≠ 라이브 입력(SPY프록시 vs 실포트 EWMA). 회복/Ulcer 등 vol 관련 모든 백테스트 결론에 이 괴리가 잠재 영향.
+- **(정정)** 백테스트·라이브 vol targeting 입력 *동일*(둘 다 port_vol=0 폴백 → SPY realized_vol). 이전 '괴리' 서술 철회. 단, vol targeting 자체는 폴백 경로(SPY realized_vol, λ=0.94)로 정상 작동 중 — 죽은 것은 *config ewma_lambda 손잡이*와 *실포트 vol 사용*뿐.
 - 단일통화(USD)·단일경로. 라이브 미반영(코드 변경 없음, 진단만).
