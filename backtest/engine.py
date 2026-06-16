@@ -306,6 +306,7 @@ class BacktestEngine:
         regime: str = "",
         vix: float = 0.0,
         signal_px_slice: Optional[pd.DataFrame] = None,
+        universe_px_slice: Optional[pd.DataFrame] = None,
         transition_phase: bool = False,
     ) -> Dict[str, float]:
         """블렌딩 확률 → 전체 포트폴리오 기준 종목별 목표 비중."""
@@ -320,13 +321,16 @@ class BacktestEngine:
                 blend_probs, blend_cfg, transition_phase=transition_phase
             )
 
-            # portfolio EWMA vol
-            if vol_cfg.get("use_portfolio_vol", True) and signal_px_slice is not None:
+            # portfolio EWMA vol — 실제 보유(유니버스) 가격으로 계산해야 ticker_w와
+            # 교집합이 생긴다. universe_px_slice 부재 시에만 signal_px_slice로 폴백
+            # (구 동작: 신호 티커뿐이라 교집합 공집합 → port_vol=0 → realized_vol).
+            vol_px = universe_px_slice if universe_px_slice is not None else signal_px_slice
+            if vol_cfg.get("use_portfolio_vol", True) and vol_px is not None:
                 lam = float(vol_cfg.get("ewma_lambda", 0.94))
                 ticker_w = {t: blended.get(m["asset_class"], 0.0)
                             for t, m in self.config["universe"].items()
                             if m["asset_class"] in blended}
-                port_vol = compute_portfolio_ewma_vol(signal_px_slice, ticker_w, lam=lam)
+                port_vol = compute_portfolio_ewma_vol(vol_px, ticker_w, lam=lam)
                 eff_vol = port_vol if port_vol > 0 else realized_vol
             else:
                 eff_vol = realized_vol
@@ -446,6 +450,7 @@ class BacktestEngine:
                 weights = self._target_weights(
                     blend_probs, rv, portfolio_value,
                     regime=regime, vix=vix, signal_px_slice=sig,
+                    universe_px_slice=px[:date].tail(65),
                     transition_phase=is_transition,
                 )
                 weights = _normalize_to_available(weights, available)
@@ -500,6 +505,7 @@ class BacktestEngine:
                 new_weights = self._target_weights(
                     blend_probs, rv, portfolio_value,
                     regime=regime, vix=vix, signal_px_slice=sig,
+                    universe_px_slice=px[:date].tail(65),
                     transition_phase=is_transition,
                 )
 
@@ -590,6 +596,7 @@ class BacktestEngine:
                 target_weights = self._target_weights(
                     blend_probs, rv, portfolio_value,
                     regime=regime, vix=vix, signal_px_slice=sig,
+                    universe_px_slice=px[:date].tail(65),
                     transition_phase=is_transition,
                 )
                 target_weights = _normalize_to_available(target_weights, available)
@@ -667,6 +674,7 @@ class BacktestEngine:
                 new_weights = self._target_weights(
                     blend_probs, rv, portfolio_value,
                     regime=regime, vix=vix, signal_px_slice=sig,
+                    universe_px_slice=px[:date].tail(65),
                     transition_phase=is_transition,
                 )
 
