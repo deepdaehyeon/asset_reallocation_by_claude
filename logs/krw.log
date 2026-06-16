@@ -926,3 +926,82 @@
 [main 285e9ec] logs: auto-update 2026-06-15 10:14
  4 files changed, 150 insertions(+), 7 deletions(-)
 [push_logs] 완료: 2026-06-15 10:14
+[06/16 10:00:16] [KRW] 트리거 확인: drift(10.5%)
+[06/16 10:00:16] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[06/16 10:00:16] [4] 계좌 잔고 조회 중...
+[06/16 10:00:19]     USD/KRW: 1,514.4 (실시간)
+[06/16 10:00:20]   [재시도] KRW_1 잔고 조회 실패 (1/3), 1s 후 재시도: KisHTTPError: HTTP 요청에 실패했습니다.
+[06/16 10:00:20] (500) Internal Server Error
+[06/16 10:00:20] {"rt_cd":"1","msg1":"원장에서 허용 가능한 초당 거래건수를 초과하였습니다.","msg_cd":"EGW00215"}
+
+[06/16 10:00:20] [  Request  ]: GET https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/trading/inquire-balance
+[06/16 10:00:20] Headers: {'User-Agent': 'PyKis/2.1.6', 'Accept-Encoding': 'gzip, deflate, br', 'Accept': '*/*', 'Connection': 'keep-alive', 'tr_id': 'TTTC8434R', 'appkey': '***', 'appsecret': '***', 'Authorization': 'Bearer ***'}
+[06/16 10:00:20] Params: {'AFHR_FLPR_YN': ['N'], 'INQR_DVSN': ['02'], 'UNPR_DVSN': ['01'], 'FUND_STTL_ICLD_YN': ['Y'], 'FNCG_AMT_AUTO_RDPT_YN': ['N'], 'PRCS_DVSN': ['00'], 'CANO': ['64378890'], 'ACNT_PRDT_CD': ['01']}
+[06/16 10:00:20] Body: [EMPTY BODY]
+[06/16 10:00:21]   [재시도] KRW_2 잔고 조회 실패 (1/3), 1s 후 재시도: KisHTTPError: HTTP 요청에 실패했습니다.
+[06/16 10:00:21] (500) Internal Server Error
+[06/16 10:00:21] {"rt_cd":"1","msg1":"원장에서 허용 가능한 초당 거래건수를 초과하였습니다.","msg_cd":"EGW00215"}
+
+[06/16 10:00:21] [  Request  ]: GET https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/trading/inquire-balance
+[06/16 10:00:21] Headers: {'User-Agent': 'PyKis/2.1.6', 'Accept-Encoding': 'gzip, deflate, br', 'Accept': '*/*', 'Connection': 'keep-alive', 'tr_id': 'TTTC8434R', 'appkey': '***', 'appsecret': '***', 'Authorization': 'Bearer ***'}
+[06/16 10:00:21] Params: {'AFHR_FLPR_YN': ['N'], 'INQR_DVSN': ['02'], 'UNPR_DVSN': ['01'], 'FUND_STTL_ICLD_YN': ['Y'], 'FNCG_AMT_AUTO_RDPT_YN': ['N'], 'PRCS_DVSN': ['00'], 'CANO': ['64521213'], 'ACNT_PRDT_CD': ['01']}
+[06/16 10:00:21] Body: [EMPTY BODY]
+[06/16 10:00:23]     총 자산: 224,063,922 원  │  USD 32.6% / KRW 67.4%
+[06/16 10:00:23]     드로우다운: -0.08%
+[06/16 10:00:23] [4b] 유니버스 외 종목 자동 정리 중...
+[06/16 10:00:23]     정리 대상 없음
+[06/16 10:00:23] [5] 목표 비중 산출 중...
+[06/16 10:00:23]     변동성 타겟팅: rvol 16.3% / 목표 13% → equity ×0.80  (cash +9.1%)
+[06/16 10:00:23]     [core+satellite] core 30% (Goldilocks 고정) + satellite 70% (엔진)
+[06/16 10:00:23]     [USD 예산 조정] equity_core(factor+individual) 18.2% → 16.2% (USD 한도 33%)
+[06/16 10:00:23]     [USD 부족 대체] equity_intl(developed+emerging) 3.9% → 0.0%, 부족분 equity_etf로 대체
+[06/16 10:00:23] [6] 결제 상태 점검 중...
+[06/16 10:00:23] [7] 리스크 제어 적용 중...
+[06/16 10:00:23]     목표 비중 [KRW 계좌]:
+[06/16 10:00:23]       ▼ 379800(KODEX S&P500)     계좌:27.2%  전체:18.3%  현재:19.8%
+[06/16 10:00:23]       ▲ 469830(SOL 초단기채권)        계좌:24.7%  전체:16.7%  현재:14.6%
+[06/16 10:00:23]         411060(ACE KRX금현물)       계좌:19.8%  전체:13.3%  현재:13.1%
+[06/16 10:00:23]       ▲ 379810(KODEX 나스닥100)     계좌:15.3%  전체:10.3%  현재:7.9%
+[06/16 10:00:23]         468370(KODEX iShares 미국인플레이션국채액티브) 계좌:5.2%  전체:3.5%  현재:3.6%
+[06/16 10:00:23]       ▼ 305080(TIGER 미국채10년)     계좌:4.5%  전체:3.0%  현재:3.8%
+[06/16 10:00:23]         218420(KODEX 미국S&P500에너지(합성)) 계좌:2.4%  전체:1.6%  현재:1.6%
+[06/16 10:00:23] [8] 리밸런싱 실행...
+[06/16 10:00:24]   [강제 평준화] per_ticker_drift_threshold 무시 — 모든 차이 주문 생성
+[06/16 10:00:24] → [KRW] 실행 12건 (매도 7, 매수 5)
+[06/16 10:00:24]   sell 379800(KODEX S&P500) 10주 @ 25,850.00 KRW
+[06/16 10:00:24]   [재시도] KRW_2 잔고 조회 실패 (1/3), 1s 후 재시도: KisHTTPError: HTTP 요청에 실패했습니다.
+[06/16 10:00:24] (500) Internal Server Error
+[06/16 10:00:24] {"rt_cd":"1","msg1":"원장에서 허용 가능한 초당 거래건수를 초과하였습니다.","msg_cd":"EGW00215"}
+
+[06/16 10:00:24] [  Request  ]: GET https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/trading/inquire-balance
+[06/16 10:00:24] Headers: {'User-Agent': 'PyKis/2.1.6', 'Accept-Encoding': 'gzip, deflate, br', 'Accept': '*/*', 'Connection': 'keep-alive', 'tr_id': 'TTTC8434R', 'appkey': '***', 'appsecret': '***', 'Authorization': 'Bearer ***'}
+[06/16 10:00:24] Params: {'AFHR_FLPR_YN': ['N'], 'INQR_DVSN': ['02'], 'UNPR_DVSN': ['01'], 'FUND_STTL_ICLD_YN': ['Y'], 'FNCG_AMT_AUTO_RDPT_YN': ['N'], 'PRCS_DVSN': ['00'], 'CANO': ['64521213'], 'ACNT_PRDT_CD': ['01']}
+[06/16 10:00:24] Body: [EMPTY BODY]
+[06/16 10:00:26]   sell 379800(KODEX S&P500) 119주 @ 25,850.00 KRW
+[06/16 10:00:27]   sell 379810(KODEX 나스닥100) 5주 @ 30,600.00 KRW
+[1;33m[06/16 10:00:27] WARNING: API 호출 횟수를 초과하였습니다.[0m
+[06/16 10:02:37]   sell 468370(KODEX iShares 미국인플레이션국채액티브) 1주 @ 12,050.00 KRW
+[06/16 10:03:28]   [재시도] KRW_2 잔고 조회 실패 (1/3), 1s 후 재시도: KisHTTPError: HTTP 요청에 실패했습니다.
+[06/16 10:03:28] (500) Internal Server Error
+[06/16 10:03:28] {"rt_cd":"1","msg1":"원장에서 허용 가능한 초당 거래건수를 초과하였습니다.","msg_cd":"EGW00215"}
+
+[06/16 10:03:28] [  Request  ]: GET https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/trading/inquire-balance
+[06/16 10:03:28] Headers: {'User-Agent': 'PyKis/2.1.6', 'Accept-Encoding': 'gzip, deflate, br', 'Accept': '*/*', 'Connection': 'keep-alive', 'tr_id': 'TTTC8434R', 'appkey': '***', 'appsecret': '***', 'Authorization': 'Bearer ***'}
+[06/16 10:03:28] Params: {'AFHR_FLPR_YN': ['N'], 'INQR_DVSN': ['02'], 'UNPR_DVSN': ['01'], 'FUND_STTL_ICLD_YN': ['Y'], 'FNCG_AMT_AUTO_RDPT_YN': ['N'], 'PRCS_DVSN': ['00'], 'CANO': ['64521213'], 'ACNT_PRDT_CD': ['01']}
+[06/16 10:03:28] Body: [EMPTY BODY]
+[06/16 10:03:29]   sell 468370(KODEX iShares 미국인플레이션국채액티브) 11주 @ 12,050.00 KRW
+[06/16 10:04:19]   sell 305080(TIGER 미국채10년) 14주 @ 13,600.00 KRW
+[06/16 10:04:20]   sell 305080(TIGER 미국채10년) 112주 @ 13,600.00 KRW
+[1;33m[06/16 10:04:20] WARNING: API 호출 횟수를 초과하였습니다.[0m
+[06/16 10:04:21]     [주문가능금액] KRW_2: 10,795,680원 (max_qty=360×30600=11,016,000, ask·98% 적용, 참고 ord_psbl_cash=1,470,874)
+[06/16 10:04:21]     [주문가능금액] KRW_1: 768,663원 (max_qty=27×29050=784,350, ask·98% 적용, 참고 ord_psbl_cash=261,776)
+[06/16 10:04:21]   buy 379810(KODEX 나스닥100) 180주 @ 30,600.00 KRW
+[1;33m[06/16 10:04:21] WARNING: API 호출 횟수를 초과하였습니다.[0m
+[06/16 10:04:22]   buy 411060(ACE KRX금현물) 14주 @ 29,050.00 KRW
+[06/16 10:04:23]   buy 469830(SOL 초단기채권) 75주 @ 54,000.00 KRW
+[06/16 10:04:23]   buy 411060(ACE KRX금현물) 2주 @ 29,050.00 KRW
+[06/16 10:04:24]   buy 469830(SOL 초단기채권) 11주 @ 54,000.00 KRW
+[06/16 10:04:25] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[06/16 10:04:25] KRW 리밸런싱 완료
+[slack_review] 전송 완료
+[snapshot] /Users/kimdhyeon/asset_reallocation_by_claude/STATUS.md 생성 완료
