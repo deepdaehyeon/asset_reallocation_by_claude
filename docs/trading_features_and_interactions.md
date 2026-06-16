@@ -103,4 +103,5 @@
 - [ ] `cooldown_days`도 config(`min_rebalance_interval_days`)에서 읽었는가?
 - [ ] core_satellite·vol_targeting·평활 등 현행 켜짐 기능을 의도대로 고정/토글했는가?
 - [ ] USD 단일통화 백테스트 한계 — 라이브 합성 순환매·실제 회전 미반영을 결론에 명시했는가?
+- [ ] **vol targeting 입력 괴리(2026-06-16 발견)**: 백테스트는 vol 계산에 `signal_px`(SPY·VIX·TLT·HYG)를 넘겨 유니버스 가중치와 교집합 0 → port_vol=0 → SPY `realized_vol`(features.py 고정 λ=0.94) 폴백. 라이브(run.py)는 실포트 유니버스 가격으로 portfolio EWMA vol 계산(config `ewma_lambda` 작동). **∴ config `ewma_lambda`는 백테스트에서 死 손잡이** — vol 반응속도 실험은 엔진 충실화 전엔 무효(experiment_2026-06-16_voltarget_lambda_sweep).
 - [ ] 평가는 고정 4지표(롤링CAGR·Ulcer·회복기간·Martin)로 했는가?([[feedback-evaluation-metrics-standard]])
