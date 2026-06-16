@@ -220,11 +220,11 @@ regime_targets:
     equity_individual: 0.08
     equity_developed:  0.02
     equity_emerging:   0.02
-    commodity:         0.18
+    commodity:         0.06   # 2026-06-16 사용자: 0.18 → 0.06 (라이브 직접 반영)
     managed_futures:   0.07   # 0.12 → 0.07 (Sharpe +0.44 12위)
     bond_usd:          0.00   # 2026-06-11 채권 KRW 통합 (→ bond_krw)
-    bond_tips:         0.08
-    bond_krw:          0.05   # 0.00 + bond_usd 0.05 (KRW-native)
+    bond_tips:         0.10   # 2026-06-16 사용자: 0.08 → 0.10 (라이브 직접 반영)
+    bond_krw:          0.15   # 2026-06-16 사용자: 0.05 → 0.15 (라이브 직접 반영)
     gold:              0.18
     cash:              0.14
 
