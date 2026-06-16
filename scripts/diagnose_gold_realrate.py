@@ -134,6 +134,48 @@ def main():
                   f"{s_dn['n']:>7}{s_dn['mean']:>9.2%}{s_dn['pos']:>7.0%}"
                   f"{s_up['n']:>7}{s_up['mean']:>9.2%}{s_up['pos']:>7.0%}{delta:>11.2%}")
 
+    # ── (3) 실질금리 '수준' 분할 (옵션1 정밀화) ───────────────────────────────
+    lvl = fred["real_rate_10y"].reindex(reg.index, method="ffill").ffill(limit=10)
+    lvl_c = lvl.loc[common]
+    med = float(lvl_c.median())
+    levsig = pd.Series(np.where(lvl_c < med, "수준낮음", "수준높음"), index=common)
+    print(f"\n{'='*82}")
+    print(f"  (3) 무조건 — 실질금리 '수준'별 금 forward 수익 (중앙값 {med:+.2f}% 기준)")
+    print(f"{'='*82}")
+    hdr = f"  {'그룹':>16}{'표본':>7}"
+    for H in HORIZONS:
+        hdr += f"{'평균'+str(H)+'d':>10}{'중앙'+str(H)+'d':>10}{'양(+)':>8}"
+    print(hdr); print("  " + "─" * (len(hdr)))
+    for grp in ["수준낮음", "수준높음"]:
+        days = levsig.index[levsig == grp]
+        row = f"  {grp:>16}{len(days):>7}"
+        for H in HORIZONS:
+            s = summarize(cell_rets(days, H))
+            row += f"{s['mean']:>10.2%}{s['med']:>10.2%}{s['pos']:>8.0%}" if s else f"{'—':>28}"
+        print(row)
+
+    for H in HORIZONS:
+        print(f"\n{'='*82}")
+        print(f"  (4) 레짐 통제 — forward {H}d 금 수익: 실질금리 수준낮음 vs 높음 (레짐별)")
+        print(f"{'='*82}")
+        h2 = (f"  {'레짐':>12}"
+              f"{'低표본':>7}{'低평균':>9}{'低양+':>7}"
+              f"{'高표본':>7}{'高평균':>9}{'高양+':>7}{'Δ평균(低-高)':>12}")
+        print(h2); print("  " + "─" * (len(h2)))
+        for rg in REGIMES:
+            rgdays = levsig.index[reg.loc[levsig.index] == rg]
+            d_lo = rgdays[levsig.loc[rgdays] == "수준낮음"]
+            d_hi = rgdays[levsig.loc[rgdays] == "수준높음"]
+            s_lo = summarize(cell_rets(d_lo, H))
+            s_hi = summarize(cell_rets(d_hi, H))
+            if not s_lo or not s_hi:
+                print(f"  {rg:>12}{'  (표본부족)':>20}")
+                continue
+            delta = s_lo["mean"] - s_hi["mean"]
+            print(f"  {rg:>12}"
+                  f"{s_lo['n']:>7}{s_lo['mean']:>9.2%}{s_lo['pos']:>7.0%}"
+                  f"{s_hi['n']:>7}{s_hi['mean']:>9.2%}{s_hi['pos']:>7.0%}{delta:>11.2%}")
+
     print("\n  판정: 레짐을 고정해도(2) 실질금리↓의 금 forward수익이 ↑보다 꾸준히(Δ>0) 높으면")
     print("  → 레짐이 놓친 실질금리 정보가 금 수익을 설명 = 드라이버 오버레이 가치 있음.")
     print("  레짐 고정 시 Δ가 사라지거나 부호 뒤섞이면 → 레짐이 이미 포착 = 오버레이 불필요.")
