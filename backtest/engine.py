@@ -348,7 +348,7 @@ class BacktestEngine:
                 eff_vol = realized_vol
 
             blended = apply_vol_targeting(blended, eff_vol, blend_cfg, regime=regime, blend_probs=blend_probs)
-            blended = apply_core_satellite(blended, self.config)
+            blended = apply_core_satellite(blended, self.config, eff_vol=eff_vol, vol_config=blend_cfg)
             class_max = self.config.get("class_max_weight", {})
             blended = apply_dynamic_class_caps(blended, class_max, vix) if vix > 0 else apply_class_caps(blended, class_max)
             usd_w, krw_w = derive_account_weights(

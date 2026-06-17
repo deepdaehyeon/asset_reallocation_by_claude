@@ -55,15 +55,24 @@ def blend_regime_targets(
     return blended
 
 
-def apply_core_satellite(sat: dict, config: dict, verbose: bool = False) -> dict:
+def apply_core_satellite(
+    sat: dict,
+    config: dict,
+    verbose: bool = False,
+    eff_vol: float | None = None,
+    vol_config: dict | None = None,
+) -> dict:
     """
     core+satellite 혼합: 일부를 고정 레짐(기본 Goldilocks) 코어로 묶는다.
 
     sat은 이미 blend+vol타겟이 적용된 satellite 비중(현행 엔진 산출).
-    core는 고정 레짐 타겟(vol·blend 없음). 반환 = core_ratio·core + (1-core_ratio)·sat.
+    core는 고정 레짐 타겟(기본 vol·blend 없음). 반환 = core_ratio·core + (1-core_ratio)·sat.
 
     config["core_satellite"] = {enabled, core_ratio, core_regime}. enabled=False이거나
     core_ratio<=0이면 sat을 그대로 반환(무회귀).
+
+    옵트인 core_vol_targeting: True이고 eff_vol이 주어지면 코어에도 core_regime 기준
+    vol targeting을 적용한다(축소분은 코어 내 cash로). 기본 False → 라이브 무변화.
     """
     cs = config.get("core_satellite", {})
     if not cs.get("enabled", False):
@@ -73,6 +82,11 @@ def apply_core_satellite(sat: dict, config: dict, verbose: bool = False) -> dict
         return sat
     core_regime = cs.get("core_regime", "Goldilocks")
     core = blend_regime_targets({core_regime: 1.0}, config)
+    if cs.get("core_vol_targeting", False) and eff_vol is not None:
+        core = apply_vol_targeting(
+            core, eff_vol, vol_config if vol_config is not None else config,
+            regime=core_regime, blend_probs={core_regime: 1.0},
+        )
     classes = set(core) | set(sat)
     combined = {c: cf * core.get(c, 0.0) + (1.0 - cf) * sat.get(c, 0.0) for c in classes}
     if verbose:

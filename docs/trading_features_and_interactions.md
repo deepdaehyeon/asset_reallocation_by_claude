@@ -18,14 +18,14 @@
 | # | 기능 | 위치 | 상태/값 | 하는 일 | 핵심 상호작용 |
 |---|---|---|---|---|---|
 | A0-1 | **레짐 블렌딩 (blend_regime_targets)** | `portfolio.py:11` | ✅ | 단일 레짐을 고르지 않고 HMM 사후확률로 5개 레짐 목표비중을 가중평균(연속 노출). 갑작스런 전환 충격 완화 | **거의 모든 A′ 기능(A7~A18)이 이 blend를 가공.** core30(A1)이 30%를 덮고, vol(A0-2)이 그 위에서 equity 축소. 평활(A12·A13)이 이 blend를 늦춤 |
-| A0-2 | **vol targeting** | `portfolio.py:168` | ✅ floor 0.65, 레짐별 목표 | 포트폴리오 EWMA 변동성이 레짐 목표(G0.13~C0.06) 초과 시 equity를 비례 축소(floor까지), 축소분 cash | **A6 drawdown_scaling과 이중축소(끈 이유).** A1 core30이 위성 70%로 희석. A4 VIX캡과 같은 위기에 동시 작동. floor 결론이 B1 리밸 모드에 의존 |
+| A0-2 | **vol targeting** | `portfolio.py:168` | ✅ floor 0.65, 레짐별 목표 ×1.25 | 포트폴리오 EWMA 변동성이 레짐 목표(G0.1625~C0.075, 2026-06-17 전체 ×1.25 상향) 초과 시 equity를 비례 축소(floor까지), 축소분 cash | **A6 drawdown_scaling과 이중축소(끈 이유).** A1 core30이 위성 70%로 희석. A4 VIX캡과 같은 위기에 동시 작동. floor 결론이 B1 리밸 모드에 의존 |
 | A0-2b | **blend_target_vol (목표변동성 확률블렌드)** | `portfolio.py:198`, `config.vol_targeting.blend_target_vol` | ✅ true (2026-06-17 라이브 채택) | 목표변동성을 확정레짐 단계 선택 대신 blend 확률 가중평균(연속). target_vol=Σp·vol | A7 regime_timing_source(룰 단계)를 대체하는 경로 — vol 단계가 룰이 아닌 blend로. A/B: 4지표 중립·tx↓·위기방어 무손상. 라이브 run.py 배선됨(monitor가 saved_blend_probs 저장→execute가 사용). [[experiment_2026-06-17_voltarget_blend]] |
 
 ### A1~. 부수 기능
 
 | # | 기능 | 위치 | 상태/값 | 하는 일 | 핵심 상호작용 |
 |---|---|---|---|---|---|
-| A1 | **core_satellite (core30)** | `portfolio.py:58` | ✅ ratio 0.30, Goldilocks | 자산 30%를 정적 Goldilocks로 고정, 70%만 엔진 운용 | **vol_targeting·corroboration_gate·blend 효과를 위성 70%로 희석.** 코어는 vol 면제(회복 앵커) |
+| A1 | **core_satellite (core30)** | `portfolio.py:58` | ✅ ratio 0.30, Goldilocks · `core_vol_targeting` ⬜ OFF | 자산 30%를 정적 Goldilocks로 고정, 70%만 엔진 운용. 코어는 기본 vol 면제 | **vol_targeting·corroboration_gate·blend 효과를 위성 70%로 희석.** 코어는 vol 면제(회복 앵커). 옵트인 `core_vol_targeting`=ON 시 코어에도 Goldilocks vol타겟 적용 → MaxDD −1.9%p·Ulcer↓(Martin 무손실)·tx +0.28%p([[experiment_2026-06-17_core_vol_targeting_ab]]) |
 | A2 | **corroboration_gate (레버 C)** | `regime.py:1214`, `engine.py:240` | ⛔ gamma 0.0 | rule이 risk-on인데 HMM이 단독 방어면 방어질량 회수 | core30이 효과 희석, crisis_priority_threshold가 면제, blend에 직접 작용 |
 | A3 | **class_max_weight (정적 상한)** | `portfolio.py:124` | ✅ | 자산군별 비중 상한, 초과분 cash | vol/core 적용 *후* 작동. equity_etf·bond·cash는 흡수자산이라 cap 없음 |
 | A4 | **dynamic_class_caps (VIX 동적 상한)** | `portfolio.py:144` | ✅ | VIX>30 시 commodity·equity_individual 상한 50%↓, >25 시 25%↓ | A3 위에 덧씌움. VIX 신호가 vol_targeting과 같은 위기에 동시 작동 |
