@@ -336,6 +336,9 @@ vol_targeting:
     Crisis:      0.06      # 위기 국면: 리스크 최소화
   use_portfolio_vol: true  # true: EWMA 포트폴리오 변동성 / false: SPY realized vol
   ewma_lambda: 0.94        # RiskMetrics 표준 λ
+  # 목표변동성을 확정레짐 단계가 아니라 blend 확률 가중평균(연속). A/B 4지표 중립·tx↓·
+  # 위기방어 무손상(docs/experiment_2026-06-17_voltarget_blend.md). 2026-06-17 라이브 채택.
+  blend_target_vol: true
   floor:       0.65        # equity 최대 35% 축소 — 레짐 사다리 스윕에서 4지표 전항목 우위 (2026-06-13, ladder f65 dominant)
   equity_asset_classes:
     - equity_etf
@@ -383,7 +386,9 @@ hmm:
   use_forward_hmm: false
   forward_hmm_horizon: 1
   rf_enabled: true         # BalancedRF 앙상블 (소수 레짐 탐지 보강)
-  rf_weight: 0.40          # RF 확률 가중치 (HMM 0.6 + RF 0.4)
+  # 0.40 → 0.70: RF(룰 베낀 안정 모델) 비중↑. 비율 스윕에서 RF60~80이 4지표 스윗스팟
+  # (순수 HMM 최악·회복 359일). docs/experiment_2026-06-17_rf_hmm_weight_sweep.md. 2026-06-17.
+  rf_weight: 0.70          # RF 확률 가중치 (HMM 0.3 + RF 0.7)
   # RF 라벨링 방식:
   #   rf_forward_window=0 (기본): 동일 시점의 detect_regime() 라벨 — 룰의 근사기 (자기참조)
   #   rf_forward_window=N>0 + rf_label_mode='rule_at_future':

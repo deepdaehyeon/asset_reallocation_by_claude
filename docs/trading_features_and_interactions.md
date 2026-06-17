@@ -19,7 +19,7 @@
 |---|---|---|---|---|---|
 | A0-1 | **레짐 블렌딩 (blend_regime_targets)** | `portfolio.py:11` | ✅ | 단일 레짐을 고르지 않고 HMM 사후확률로 5개 레짐 목표비중을 가중평균(연속 노출). 갑작스런 전환 충격 완화 | **거의 모든 A′ 기능(A7~A18)이 이 blend를 가공.** core30(A1)이 30%를 덮고, vol(A0-2)이 그 위에서 equity 축소. 평활(A12·A13)이 이 blend를 늦춤 |
 | A0-2 | **vol targeting** | `portfolio.py:168` | ✅ floor 0.65, 레짐별 목표 | 포트폴리오 EWMA 변동성이 레짐 목표(G0.13~C0.06) 초과 시 equity를 비례 축소(floor까지), 축소분 cash | **A6 drawdown_scaling과 이중축소(끈 이유).** A1 core30이 위성 70%로 희석. A4 VIX캡과 같은 위기에 동시 작동. floor 결론이 B1 리밸 모드에 의존 |
-| A0-2b | **blend_target_vol (목표변동성 확률블렌드)** | `portfolio.py:198`, `config.vol_targeting.blend_target_vol` | ⛔ false(백테스트만 검증) | 목표변동성을 확정레짐 단계 선택 대신 blend 확률 가중평균(연속). target_vol=Σp·vol | A7 regime_timing_source(룰 단계)를 대체하는 경로 — 켜면 vol 단계가 룰이 아닌 blend로. A/B: 4지표 중립·tx↓·위기방어 무손상. **라이브 run.py 미배선(fails-closed)**, OFF 유지. [[experiment_2026-06-17_voltarget_blend]] |
+| A0-2b | **blend_target_vol (목표변동성 확률블렌드)** | `portfolio.py:198`, `config.vol_targeting.blend_target_vol` | ✅ true (2026-06-17 라이브 채택) | 목표변동성을 확정레짐 단계 선택 대신 blend 확률 가중평균(연속). target_vol=Σp·vol | A7 regime_timing_source(룰 단계)를 대체하는 경로 — vol 단계가 룰이 아닌 blend로. A/B: 4지표 중립·tx↓·위기방어 무손상. 라이브 run.py 배선됨(monitor가 saved_blend_probs 저장→execute가 사용). [[experiment_2026-06-17_voltarget_blend]] |
 
 ### A1~. 부수 기능
 
@@ -47,7 +47,7 @@
 | A14 | **anomaly (IsolationForest)** | `anomaly` | ✅ penalty 0.5 | 이상시장 → 신뢰도 하향 | A11·A12 입력(독립신호, detect_regime 자기참조 없음) |
 | A15 | **stabilize_mapping + deadband** | `hmm` | ✅ db 0.3 | HMM state→regime 라벨 고정(가짜 플립 차단) | 레짐 안정성 → 리밸 빈도·blend에 간접 영향 |
 | A16 | **override_threshold** | `hmm` | ✅ 0.50 | HMM/RF 다수결 채택 속도 | 레짐 결정 속도 |
-| A17 | **RF 앙상블 (rf_weight/label_mode/forward_window)** | `hmm` | ✅ w0.40, rule_at_future, fw0 | HMM 0.6 + RF 0.4 확률 블렌딩 | blend_probs 자체를 바꿈. fw>0이면 forward-looking(자기참조 끊김) |
+| A17 | **RF 앙상블 (rf_weight/label_mode/forward_window)** | `hmm` | ✅ w0.70(2026-06-17 0.40→0.70), rule_at_future, fw0 | HMM 0.3 + RF 0.7 확률 블렌딩 | blend_probs 자체를 바꿈. RF↑=룰스럽고 안정(비율 스윕서 4지표 개선). fw>0이면 forward-looking([[experiment_2026-06-17_rf_hmm_weight_sweep]]) |
 | A18 | **min_covar / use_forward_hmm** | `hmm` | ✅ 1e-3 / ⛔ | HMM 방출 뾰족함(포화) / 1-step 예측 | min_covar↑면 포화 완화 → blend 분산 |
 | A19 | **feature_smoothing (노이즈 피처 5일 평활)** | `features.py` `compute_features`/`compute_feature_matrix`, `config.feature_smoothing` | ✅ window 5, 6피처 | HMM 입력 빠른 시장 피처(vix_term_structure·vix·credit_signal·momentum_1m·commodity_mom_1m·dxy_mom_1m)를 5일 rolling 평균으로 평활 → 일별 표류↓ | **HMM 입력 자체를 늦춤** → blend·acting regime·vol 티어 전부 간접 영향. 백테스트는 리밸일만 재계산이라 회전 감소 미반영(본 효과는 라이브). [[experiment_2026-06-17_noise_smoothing_seed_fix]] |
 | A20 | **hmm.fit_seeds (fit 시드 고정)** | `regime.py` `HmmRegimeClassifier`, `config.hmm.fit_seeds` | ✅ [42] | 매일 비지도 재학습 시 사용할 시드 목록. 단일 [42]면 학습이 결정적 → 센트로이드 점프·앵커 매핑 흔들림 제거. None이면 [42,7,13] 다중→최고점수 | **A15 stabilize_mapping(앵커)과 직결**: 다중 시드면 일별 승자 교체로 센트로이드 점프 → 앵커 매핑 실패. 단일 시드가 그 churn 근원 제거 |

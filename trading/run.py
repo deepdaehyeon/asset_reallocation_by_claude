@@ -509,13 +509,14 @@ def _compute_targets(
     total_krw_only: float,
     regime: str = "",
     vix: float = 0.0,
+    blend_probs: dict | None = None,
 ) -> Tuple[dict, dict]:
     """
     단계 5b-5d: vol targeting → dynamic class caps → 계좌별 종목 비중 도출.
 
     Returns (target_usd, target_krw)
     """
-    blended = apply_vol_targeting(blended_targets, realized_vol, config, regime=regime)
+    blended = apply_vol_targeting(blended_targets, realized_vol, config, regime=regime, blend_probs=blend_probs)
     blended = apply_core_satellite(blended, config, verbose=True)
     class_max = config.get("class_max_weight", {})
     if vix > 0:
@@ -673,6 +674,7 @@ def run_monitor(config: dict, state: dict, messenger: Messenger, args) -> None:
         total_krw_only,
         regime=market["regime"],
         vix=market["features"]["vix"],
+        blend_probs=market["blend_probs"],
     )
 
     print("[6] 트리거 계산 중...")
@@ -714,6 +716,7 @@ def run_monitor(config: dict, state: dict, messenger: Messenger, args) -> None:
         "trigger_reason_usd":     reason_usd,
         "trigger_set_at":         datetime.now().isoformat(),
         "saved_blended_targets":  blended_targets,
+        "saved_blend_probs":      dict(market["blend_probs"]),
         "saved_realized_vol":     features["realized_vol"],
         "saved_eff_vol":          round(eff_vol, 6),
         "saved_regime":           market["regime"],
@@ -795,6 +798,7 @@ def run_execution(config: dict, state: dict, messenger: Messenger, args) -> None
     print(f"[{side.upper()}] 트리거 확인: {reason}")
 
     blended_targets = state.get("saved_blended_targets")
+    saved_blend_probs = state.get("saved_blend_probs")
     eff_vol = float(state.get("saved_eff_vol", state.get("saved_realized_vol", 0.0)))
     regime = state.get("saved_regime", DEFAULT_REGIME)
     combined_conf = float(state.get("saved_confidence", 0.0))
@@ -861,7 +865,7 @@ def run_execution(config: dict, state: dict, messenger: Messenger, args) -> None
     print("[5] 목표 비중 산출 중...")
     target_usd, target_krw = _compute_targets(
         blended_targets, eff_vol, config, total_usd_krw, total_krw_only,
-        regime=regime, vix=saved_vix,
+        regime=regime, vix=saved_vix, blend_probs=saved_blend_probs,
     )
 
     print("[6] 결제 상태 점검 중...")
