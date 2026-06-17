@@ -328,12 +328,15 @@ class_max_weight:
 vol_targeting:
   enabled: true
   target_vol:  0.10        # 레짐 미지정 시 기본값
+  # 2026-06-17: 전 레짐 ×1.25 상향(방어 발동선 완화). 사용자 채택 — 회전율 절감 우선.
+  #   target_vol 상향 스윕(×1.0~2.0+OFF)에서 ×1.25가 위기 추가낙폭 -0.3%p로 최소이면서
+  #   tx 2.53→2.44%·CAGR +0.4%p. 4지표 무차별 구간. docs/experiment_2026-06-17_voltarget_threshold_sweep.md
   regime_target_vol:
-    Goldilocks:  0.13      # 성장 국면: 리스크 허용도 높음
-    Reflation:   0.11
-    Slowdown:    0.09
-    Stagflation: 0.08
-    Crisis:      0.06      # 위기 국면: 리스크 최소화
+    Goldilocks:  0.1625    # 0.13 ×1.25 — 성장 국면: 리스크 허용도 높음
+    Reflation:   0.1375    # 0.11 ×1.25
+    Slowdown:    0.1125    # 0.09 ×1.25
+    Stagflation: 0.10      # 0.08 ×1.25
+    Crisis:      0.075     # 0.06 ×1.25 — 위기 국면: 리스크 최소화
   use_portfolio_vol: true  # true: EWMA 포트폴리오 변동성 / false: SPY realized vol
   ewma_lambda: 0.94        # RiskMetrics 표준 λ
   # 목표변동성을 확정레짐 단계가 아니라 blend 확률 가중평균(연속). A/B 4지표 중립·tx↓·
