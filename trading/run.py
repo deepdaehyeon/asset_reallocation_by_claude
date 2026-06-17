@@ -214,7 +214,13 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
         print(f"    FRED 조회  : {', '.join(fred_data.keys())}")
 
     print("[2] 피처 계산 중...")
-    features = compute_features(prices, fred_data or None)
+    _fs_cfg = config.get("feature_smoothing", {}) or {}
+    _smooth_window = int(_fs_cfg.get("window", 0)) if _fs_cfg.get("enabled") else 0
+    _smooth_features = list(_fs_cfg.get("features", [])) if _fs_cfg.get("enabled") else None
+    features = compute_features(
+        prices, fred_data or None,
+        smooth_window=_smooth_window, smooth_features=_smooth_features,
+    )
     print(f"    momentum_1m : {features['momentum_1m']:+.2%}")
     print(f"    momentum_3m : {features['momentum_3m']:+.2%}")
     print(f"    realized_vol: {features['realized_vol']:.2%} (연환산)")
@@ -236,7 +242,9 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
     hmm_min = hmm_cfg.get("min_samples", 100)
     override_thr = hmm_cfg.get("override_threshold", 0.60)
     predict_lookback = hmm_cfg.get("predict_lookback", 60)
-    feature_matrix = compute_feature_matrix(prices)
+    feature_matrix = compute_feature_matrix(
+        prices, smooth_window=_smooth_window, smooth_features=_smooth_features
+    )
     raw_regime = rule_regime
     hmm_probs: dict = {}
 
@@ -265,6 +273,7 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
             stabilize_mapping=hmm_cfg.get("stabilize_mapping", False),
             mapping_deadband=hmm_cfg.get("mapping_deadband", 0.75),
             min_covar=hmm_cfg.get("min_covar", 1e-3),
+            fit_seeds=hmm_cfg.get("fit_seeds"),
         )
         hmm_clf.set_anchor(state.get("hmm_mapping_anchor"))
         import warnings

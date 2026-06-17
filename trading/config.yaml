@@ -365,6 +365,10 @@ hmm:
   #   0.05~0.25 — floor를 올려 방출을 넓힘 → 여러 상태가 확률 분담(포화 완화)
   #   docs/experiment_2026-06-09_hmm_min_covar.md 검증 후 값 결정.
   min_covar: 0.001
+  # fit 시드 고정 — 다중 시드(예: [42,7,13])는 매일 '최고점수' 시드가 바뀌어
+  #   센트로이드가 점프 → 앵커 매핑이 흔들리며 레짐 churn을 유발한다.
+  #   단일 시드 [42]로 고정하면 일별 재학습이 결정적이 되어 churn 근원 하나를 제거.
+  fit_seeds: [42]
   # override_threshold 0.60 → 0.50: HMM/RF 다수결을 더 빠르게 채택
   # Crisis 진입 후 21일 +0.06% → -0.30% (후행에서 적시로 회복).
   override_threshold: 0.50
@@ -420,6 +424,22 @@ hmm:
 # 이상 탐지 (Option C — detect_regime 자기참조 없는 독립 신호)
 # IsolationForest로 현재 시장이 학습 분포에서 얼마나 벗어났는지 측정.
 # 높은 anomaly_score → 레짐 신뢰도 하향 → confidence_threshold(0.40) 미달 시 이전 확정 레짐 유지.
+# 빠른 노이즈 피처 평활 (2026-06-17): HMM/RF 입력 중 일별 출렁임이 큰 시장 피처를
+#   최근 N일 평균으로 평활해 레짐 확률의 일별 표류(=회전율 유발)를 억제한다.
+#   측정(2023~2025): vix_term_structure·vix·credit_signal·momentum_1m·commodity_mom_1m·
+#   dxy_mom_1m이 일별출렁임 상위 — 거시 피처(cpi/m2/nfci)는 거의 안 움직임.
+#   compute_features(라이브 단일시점)·compute_feature_matrix(HMM학습) 동일 윈도우 적용.
+feature_smoothing:
+  enabled: true
+  window: 5                    # rolling 5영업일 평균
+  features:
+    - vix_term_structure
+    - vix
+    - credit_signal
+    - momentum_1m
+    - commodity_mom_1m
+    - dxy_mom_1m
+
 anomaly:
   enabled: true
   contamination: 0.05          # IsolationForest 가정 이상치 비율 (학습 시)

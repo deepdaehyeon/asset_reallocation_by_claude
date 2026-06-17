@@ -2,7 +2,7 @@
 
 > **요약**: ① 기본 로직(레짐 감지·블렌딩·vol targeting·레짐 기반 리밸런싱)을 제외하고, 실제 매매에 영향을 주는 모든 부수 기능을 코드(`engine.py`·`portfolio.py`·`regime.py`·`run.py`·`executor.py`·`settlement.py`)·`config.yaml`에서 추출해 (A) 비중 형성, (B) 리밸런싱 트리거, (C) 실행·계좌·결제 3계층으로 리스트업했다. ② 각 기능의 현재 on/off·값·핵심 상호작용·근거 문서를 표로 정리하고, 한 기능 실험이 다른 기능에 의해 교란/희석되는 조합(예: core30이 vol·gate를 위성 70%로 희석, vol_targeting↔drawdown_scaling 이중축소, floor 실험↔리밸 모드)을 상호작용 맵에 명시했다. ③ 이 문서는 새 기능 실험 전 반드시 확인해 "함께 켜져 있어 결과를 흐릴 수 있는 기능"을 사용자에게 미리 알리고 실험 범위(고정/토글 대상)를 합의하기 위한 레퍼런스다(CLAUDE.md 규칙5).
 
-- 최종 갱신: 2026-06-13
+- 최종 갱신: 2026-06-17
 - 범위: **기본 엔진 로직(레짐 블렌딩·vol targeting 포함) + 모든 부수 기능**. 매매에 영향을 주는 기능 전부.
 - 상태 표기: ✅켜짐 / ⛔꺼짐(코드·knob 보존) / 🔒고정값
 
@@ -48,6 +48,8 @@
 | A16 | **override_threshold** | `hmm` | ✅ 0.50 | HMM/RF 다수결 채택 속도 | 레짐 결정 속도 |
 | A17 | **RF 앙상블 (rf_weight/label_mode/forward_window)** | `hmm` | ✅ w0.40, rule_at_future, fw0 | HMM 0.6 + RF 0.4 확률 블렌딩 | blend_probs 자체를 바꿈. fw>0이면 forward-looking(자기참조 끊김) |
 | A18 | **min_covar / use_forward_hmm** | `hmm` | ✅ 1e-3 / ⛔ | HMM 방출 뾰족함(포화) / 1-step 예측 | min_covar↑면 포화 완화 → blend 분산 |
+| A19 | **feature_smoothing (노이즈 피처 5일 평활)** | `features.py` `compute_features`/`compute_feature_matrix`, `config.feature_smoothing` | ✅ window 5, 6피처 | HMM 입력 빠른 시장 피처(vix_term_structure·vix·credit_signal·momentum_1m·commodity_mom_1m·dxy_mom_1m)를 5일 rolling 평균으로 평활 → 일별 표류↓ | **HMM 입력 자체를 늦춤** → blend·acting regime·vol 티어 전부 간접 영향. 백테스트는 리밸일만 재계산이라 회전 감소 미반영(본 효과는 라이브). [[experiment_2026-06-17_noise_smoothing_seed_fix]] |
+| A20 | **hmm.fit_seeds (fit 시드 고정)** | `regime.py` `HmmRegimeClassifier`, `config.hmm.fit_seeds` | ✅ [42] | 매일 비지도 재학습 시 사용할 시드 목록. 단일 [42]면 학습이 결정적 → 센트로이드 점프·앵커 매핑 흔들림 제거. None이면 [42,7,13] 다중→최고점수 | **A15 stabilize_mapping(앵커)과 직결**: 다중 시드면 일별 승자 교체로 센트로이드 점프 → 앵커 매핑 실패. 단일 시드가 그 churn 근원 제거 |
 
 ## B. 리밸런싱 트리거 (언제 매매할지)
 
@@ -96,6 +98,7 @@
 | 리밸 트리거 (B1·B2·B5) | C1 USD waterfall, B7 turnover cap | 백테스트 회전 ≠ 라이브 회전(USD합성). drift 줄여도 라이브 과회전 안 줄수도([[project-live-turnover-vs-backtest-gap]]) |
 | 유니버스 종목 추가/교체 | C1 waterfall, C7 illiquid, A3/A4 caps, asset_routing | KRW/USD 라우팅·유동성·상한·합성쌍(synthetic_pairs) 동시 갱신 필요 |
 | drawdown_scaling 재가동 (A6) | vol_targeting, B3 DD트리거 | vol과 이중축소(끈 이유). B3 트리거는 별개로 유지 중 |
+| 노이즈 평활/시드 (A19·A20) | A12/A13 평활, A15 앵커, B1 리밸 모드 | A19는 HMM *입력*을 늦추고 A12/A13은 *출력*(blend)을 늦춤 — 회전 감소 효과가 겹쳐 귀속 모호. A20은 A15 앵커 안정성과 직결. 백테스트는 회전 효과 미반영(라이브 모니터링 필요) |
 
 ## 백테스트 충실도 체크리스트 (실험 코드 작성 시)
 

@@ -118,6 +118,7 @@ class BacktestEngine:
         self.predict_lookback = hmm_cfg.get("predict_lookback", 60)
         self.rf_enabled = hmm_cfg.get("rf_enabled", True)
         self.rf_weight = float(hmm_cfg.get("rf_weight", 0.40))
+        self.hmm_fit_seeds = list(hmm_cfg.get("fit_seeds", [])) or None
         self.rf_forward_window = int(hmm_cfg.get("rf_forward_window", 0))
         self.rf_label_mode = str(hmm_cfg.get("rf_label_mode", "rule_at_future"))
         self.confidence_method = str(
@@ -160,6 +161,11 @@ class BacktestEngine:
         self.hmm_min_covar = float(hmm_cfg.get("min_covar", 1e-3))
         self._hmm_anchor: list = []
 
+        # 빠른 노이즈 피처 평활 (config feature_smoothing) — HMM/RF/rule 입력 공용.
+        fs_cfg = config.get("feature_smoothing", {}) or {}
+        self.smooth_window = int(fs_cfg.get("window", 0)) if fs_cfg.get("enabled") else 0
+        self.smooth_features = list(fs_cfg.get("features", [])) if fs_cfg.get("enabled") else None
+
         eq_classes = set(config.get("vol_targeting", {}).get(
             "equity_asset_classes",
             ["equity_etf", "equity_factor", "equity_individual"],
@@ -186,7 +192,9 @@ class BacktestEngine:
         if len(sig) < 30:
             return "Slowdown", {r: 1.0 / len(REGIMES) for r in REGIMES}, "Slowdown", 0.0, 0.0, 0.0
 
-        features = compute_features(sig)
+        features = compute_features(
+            sig, smooth_window=self.smooth_window, smooth_features=self.smooth_features
+        )
         rule_regime = detect_regime(features)
         blend: Dict[str, float] = {r: 0.0 for r in REGIMES}
 
@@ -196,7 +204,10 @@ class BacktestEngine:
                 if self.fred_history is not None and not self.fred_history.empty
                 else None
             )
-            fm = compute_feature_matrix(sig, fred_slice)
+            fm = compute_feature_matrix(
+                sig, fred_slice,
+                smooth_window=self.smooth_window, smooth_features=self.smooth_features,
+            )
             if len(fm) >= self.hmm_min:
                 clf = HmmRegimeClassifier(
                     unsupervised_mapping=self.unsupervised_mapping,
@@ -206,6 +217,7 @@ class BacktestEngine:
                     stabilize_mapping=self.stabilize_mapping,
                     mapping_deadband=self.mapping_deadband,
                     min_covar=self.hmm_min_covar,
+                    fit_seeds=self.hmm_fit_seeds,
                 )
                 clf.set_anchor(self._hmm_anchor)
                 # hmmlearn EM은 경계 케이스에서 수렴 경고가 잦다.

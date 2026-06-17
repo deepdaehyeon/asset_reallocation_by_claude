@@ -88,12 +88,19 @@ def _safe_series(prices: pd.DataFrame, ticker: str) -> pd.Series:
     return prices[ticker].dropna()
 
 
-def compute_features(prices: pd.DataFrame, fred_data: dict | None = None) -> dict:
+def compute_features(
+    prices: pd.DataFrame,
+    fred_data: dict | None = None,
+    smooth_window: int = 0,
+    smooth_features: list[str] | None = None,
+) -> dict:
     """
     레짐 감지에 쓰이는 수치 피처를 계산한다.
 
     prices    : columns에 SPY / ^VIX / TLT / HYG / [DX-Y.NYB] / [DJP] 포함한 종가 DataFrame
     fred_data : fetch_fred_data() 반환값 (없으면 None)
+    smooth_window   : >1이면 smooth_features에 든 빠른 노이즈 피처를 최근 N일 평균으로 평활.
+    smooth_features : 평활 대상 피처명 리스트 (config feature_smoothing.features).
 
     SPY는 필수. VIX/TLT/HYG가 누락되면 보수적 중립값(VIX 20, credit_signal 0)으로 폴백.
     """
@@ -106,14 +113,30 @@ def compute_features(prices: pd.DataFrame, fred_data: dict | None = None) -> dic
 
     rets = spy.pct_change().dropna()
 
-    momentum_1m = _safe_mom(spy, 22)
+    # 빠른 노이즈 피처 평활: 시리즈의 최근 N일 평균을 단일값으로 사용 (HMM/RF 일별 출렁임 억제).
+    _W = int(smooth_window) if (smooth_window and smooth_features) else 0
+    _sf = set(smooth_features or [])
+
+    def _sm(name: str, series: pd.Series, fallback: float) -> float:
+        if _W > 1 and name in _sf:
+            s = series.dropna()
+            if len(s) >= 2:
+                return float(s.tail(_W).mean())
+        return float(fallback)
+
+    momentum_1m = _sm("momentum_1m", spy.pct_change(22, fill_method=None), _safe_mom(spy, 22))
     momentum_3m = _safe_mom(spy, 63)
     realized_vol = _ewma_vol(rets)
-    vix_level = float(vix.iloc[-1]) if len(vix) > 0 else 20.0
+    vix_level = _sm("vix", vix, float(vix.iloc[-1]) if len(vix) > 0 else 20.0)
 
     # credit_signal: HYG-TLT 모멘텀 차. 둘 다 22일치 있어야 의미 있음.
     if len(hyg) > 22 and len(tlt) > 22:
-        credit_signal = _safe_mom(hyg, 22) - _safe_mom(tlt, 22)
+        credit_raw = _safe_mom(hyg, 22) - _safe_mom(tlt, 22)
+        credit_signal = _sm(
+            "credit_signal",
+            hyg.pct_change(22, fill_method=None) - tlt.pct_change(22, fill_method=None),
+            credit_raw,
+        )
     else:
         credit_signal = 0.0
 
@@ -133,17 +156,22 @@ def compute_features(prices: pd.DataFrame, fred_data: dict | None = None) -> dic
     # 달러 인덱스 모멘텀
     dxy = _safe_series(prices, "DX-Y.NYB")
     if len(dxy) > 22:
-        features["dxy_mom_1m"] = _safe_mom(dxy, 22)
+        features["dxy_mom_1m"] = _sm(
+            "dxy_mom_1m", dxy.pct_change(22, fill_method=None), _safe_mom(dxy, 22)
+        )
 
     # 원자재 모멘텀
     djp = _safe_series(prices, "DJP")
     if len(djp) > 22:
-        features["commodity_mom_1m"] = _safe_mom(djp, 22)
+        features["commodity_mom_1m"] = _sm(
+            "commodity_mom_1m", djp.pct_change(22, fill_method=None), _safe_mom(djp, 22)
+        )
 
     # VIX term structure: VIX9D - VIX (음수=평상 contango, 양수=fear backwardation)
     vix9d = _safe_series(prices, "^VIX9D")
     if len(vix9d) > 0 and len(vix) > 0:
-        features["vix_term_structure"] = float(vix9d.iloc[-1]) - float(vix.iloc[-1])
+        ts_raw = float(vix9d.iloc[-1]) - float(vix.iloc[-1])
+        features["vix_term_structure"] = _sm("vix_term_structure", vix9d - vix, ts_raw)
 
     if fred_data:
         # credit_signal은 항상 가격기반으로 유지 (FRED는 스케일 ±0.25라 임계값 불일치).
@@ -188,12 +216,16 @@ def compute_rolling_correlation(prices: pd.DataFrame, window: int = 60) -> float
 def compute_feature_matrix(
     prices: pd.DataFrame,
     fred_history: pd.DataFrame | None = None,
+    smooth_window: int = 0,
+    smooth_features: list[str] | None = None,
 ) -> pd.DataFrame:
     """
     HMM/RF 학습을 위한 일별 피처 행렬을 계산한다.
 
     prices       : SPY / ^VIX / TLT / HYG / [DX-Y.NYB] / [DJP] 종가 DataFrame
     fred_history : fetch_fred_history() 반환 DataFrame (없으면 가격 파생 피처만 사용)
+    smooth_window   : >1이면 smooth_features 컬럼을 rolling(N) 평균으로 평활 (compute_features와 동일 취지).
+    smooth_features : 평활 대상 피처명 리스트.
 
     Returns:
         DataFrame with columns ⊆ PRICE_FEATURE_COLS + MACRO_FEATURE_COLS, index = date
@@ -232,6 +264,13 @@ def compute_feature_matrix(
     # fillna(0)으로 채우는 것은 학습 noise를 만드는 부작용이 있어 회피.
     if "^VIX9D" in prices.columns:
         data["vix_term_structure"] = prices["^VIX9D"] - prices["^VIX"]
+
+    # 빠른 노이즈 피처 평활 (compute_features의 단일시점 평활과 동일 취지·동일 윈도우).
+    if smooth_window and smooth_features and int(smooth_window) > 1:
+        W = int(smooth_window)
+        for col in smooth_features:
+            if col in data:
+                data[col] = data[col].rolling(W, min_periods=1).mean()
 
     matrix = pd.DataFrame(data).dropna()
 

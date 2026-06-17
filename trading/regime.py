@@ -274,7 +274,12 @@ class HmmRegimeClassifier:
         stabilize_mapping: bool = False,
         mapping_deadband: float = 0.75,
         min_covar: float = 1e-3,
+        fit_seeds: list[int] | None = None,
     ) -> None:
+        # EM 학습 시드. 여러 개면 최고(수렴·우도) 모델 선택 — 단, 데이터 창이 하루 밀릴 때
+        # 승자 시드가 바뀌면 군집 중심이 점프해 앵커 매핑이 깨지고 라벨이 플립한다.
+        # 단일 시드([42])로 고정하면 그 일별 시드-스위칭 변동이 사라진다(회전 억제).
+        self._fit_seeds = [int(s) for s in fit_seeds] if fit_seeds else [42, 7, 13]
         self._model = None
         self._scaler = None
         self._state_to_regime: dict[int, str] = {}
@@ -348,7 +353,7 @@ class HmmRegimeClassifier:
             return m
 
         candidates = []
-        for seed in (42, 7, 13):
+        for seed in self._fit_seeds:
             m = _fit_once(seed)
             converged = bool(getattr(getattr(m, "monitor_", None), "converged", False))
             score = float(m.score(X_scaled))
