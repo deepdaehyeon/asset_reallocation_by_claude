@@ -170,6 +170,7 @@ def apply_vol_targeting(
     realized_vol: float,
     config: dict,
     regime: str = "",
+    blend_probs: dict | None = None,
 ) -> dict:
     """
     포트폴리오 실현 변동성(EWMA 연환산)이 목표를 초과할 때 equity 비중을 비례 축소한다.
@@ -177,6 +178,12 @@ def apply_vol_targeting(
     레짐별 target_vol 지원:
       Goldilocks 13% / Reflation 11% / Slowdown 9% / Stagflation 8% / Crisis 6%
     regime 미지정 시 config의 target_vol(기본 10%)을 사용한다.
+
+    blend_target_vol(옵션): vol_targeting.blend_target_vol=True이고 blend_probs가 주어지면
+      목표변동성을 단일 레짐이 아니라 blend 확률로 가중평균한다(연속 단계).
+      target_vol = Σ p[r]·regime_vols[r] / Σ p[r]  (regime_vols에 있는 레짐만).
+      비중 블렌딩과 동일 철학. 단 룰 빠른진입(regime_timing_source=rule)의 속도는 둔해질 수 있어
+      A/B 검증 대상 — 기본 OFF. ([[experiment_2026-06-17_voltarget_blend]])
 
     scale = clip(target_vol / portfolio_vol, floor, 1.0)
     레버리지 없음: portfolio_vol < target_vol 이면 scale = 1.0 유지.
@@ -195,7 +202,14 @@ def apply_vol_targeting(
         "Crisis":      0.06,
     }
     regime_vols = vol_cfg.get("regime_target_vol", _regime_defaults)
-    if regime and regime in regime_vols:
+    if vol_cfg.get("blend_target_vol", False) and blend_probs:
+        present = {r: float(regime_vols[r]) for r in regime_vols if r in blend_probs}
+        mass = sum(float(blend_probs[r]) for r in present)
+        if mass > 0:
+            target_vol = sum(float(blend_probs[r]) * v for r, v in present.items()) / mass
+        else:
+            target_vol = float(vol_cfg.get("target_vol", 0.10))
+    elif regime and regime in regime_vols:
         target_vol = float(regime_vols[regime])
     else:
         target_vol = float(vol_cfg.get("target_vol", 0.10))
