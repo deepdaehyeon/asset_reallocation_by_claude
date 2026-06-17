@@ -9,6 +9,18 @@ _CHANNEL = "C02SGLQV529"
 _MENTION = "김대현"
 
 
+def _format_probs(probs: Optional[Dict[str, float]], threshold: float = 0.05) -> str:
+    """레짐 확률 dict를 '`레짐` NN%' 내림차순 문자열로 포맷. 비면 '—'."""
+    if not probs:
+        return "—"
+    parts = [
+        f"`{r}` {p:.0%}"
+        for r, p in sorted(probs.items(), key=lambda x: -x[1])
+        if p >= threshold
+    ]
+    return "  ".join(parts) if parts else "—"
+
+
 class Messenger:
     def __init__(self) -> None:
         token = os.getenv("SLACK_TOKEN")
@@ -22,6 +34,24 @@ class Messenger:
             self._client.chat_postMessage(channel=_CHANNEL, text=body)
         except Exception as e:
             print(f"[Slack 오류] {e}")
+
+    @staticmethod
+    def _regime_prob_lines(
+        hmm_probs: Optional[Dict[str, float]],
+        rf_probs: Optional[Dict[str, float]],
+        blend_probs: Dict[str, float],
+    ) -> str:
+        """HMM·RF·가중합 레짐 확률을 각각 인용 줄로 반환.
+
+        HMM이 비활성/데이터 부족이면 hmm_probs·rf_probs가 비어 가중합 한 줄만 표시한다.
+        """
+        lines = []
+        if hmm_probs:
+            lines.append(f"> HMM: {_format_probs(hmm_probs)}")
+        if rf_probs:
+            lines.append(f"> RF: {_format_probs(rf_probs)}")
+        lines.append(f"> 가중합: {_format_probs(blend_probs)}")
+        return "\n".join(lines)
 
     def send_start(
         self,
@@ -105,6 +135,8 @@ class Messenger:
         trigger_usd: bool,
         reason_krw: str,
         reason_usd: str,
+        hmm_probs: Optional[Dict[str, float]] = None,
+        rf_probs: Optional[Dict[str, float]] = None,
     ) -> None:
         conf_str = f"`{confidence:.0%}`" if confidence > 0 else "—"
 
@@ -114,11 +146,7 @@ class Messenger:
         else:
             filter_str = f"확정 `{regime}`"
 
-        prob_str = "  ".join(
-            f"`{r}` {p:.0%}"
-            for r, p in sorted(blend_probs.items(), key=lambda x: -x[1])
-            if p >= 0.05
-        )
+        prob_lines = self._regime_prob_lines(hmm_probs, rf_probs, blend_probs)
 
         krw_icon = ":bell:" if trigger_krw else ":white_circle:"
         usd_icon = ":bell:" if trigger_usd else ":white_circle:"
@@ -129,7 +157,7 @@ class Messenger:
         text = (
             f":bar_chart: *모니터링 완료*\n"
             f"> 레짐: {filter_str} | 신뢰도 {conf_str}\n"
-            f"> HMM: {prob_str}\n"
+            f"{prob_lines}\n"
             f"> VIX `{features.get('vix', 0):.1f}` | "
             f"모멘텀1M `{features.get('momentum_1m', 0):+.1%}` | "
             f"모멘텀3M `{features.get('momentum_3m', 0):+.1%}` | "
@@ -151,6 +179,8 @@ class Messenger:
         features: Dict[str, float],
         confidence: float,
         blend_probs: Dict[str, float],
+        hmm_probs: Optional[Dict[str, float]] = None,
+        rf_probs: Optional[Dict[str, float]] = None,
     ) -> None:
         conf_str = f"`{confidence:.0%}`" if confidence > 0 else "—"
 
@@ -161,12 +191,7 @@ class Messenger:
         else:
             filter_str = f"확정 `{regime}`"
 
-        # HMM 확률 (5% 이상만 표시)
-        prob_str = "  ".join(
-            f"`{r}` {p:.0%}"
-            for r, p in sorted(blend_probs.items(), key=lambda x: -x[1])
-            if p >= 0.05
-        )
+        prob_lines = self._regime_prob_lines(hmm_probs, rf_probs, blend_probs)
 
         hy_str = f" | HY {features['hy_spread']:.2f}%" if "hy_spread" in features else ""
         curve_str = f" | 10Y-2Y {features['curve_10y2y']:+.2f}%" if "curve_10y2y" in features else ""
@@ -174,7 +199,7 @@ class Messenger:
         text = (
             f":mag: *[Dry-Run] 레짐 분석 결과*\n"
             f"> 레짐: {filter_str} | 신뢰도 {conf_str}\n"
-            f"> HMM 분포: {prob_str}\n"
+            f"{prob_lines}\n"
             f"> VIX `{features.get('vix', 0):.1f}` | "
             f"모멘텀1M `{features.get('momentum_1m', 0):+.1%}` | "
             f"모멘텀3M `{features.get('momentum_3m', 0):+.1%}` | "

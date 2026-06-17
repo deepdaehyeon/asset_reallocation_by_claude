@@ -247,6 +247,8 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
     )
     raw_regime = rule_regime
     hmm_probs: dict = {}
+    hmm_only_probs: dict = {}  # RF 블렌드 전 순수 HMM 확률 (Slack 표시용)
+    rf_only_probs: dict = {}   # 순수 RF 확률 (Slack 표시용)
 
     rf_enabled = hmm_cfg.get("rf_enabled", True)
     rf_weight = float(hmm_cfg.get("rf_weight", 0.40))
@@ -330,6 +332,7 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
         else:
             hmm_probs = hmm_clf.predict_proba(seq)
             hmm_label = "HMM 예측"
+        hmm_only_probs = dict(hmm_probs)
         hmm_top = max(hmm_probs, key=hmm_probs.get)
         print(f"    규칙 기반  : {rule_regime}")
         print(
@@ -349,6 +352,7 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
             )
             rf_clf.fit(feature_matrix)
             rf_probs = rf_clf.predict_proba(features)
+            rf_only_probs = dict(rf_probs)
             rf_top = max(rf_probs, key=rf_probs.get)
             label_tag = f" [label={rf_clf.label_method}]" if rf_forward_window > 0 else ""
             print(
@@ -493,6 +497,8 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
         "features": features,
         "regime": regime,
         "blend_probs": blend_probs,
+        "hmm_probs": hmm_only_probs,
+        "rf_probs": rf_only_probs,
         "combined_conf": combined_conf,
         "regime_changed": regime_changed,
         "regime_filter": regime_filter,
@@ -622,6 +628,8 @@ def run_monitor(config: dict, state: dict, messenger: Messenger, args) -> None:
             features=market["features"],
             confidence=market["combined_conf"],
             blend_probs=market["blend_probs"],
+            hmm_probs=market["hmm_probs"],
+            rf_probs=market["rf_probs"],
         )
         print("━" * 50)
         print("모니터링 완료 (dry-run)")
@@ -743,6 +751,8 @@ def run_monitor(config: dict, state: dict, messenger: Messenger, args) -> None:
         features=features,
         confidence=market["combined_conf"],
         blend_probs=market["blend_probs"],
+        hmm_probs=market["hmm_probs"],
+        rf_probs=market["rf_probs"],
         total_krw=total_krw,
         drawdown=drawdown,
         drift_krw=drift_krw,
