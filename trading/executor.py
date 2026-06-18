@@ -808,18 +808,26 @@ class KisRebalancer:
                 if d >= self.min_order_krw:
                     scaled_buy_orders.append((t, "USD", d, acc_name))
 
-        # Phase 3: 매수 실행
+        # Phase 3: 매수 실행 (잔고부족 거부 시 한도 재조회·축소 재시도)
         for i, (ticker, currency, amount_diff_krw, acc_name) in enumerate(scaled_buy_orders):
             if i > 0 and self.order_throttle_s > 0:
                 time.sleep(self.order_throttle_s)
-            result = self._execute_order(ticker, currency, amount_diff_krw, acc_name)
+            result, eff_amount = self._execute_buy_capped(
+                ticker, currency, amount_diff_krw, acc_name
+            )
             if result:
                 order_log.append(result)
                 if not result.startswith("["):
-                    actual_traded_krw += abs(amount_diff_krw)
+                    actual_traded_krw += abs(eff_amount)
                 is_funds_error = result.startswith("[오류]") and _looks_like_insufficient_funds(result)
                 is_timeout = result.startswith("[timeout]")
                 if is_funds_error or is_timeout:
+                    # 재시도 중에는 알림을 억제했으므로 최종 실패만 1회 통지
+                    if is_funds_error and self.messenger:
+                        self.messenger.send_order_error(
+                            ticker, RuntimeError("주문가능금액 부족 — 축소 재시도 후에도 실패")
+                        )
+                    # 한 주도 체결 안 됨 → 이연 금액은 축소분이 아닌 원래 계획 금액
                     failed_buys.append({
                         "ticker": ticker,
                         "amount_krw": abs(amount_diff_krw),
@@ -1177,12 +1185,62 @@ class KisRebalancer:
                 self.messenger.send_order_error(ticker, e)
             return f"[오류] {ticker}: {e}"
 
+    def _execute_buy_capped(
+        self,
+        ticker: str,
+        currency: str,
+        amount_krw: float,
+        acc_name: str,
+        max_attempts: int = 2,
+        shrink: float = 0.97,
+    ) -> Tuple[Optional[str], float]:
+        """매수를 실행하되 '주문가능금액 초과' 거부 시 한도를 재조회해 금액을 줄여 재시도한다.
+
+        사전 cap(매도 직후 1회 조회)은 KIS의 max_buy_qty가 당일 매도대금(T+2 미결제)을
+        과대 반영해, 앞선 매수가 실제 현금을 소진한 뒤 순서상 마지막 매수가 거부되는
+        고질적 패턴이 있다. 거부를 만나면 라이브 주문가능금액으로 재조회 후 shrink배
+        축소해 같은 종목을 재시도 — 종목을 이연/교체하지 않고 가능한 만큼 체결한다.
+
+        재시도 중에는 Slack 오류 알림을 억제하고, 최종 실패 시 호출자가 처리한다.
+        반환: (마지막 결과 문자열, 실제 시도한 최종 금액).
+        """
+        result = self._execute_order(
+            ticker, currency, amount_krw, acc_name, notify_error=False
+        )
+        attempts = 0
+        while (
+            result is not None
+            and result.startswith("[오류]")
+            and _looks_like_insufficient_funds(result)
+            and attempts < max_attempts
+        ):
+            attempts += 1
+            if currency == "USD":
+                live = self._fetch_usd_orderable(acc_name, ticker)
+            else:
+                live = self._fetch_krw_orderable(acc_name, ticker)
+            new_amount = min(amount_krw, live) * shrink if live > 0 else amount_krw * shrink
+            if new_amount < self.min_order_krw or new_amount >= amount_krw:
+                break
+            print(
+                f"  [매수 재시도] {_label_ticker(ticker, self.universe)} "
+                f"{amount_krw:,.0f}→{new_amount:,.0f}원 (주문가능 {live:,.0f}, {attempts}/{max_attempts})"
+            )
+            amount_krw = new_amount
+            if self.order_throttle_s > 0:
+                time.sleep(self.order_throttle_s)
+            result = self._execute_order(
+                ticker, currency, amount_krw, acc_name, notify_error=False
+            )
+        return result, amount_krw
+
     def _execute_order(
         self,
         ticker: str,
         currency: str,
         amount_diff_krw: float,
         acc_name: Optional[str] = None,
+        notify_error: bool = True,
     ) -> Optional[str]:
         """지정 종목을 KRW 환산 금액 기준으로 매수/매도한다. 결과 문자열을 반환한다."""
         action = "buy" if amount_diff_krw > 0 else "sell"
@@ -1276,6 +1334,6 @@ class KisRebalancer:
         except Exception as e:
             print(f"  [error] {ticker}: {e}")
             _append_order_log(ticker, action, qty, price, currency, self.usd_krw, f"error:{e}")
-            if self.messenger:
+            if self.messenger and notify_error:
                 self.messenger.send_order_error(ticker, e)
             return f"[오류] {ticker}: {e}"

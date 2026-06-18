@@ -75,7 +75,7 @@
 | C3 | **T+2 synthetic reallocation** | `portfolio.py:502`, `run.py:569` | ✅ | 지연 USD매수를 KRW 동등자산(synthetic_pairs)으로 임시 노출 | C4와 짝. 라이브 합성 순환매 원인 |
 | C4 | **deferred_buys / SettlementTracker** | `settlement.py`, `executor.py` | ✅ | T+2 미결제로 못 산 매수 이연 | B4 트리거·C3 합성과 연동 |
 | C5 | **buffer_floor** | `portfolio.py:473` | ⛔ 빈 리스트 | 버퍼자산 최소비중 강제 | 모든 레짐 cash≥0.08이라 redundant |
-| C6 | **orderable cap (KRW/USD)** | `executor.py:952,1000` | ✅ | 브로커 주문가능액 초과 매수를 비례 축소 | USD 한도(C1)와 함께 실제 체결 제약 |
+| C6 | **orderable cap (KRW/USD) + 잔고부족 축소 재시도** | `executor.py:952,1000`, `_execute_buy_capped` | ✅ | 매도 직후 1회 cap으로 비례 축소 + 매수 거부(APBK0952) 시 한도 재조회·금액 ~3%씩 축소 후 같은 종목 재시도(최대 2회) | 사전 cap만으로는 max_buy_qty가 T+2 매도대금 과대반영→순서상 마지막 매수가 거부됨(fix_2026-06-18). 축소 재시도로 종목 유지([[feedback-illiquid-fix-over-swap]]), 최종 실패만 C4 deferred |
 | C7 | **illiquid_order_handling** | `executor.py:283` | ✅ 468370 | 얇은 종목 주문 분할·재시도·가격추격 | 신규 KRW-native 종목 추가 시 확장 필요([[feedback-illiquid-fix-over-swap]]) |
 | C8 | **min_order_krw** | `rebalancing` | 🔒 1만원 | 잔주문 필터 | B6 대체 |
 | C9 | **order_throttle_s** | `rebalancing` | 🔒 0.25s | 주문 간 대기(KIS rate limit) | — |
