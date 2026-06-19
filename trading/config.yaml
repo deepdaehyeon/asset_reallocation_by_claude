@@ -527,7 +527,11 @@ rebalancing:
   #   강제 리밸런스. 백테스트(2010-2025)에서 완전 redundant — drift가 주당 ~90% 발동해 비중을
   #   움직이는 레짐 변화는 이미 포섭. on/off Sharpe Δ≤0.001, 리밸 ≤2회 차이.
   regime_change_trigger:      false
-  drift_threshold:            0.015  # 계좌 내 drift > 1.5%p 시 리밸런싱 트리거 (sweet spot)
+  drift_threshold:            0.05   # 전체 포트폴리오 drift > 5%p 시 리밸런싱 트리거
+  # 2026-06-19: backtest _run_drift 신호드리프트 누락 버그 수정 후 재스윕한 결과,
+  # 0.5~15% 전 구간에서 Martin·MaxDD·Ulcer가 거의 평평(이전 "느슨하면 위험" 결론은
+  # 버그가 만든 착시)하고 5.0%가 그리드 전체 Martin 최고(2.46)면서 리밸 58%↓ —
+  # 라이브 회전 절감 목적으로 1.5%→5.0% 채택. docs/experiment_2026-06-19_drift_threshold_resweep3.md
   # 0 = 비활성. force_full(drift/regime_change/drawdown/force)이 이미 per_ticker를 무시하므로
   # 실제 적용 경로는 deferred_buys뿐이었음 — 제거해 일관성 확보. min_order_krw가 잔주문 필터.
   per_ticker_drift_threshold: 0.0    # 개별 종목 이탈 임계 제거 (min_order_krw만으로 필터)
