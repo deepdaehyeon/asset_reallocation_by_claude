@@ -35,7 +35,7 @@ CRISIS_WINDOWS = {"COVID 2020": ("2020-02-19", "2020-04-30"),
 GRID = [0.005, 0.010, 0.015, 0.020, 0.030, 0.050, 0.080, 0.100, 0.150]
 
 
-def run_cell(dt, config, universe_px, signal_px, fred_history):
+def run_cell(dt, config, universe_px, signal_px, fred_history, regime_cache=None):
     rb = config.get("rebalancing", {})
     print(f"  [drift={dt:.1%}] stabilize={config['hmm'].get('stabilize_mapping')}")
     res = BacktestEngine(
@@ -44,7 +44,7 @@ def run_cell(dt, config, universe_px, signal_px, fred_history):
         drift_threshold=dt,
         cooldown_days=int(rb.get("min_rebalance_interval_days", 0)),
         fred_history=fred_history,
-    ).run()
+    ).run(regime_cache=regime_cache)
     r = res["returns"].dropna()
     m = compute_metrics(r)
     rc3 = rolling_cagr(r, years=3.0)
@@ -79,8 +79,25 @@ def main() -> None:
     fred_history = fetch_fred_history(START, END)
 
     cur = float(base.get("rebalancing", {}).get("drift_threshold", 0.015))
+
+    # drift_threshold는 레짐·블렌딩 계산 자체엔 영향 없음 — HMM/RF를 한 번만 순차로
+    # 돌려 날짜별 레짐을 캐싱해두고 모든 그리드 셀에서 재사용한다(셀마다 재학습 안 함).
+    rb = base.get("rebalancing", {})
+    print("\n레짐 경로 캐싱 중 (1회)...")
+    probe = BacktestEngine(
+        config=copy.deepcopy(base), universe_px=universe_px, signal_px=signal_px,
+        start=START, end=END, rebal_freq=REBAL_FREQ, tx_cost=TX_COST,
+        drift_threshold=GRID[0],
+        cooldown_days=int(rb.get("min_rebalance_interval_days", 0)),
+        fred_history=fred_history,
+    )
+    regime_cache = probe.precompute_regime_path()
+
     print("\n전략 실행 중...")
-    rows = [run_cell(dt, copy.deepcopy(base), universe_px, signal_px, fred_history) for dt in GRID]
+    rows = [
+        run_cell(dt, copy.deepcopy(base), universe_px, signal_px, fred_history, regime_cache)
+        for dt in GRID
+    ]
     df = pd.DataFrame(rows).set_index("drift")
 
     print(f"\n{'='*116}")

@@ -404,12 +404,16 @@ class BacktestEngine:
 
     # ── 메인 실행 ────────────────────────────────────────────────────────────
 
-    def run(self) -> pd.DataFrame:
+    def run(self, regime_cache: Optional[pd.DataFrame] = None) -> pd.DataFrame:
         """
         백테스트 실행.
 
         drift_threshold가 설정된 경우 drift 기반 리밸런싱,
         그렇지 않으면 캘린더(rebal_freq) 기반 리밸런싱을 사용한다.
+
+        regime_cache: precompute_regime_path()로 미리 계산한 결과 (drift 모드에서만
+        사용됨). drift_threshold·tx_cost·cooldown_days 스윕처럼 레짐 계산 자체가 같은
+        여러 셀에 재사용하면 HMM/RF 재학습을 셀마다 반복하지 않는다.
 
         Returns
         -------
@@ -420,7 +424,7 @@ class BacktestEngine:
         if self.trigger_mode:
             return self._run_triggered()
         if self.drift_threshold is not None:
-            return self._run_drift()
+            return self._run_drift(regime_cache=regime_cache)
         return self._run_calendar()
 
     def _run_calendar(self) -> pd.DataFrame:
@@ -565,9 +569,111 @@ class BacktestEngine:
         result["returns"] = result["value"].pct_change().fillna(0.0)
         return result
 
-    def _run_drift(self) -> pd.DataFrame:
+    def precompute_regime_path(self) -> pd.DataFrame:
+        """
+        전체 날짜에 대해 레짐·블렌딩을 한 번만 순차 계산해 날짜별로 저장한다.
+
+        drift_threshold·tx_cost·cooldown_days처럼 레짐 계산 자체에는 영향이 없는
+        파라미터를 스윕할 때, 이 결과를 여러 셀의 `_run_drift(regime_cache=...)`에
+        재사용하면 HMM/RF 재학습(스윕 비용의 대부분)을 셀마다 반복하지 않아도 된다.
+        hmm/rf/feature_smoothing 등 레짐 계산에 관련된 config가 다르면 이 캐시는
+        무효이니 다시 만들어야 한다.
+
+        주의: 이 메서드는 self의 순차적 상태(EWMA 블렌딩 평활·label-switching 앵커)를
+        소모한다 — 호출한 엔진 인스턴스를 이후 실제 시뮬레이션에 재사용하지 말 것
+        (캐시만 뽑아내는 probe 용도로 쓰고 버린다).
+        """
+        px = self.universe_px
+        rows: List[dict] = []
+        for date in px.index:
+            try:
+                regime, blend_probs, rule_regime, conf, rc, hc = self._get_regime(date)
+                is_transition = self._check_transition(date, regime)
+                ok = True
+            except Exception:
+                regime, blend_probs, rule_regime = None, {}, None
+                conf = rc = hc = 0.0
+                is_transition = False
+                ok = False
+            sig = self.signal_px[:date].tail(65)
+            feat = compute_features(sig) if len(sig) >= 30 else {}
+            rows.append({
+                "date":          date,
+                "ok":            ok,
+                "regime":        regime,
+                "blend_probs":   blend_probs,
+                "rule_regime":   rule_regime,
+                "conf":          conf,
+                "rc":            rc,
+                "hc":            hc,
+                "is_transition": is_transition,
+                "rv":            feat.get("realized_vol", 0.15),
+                "vix":           feat.get("vix", 0.0),
+            })
+        return pd.DataFrame(rows).set_index("date")
+
+    def _evaluate_target(
+        self,
+        date: pd.Timestamp,
+        portfolio_value: float,
+        drawdown: float,
+        available: pd.Series,
+        px: pd.DataFrame,
+        regime_cache: Optional[pd.DataFrame],
+    ) -> dict:
+        """오늘의 목표 비중과 레짐 정보를 구한다. regime_cache가 있으면 그 날짜의 값을
+        읽어 재사용(HMM/RF 재호출 없음), 없으면 직접 계산한다."""
+        if regime_cache is not None:
+            cached = regime_cache.loc[date]
+            if not bool(cached["ok"]):
+                return {"ok": False}
+            regime, blend_probs, rule_regime = cached["regime"], cached["blend_probs"], cached["rule_regime"]
+            conf, rc, hc, is_transition = cached["conf"], cached["rc"], cached["hc"], bool(cached["is_transition"])
+            rv, vix = cached["rv"], cached["vix"]
+            self._current_as_of = date  # _get_regime이 했을 부수효과를 캐시 경로에서도 재현
+            sig = self.signal_px[:date].tail(65)
+        else:
+            try:
+                regime, blend_probs, rule_regime, conf, rc, hc = self._get_regime(date)
+                is_transition = self._check_transition(date, regime)
+            except Exception:
+                return {"ok": False}
+            sig = self.signal_px[:date].tail(65)
+            feat = compute_features(sig) if len(sig) >= 30 else {}
+            rv = feat.get("realized_vol", 0.15)
+            vix = feat.get("vix", 0.0)
+
+        new_weights = self._target_weights(
+            blend_probs, rv, portfolio_value,
+            regime=regime, vix=vix, signal_px_slice=sig,
+            universe_px_slice=px[:date].tail(65),
+            transition_phase=is_transition,
+        )
+        thresholds = self.config["risk"]["drawdown_thresholds"]
+        if self.config["risk"].get("drawdown_scaling_enabled", True):
+            new_weights = _apply_drawdown_scale(
+                new_weights, drawdown, thresholds, self._equity_tickers,
+                cash_split=self.config["risk"].get("drawdown_cash_split"),
+            )
+        new_weights = _normalize_to_available(new_weights, available)
+        return {
+            "ok": True, "new_weights": new_weights, "regime": regime,
+            "rule_regime": rule_regime, "conf": conf, "rc": rc, "hc": hc,
+        }
+
+    def _run_drift(self, regime_cache: Optional[pd.DataFrame] = None) -> pd.DataFrame:
         """
         Drift 기반 리밸런싱.
+
+        매일 레짐·블렌딩을 재평가해 "오늘의" 목표 비중을 구하고, 그 목표 대비 실제
+        보유의 차이(드리프트)를 잰다 — 거래 여부와 무관하게 매일 갱신한다는 점에서
+        라이브 run.py의 모니터링과 동일하다(거래를 안 해도 목표는 매일 다시 계산됨).
+        이전 구현은 거래가 실제로 일어난 날에만 목표를 갱신해, 가격이 안 움직여도
+        레짐·블렌딩 신호만으로 생기는 드리프트를 전혀 못 잡았다(라이브↔백테스트 회전율
+        괴리의 원인 중 하나, 2026-06-19 발견).
+
+        regime_cache: precompute_regime_path()로 미리 계산한 결과. 주어지면 매일
+        HMM/RF를 다시 학습하지 않고 재사용한다(drift_threshold 등 스윕 가속용).
 
         트리거 조건 (run.py _compute_trigger와 동일):
           1. drawdown <= moderate threshold → 쿨다운 무시, 즉시 리밸런싱
@@ -582,6 +688,9 @@ class BacktestEngine:
         shares: Dict[str, float] = {}
         current_regime = "Slowdown"
         current_rule_regime = "Slowdown"
+        current_combined_conf = 0.0
+        current_rule_conf = 0.0
+        current_hmm_conf = 0.0
         target_weights: Dict[str, float] = {}
         last_rebal_date: Optional[pd.Timestamp] = None
 
@@ -591,31 +700,43 @@ class BacktestEngine:
             day_prices = px.loc[date]
             available = day_prices.dropna()
 
-            if i == 0:
-                regime, blend_probs, rule_regime, conf, rc, hc = self._get_regime(date)
-                current_regime = regime
-                current_rule_regime = rule_regime
-                current_combined_conf = conf
-                current_rule_conf = rc
-                current_hmm_conf = hc
-                is_transition = self._check_transition(date, regime)
-
-                sig = self.signal_px[:date].tail(65)
-                feat = compute_features(sig) if len(sig) >= 30 else {}
-                rv = feat.get("realized_vol", 0.15)
-                vix = feat.get("vix", 0.0)
-
-                target_weights = self._target_weights(
-                    blend_probs, rv, portfolio_value,
-                    regime=regime, vix=vix, signal_px_slice=sig,
-                    universe_px_slice=px[:date].tail(65),
-                    transition_phase=is_transition,
+            if i > 0:
+                portfolio_value = sum(
+                    shares.get(t, 0.0) * float(available[t])
+                    for t in available.index
+                    if t in shares
                 )
-                target_weights = _normalize_to_available(target_weights, available)
+                if portfolio_value <= 0:
+                    portfolio_value = rows[-1]["value"]
 
+            peak_value = max(peak_value, portfolio_value)
+            drawdown = (portfolio_value - peak_value) / peak_value if i > 0 else 0.0
+
+            current_w: Dict[str, float] = {
+                t: shares.get(t, 0.0) * float(available[t]) / portfolio_value
+                for t in available.index
+                if t in shares
+            }
+
+            # 매일 레짐·블렌딩을 재평가해 "오늘의" 목표 비중을 구한다(거래 여부와 무관)
+            ev = self._evaluate_target(date, portfolio_value, drawdown, available, px, regime_cache)
+            regime_ok = ev["ok"]
+            if regime_ok:
+                new_weights = ev["new_weights"]
+                current_regime = ev["regime"]
+                current_rule_regime = ev["rule_regime"]
+                current_combined_conf = ev["conf"]
+                current_rule_conf = ev["rc"]
+                current_hmm_conf = ev["hc"]
+                target_weights = new_weights
+            else:
+                # HMM 수렴 실패 시 직전 목표 유지(그 날은 가격 드리프트만 반영)
+                new_weights = target_weights
+
+            if i == 0:
                 shares = {
                     t: w * portfolio_value / available[t]
-                    for t, w in target_weights.items()
+                    for t, w in new_weights.items()
                     if available.get(t, 0) > 0
                 }
                 last_rebal_date = date
@@ -626,34 +747,17 @@ class BacktestEngine:
                     "regime":        current_regime,
                     "rule_regime":   current_rule_regime,
                     "combined_conf": current_combined_conf,
-                "rule_conf":     current_rule_conf,
-                "hmm_conf":      current_hmm_conf,
+                    "rule_conf":     current_rule_conf,
+                    "hmm_conf":      current_hmm_conf,
                     "rebalanced":    True,
                     "tx_cost":       0.0,
                     "drift":         0.0,
                 })
                 continue
 
-            portfolio_value = sum(
-                shares.get(t, 0.0) * float(available[t])
-                for t in available.index
-                if t in shares
-            )
-            if portfolio_value <= 0:
-                portfolio_value = rows[-1]["value"]
-
-            peak_value = max(peak_value, portfolio_value)
-            drawdown = (portfolio_value - peak_value) / peak_value
-
-            current_w: Dict[str, float] = {
-                t: shares.get(t, 0.0) * float(available[t]) / portfolio_value
-                for t in available.index
-                if t in shares
-            }
-
-            all_tickers = set(current_w) | set(target_weights)
+            all_tickers = set(current_w) | set(new_weights)
             drift = sum(
-                abs(current_w.get(t, 0.0) - target_weights.get(t, 0.0))
+                abs(current_w.get(t, 0.0) - new_weights.get(t, 0.0))
                 for t in all_tickers
             )
 
@@ -661,43 +765,12 @@ class BacktestEngine:
             moderate_thr = self.config["risk"]["drawdown_thresholds"]["moderate"]
             emergency = drawdown <= moderate_thr
 
-            do_rebal = emergency or (drift > self.drift_threshold and days_since >= self.cooldown_days)
+            do_rebal = regime_ok and (
+                emergency or (drift > self.drift_threshold and days_since >= self.cooldown_days)
+            )
 
             day_tx = 0.0
             if do_rebal:
-                try:
-                    regime, blend_probs, rule_regime, conf, rc, hc = self._get_regime(date)
-                    current_regime = regime
-                    current_rule_regime = rule_regime
-                    current_combined_conf = conf
-                    current_rule_conf = rc
-                    current_hmm_conf = hc
-                    is_transition = self._check_transition(date, regime)
-                except Exception:
-                    # HMM 수렴 실패 시 기존 레짐 유지, 리밸런싱 스킵
-                    do_rebal = False
-
-            if do_rebal:
-                sig = self.signal_px[:date].tail(65)
-                feat = compute_features(sig) if len(sig) >= 30 else {}
-                rv = feat.get("realized_vol", 0.15)
-                vix = feat.get("vix", 0.0)
-
-                new_weights = self._target_weights(
-                    blend_probs, rv, portfolio_value,
-                    regime=regime, vix=vix, signal_px_slice=sig,
-                    universe_px_slice=px[:date].tail(65),
-                    transition_phase=is_transition,
-                )
-
-                thresholds = self.config["risk"]["drawdown_thresholds"]
-                if self.config["risk"].get("drawdown_scaling_enabled", True):
-                    new_weights = _apply_drawdown_scale(
-                        new_weights, drawdown, thresholds, self._equity_tickers,
-                        cash_split=self.config["risk"].get("drawdown_cash_split"),
-                    )
-                new_weights = _normalize_to_available(new_weights, available)
-
                 turnover = sum(
                     abs(new_weights.get(t, 0.0) - current_w.get(t, 0.0))
                     for t in set(new_weights) | set(current_w)
@@ -710,7 +783,6 @@ class BacktestEngine:
                     for t, w in new_weights.items()
                     if available.get(t, 0) > 0
                 }
-                target_weights = new_weights
                 last_rebal_date = date
                 drift = 0.0
 
