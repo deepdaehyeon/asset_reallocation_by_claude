@@ -151,39 +151,18 @@ def _compute_side_drifts(
     current_weights: Dict[str, float],
     target_usd: Dict[str, float],
     target_krw: Dict[str, float],
-    total_krw: float,
     total_usd_krw: float,
     total_krw_only: float,
-    config: dict,
 ) -> Tuple[float, float]:
     """
-    KRW / USD 계좌 각각의 drift를 계좌 내 비중 기준으로 계산한다.
-
-    current_weights는 총자산 기준 비중이므로 각 계좌 총액으로 환산 후 비교한다.
+    전체 포트폴리오 기준 drift를 한 번만 계산해 KRW/USD 양쪽에 동일하게 적용한다
+    (백테스트와 동일한 기준). 계좌별로 각자 총액 기준 재정규화해서 비교하면
+    분모가 작아져 같은 절대 drift가 부풀려지고, 라이브가 백테스트보다 훨씬 자주
+    트리거되는 원인이 된다.
     """
-    universe = config["universe"]
-
-    krw_tickers = (
-        set(target_krw)
-        | {t for t in current_weights if universe.get(t, {}).get("currency") == "KRW"}
-    )
-    current_krw_norm: Dict[str, float] = {}
-    if total_krw_only > 0:
-        for t in krw_tickers:
-            current_krw_norm[t] = current_weights.get(t, 0.0) * total_krw / total_krw_only
-    drift_krw = compute_drift(current_krw_norm, target_krw) if current_krw_norm else 0.0
-
-    usd_tickers = (
-        set(target_usd)
-        | {t for t in current_weights if universe.get(t, {}).get("currency") == "USD"}
-    )
-    current_usd_norm: Dict[str, float] = {}
-    if total_usd_krw > 0:
-        for t in usd_tickers:
-            current_usd_norm[t] = current_weights.get(t, 0.0) * total_krw / total_usd_krw
-    drift_usd = compute_drift(current_usd_norm, target_usd) if current_usd_norm else 0.0
-
-    return drift_krw, drift_usd
+    merged_target = merge_to_total_weights(target_usd, target_krw, total_usd_krw, total_krw_only)
+    drift = compute_drift(current_weights, merged_target)
+    return drift, drift
 
 
 # ── 파이프라인 단계 ───────────────────────────────────────────────────────────
@@ -688,7 +667,7 @@ def run_monitor(config: dict, state: dict, messenger: Messenger, args) -> None:
     print("[6] 트리거 계산 중...")
     drift_krw, drift_usd = _compute_side_drifts(
         current_weights, target_usd, target_krw,
-        total_krw, total_usd_krw, total_krw_only, config,
+        total_usd_krw, total_krw_only,
     )
 
     today_iso = datetime.now().date().isoformat()
