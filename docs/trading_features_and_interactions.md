@@ -58,7 +58,7 @@
 
 | # | 기능 | 위치 | 상태/값 | 하는 일 | 핵심 상호작용 |
 |---|---|---|---|---|---|
-| B1 | **drift_threshold + 계좌별 side drift** | `run.py:108,150` | ✅ 1.5% | 계좌 내 drift>1.5%p면 트리거 | **백테스트도 이 모드여야 함**(엔진 `_run_drift` vs `_run_calendar`). floor·vol 결론이 모드에 의존([[feedback-backtest-rebal-mode-drift]]) |
+| B1 | **drift_threshold (전체 포트폴리오 기준)** | `run.py:108,150` | ✅ 1.5% | 전체 자산 기준 drift>1.5%p면 트리거, KRW/USD 동일 값 사용 | 2026-06-19(`12f76ea`) 계좌별 재정규화 제거 — 분모가 작아 인위적으로 부풀려지던 drift를 백테스트와 같은 단일 전체 기준으로 통일. **백테스트도 이 모드여야 함**(엔진 `_run_drift` vs `_run_calendar`). floor·vol 결론이 모드에 의존([[feedback-backtest-rebal-mode-drift]]) |
 | B2 | **min_rebalance_interval_days (쿨다운)** | `rebalancing` | 🔒 0 | 매매 쿨다운 | 0이면 drift>임계 즉시. DD비상·지연매수는 무시 |
 | B3 | **drawdown_emergency 트리거** | `run.py:127` | ✅ | DD≤moderate(-20%)면 쿨다운 무시 즉시 | drawdown_scaling(A6, off)과 별개로 *트리거*는 살아있음 |
 | B4 | **deferred_buys 트리거** | `run.py:130` | ✅ | 미처리 T+2 매수 있으면 즉시 | C4와 짝 |

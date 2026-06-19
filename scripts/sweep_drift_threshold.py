@@ -32,7 +32,7 @@ from compare_rule_timing_ab import START, END, REBAL_FREQ, TX_COST, crisis_maxdd
 
 CRISIS_WINDOWS = {"COVID 2020": ("2020-02-19", "2020-04-30"),
                   "Bear 2022": ("2022-01-01", "2022-12-31")}
-GRID = [0.005, 0.010, 0.015, 0.020, 0.030, 0.050, 0.080]
+GRID = [0.005, 0.010, 0.015, 0.020, 0.030, 0.050, 0.080, 0.100, 0.150]
 
 
 def run_cell(dt, config, universe_px, signal_px, fred_history):
@@ -50,13 +50,18 @@ def run_cell(dt, config, universe_px, signal_px, fred_history):
     rc3 = rolling_cagr(r, years=3.0)
     rc5 = rolling_cagr(r, years=5.0)
     rec = recovery_duration(r)
+    n_days = int(m.get("n_days", 0))
+    tx_cum = float(res["tx_cost"].sum())
+    # 일평균 회전율 = 누적 tx비용 ÷ 편도수수료율 ÷ 거래일수 (한 번 리밸런싱에 옮긴 비중을 매일로 평균낸 값)
+    daily_turnover = (tx_cum / TX_COST / n_days) if n_days > 0 else 0.0
     return {
         "drift": dt,
         "CAGR": m.get("cagr", 0.0), "MaxDD": m.get("max_drawdown", 0.0),
         "Ulcer": m.get("ulcer", 0.0), "Martin": m.get("martin", 0.0),
         "r3w": rc3["worst"], "r3m": rc3["median"], "r5w": rc5["worst"],
         "rec_dd": rec["maxdd_recovery_days"], "uw_max": rec["max_underwater_days"],
-        "리밸": int(res["rebalanced"].sum()), "tx누적": float(res["tx_cost"].sum()),
+        "리밸": int(res["rebalanced"].sum()), "tx누적": tx_cum,
+        "일평균회전율": daily_turnover,
         "COVID": crisis_maxdd(res["returns"], *CRISIS_WINDOWS["COVID 2020"]),
         "Bear22": crisis_maxdd(res["returns"], *CRISIS_WINDOWS["Bear 2022"]),
     }
@@ -83,7 +88,7 @@ def main() -> None:
           f"stabilize on db={base['hmm'].get('mapping_deadband')} — 현행={cur:.1%}")
     print(f"{'='*116}")
     hdr = (f"  {'drift':>7}{'롤3y최악':>9}{'롤3y중앙':>9}{'롤5y최악':>9}{'Ulcer':>8}"
-           f"{'회복일':>8}{'최장UW':>8}{'Martin':>8}{'리밸':>7}{'tx':>7}{'│MaxDD':>8}")
+           f"{'회복일':>8}{'최장UW':>8}{'Martin':>8}{'리밸':>7}{'tx':>7}{'일평균회전':>10}{'│MaxDD':>8}")
     print(hdr)
     print("  " + "─" * (len(hdr) - 2))
     best = df["Martin"].idxmax()
@@ -94,8 +99,10 @@ def main() -> None:
         rec = "미회복" if r["rec_dd"] < 0 else f"{int(r['rec_dd'])}"
         print(f"  {dt:>6.1%}{r['r3w']:>9.1%}{r['r3m']:>9.1%}{r['r5w']:>9.1%}{r['Ulcer']:>8.2f}"
               f"{rec:>8}{int(r['uw_max']):>8}{r['Martin']:>8.2f}{int(r['리밸']):>7}{r['tx누적']:>7.2%}"
-              f"{r['MaxDD']:>8.1%}{mark}")
-    print("  Martin 1차 판정, 동률·근소차는 회복기간·롤3y최악으로. tx·리밸은 회전비용 보조참고.")
+              f"{r['일평균회전율']:>10.2%}{r['MaxDD']:>8.1%}{mark}")
+    print("  Martin 1차 판정, 동률·근소차는 회복기간·롤3y최악으로. tx·리밸·일평균회전은 회전비용 보조참고.")
+    print("  일평균회전율 = 누적tx비용÷편도수수료(0.1%)÷거래일수 — 백테스트 내부 기준(라이브 회전과 직접 비교 불가, "
+          "[[project-live-turnover-vs-backtest-gap]] 참고)")
     return df
 
 
