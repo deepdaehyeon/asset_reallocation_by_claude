@@ -208,6 +208,28 @@ class Messenger:
         )
         self._send(text)
 
+    def send_turnover_report(
+        self,
+        today: str,
+        nav: float,
+        daily_traded: float,
+        daily_turnover: float,
+        n_buy: int,
+        n_sell: int,
+        monthly_ym: str,
+        monthly_traded: float,
+        monthly_turnover: float,
+    ) -> None:
+        text = (
+            f":repeat: *회전율 모니터링* ({today})\n"
+            f"> 자산 `{nav:,.0f}원`\n"
+            f"> 오늘 거래액 `{daily_traded:,.0f}원` (매수 {n_buy} / 매도 {n_sell}건) "
+            f"→ 일일 회전율 `{daily_turnover:.1%}`\n"
+            f"> {monthly_ym} 누적 거래액 `{monthly_traded:,.0f}원` "
+            f"→ 월누적 회전율 `{monthly_turnover:.1%}`"
+        )
+        self._send(text)
+
     def send_order_error(self, ticker: str, error: Exception) -> None:
         self._send(f":warning: 주문 오류 `{ticker}`: {error}", mention=True)
 
