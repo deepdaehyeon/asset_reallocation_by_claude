@@ -5,11 +5,13 @@
   krw      — state.json의 trigger_krw 확인 → KRW 계좌(국장)만 리밸런싱 실행
   usd      — state.json의 trigger_usd 확인 → USD 계좌(미장)만 리밸런싱 실행
 
-권장 cron (KST):
-  09:30   python run.py --mode monitor    # 모닝 분석 (KRW 장 시작 30분 후)
-  10:00   python run.py --mode krw        # 국장 실행
-  23:00   python run.py --mode monitor    # 이브닝 분석 (US 장 시작 30분 후, DST 기준)
-  23:30   python run.py --mode usd        # 미장 실행
+권장 cron (KST, 2026-06-19 변경 — 국장/미장이 서로 다른 시각의 모니터링 결과를 써서
+drift가 어긋나던 문제 방지: 하루 한 번만 모니터링하고 양쪽이 그 결과를 같이 씀):
+  월        05:00   python run.py --mode monitor   # 주말 동안 묵은 trigger 새로고침
+                                                     #   (월 10:00 krw의 stale 방지용, 거래 없음)
+  화~토     05:00   python run.py --mode monitor   # 미장 마감 1시간 전(비서머타임 기준)
+            (직후)  python run.py --mode usd       # → 곧바로 미장 실행 (run_usd.sh가 체인)
+  월~금     10:00   python run.py --mode krw       # 국장 실행 (그날 05:00 monitor 결과 사용)
 """
 import argparse
 import os
