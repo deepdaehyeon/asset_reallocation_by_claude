@@ -1184,3 +1184,6 @@
 [main 6db2b75] logs: auto-update 2026-06-19 10:23
  4 files changed, 59 insertions(+), 7 deletions(-)
 [push_logs] 완료: 2026-06-19 10:23
+[06/22 10:00:07] [KRW] 트리거 없음 (no_trigger(drift=2.4%)) → 실행 생략
+[slack_review] 전송 완료
+[snapshot] /Users/kimdhyeon/asset_reallocation_by_claude/STATUS.md 생성 완료

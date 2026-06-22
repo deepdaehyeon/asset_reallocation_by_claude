@@ -90,3 +90,8 @@
  5 files changed, 78 insertions(+), 32 deletions(-)
 [push_logs] 완료: 2026-06-19 09:45
 [snapshot] /Users/kimdhyeon/asset_reallocation_by_claude/STATUS.md 생성 완료
+[main b7b0401] logs: auto-update 2026-06-22 09:45
+ 7 files changed, 70 insertions(+), 24 deletions(-)
+ create mode 100644 logs/turnover_report.err
+ create mode 100644 logs/turnover_report.log
+[push_logs] 완료: 2026-06-22 09:45
