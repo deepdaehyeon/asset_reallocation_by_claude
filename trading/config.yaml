@@ -162,11 +162,11 @@ universe:
 regime_targets:
   # ── Goldilocks: 성장↑ + 유동성↑ (인플레 안정) ──────────────────────────────
   # 가장 Risk-On. cash 축소(15→8), equity_etf 확장(40→42), 해외 분산 추가.
-  Goldilocks:          # core 80% | satellite 20%
-    equity_etf:        0.42   # S&P500 + 나스닥100 — 광범위 성장 (cash에서 흡수)
+  Goldilocks:          # core 85% | satellite 15%
+    equity_etf:        0.47   # 2026-06-24 사용자: 0.42 → 0.47 (equity_individual 5% 흡수)
     equity_factor:     0.08   # 2026-06-16 사용자: 0.05 → 0.08 (라이브 직접 반영)
     equity_sector:     0.03   # 2026-06-16 사용자: 0.00 → 0.03 (라이브 직접 반영)
-    equity_individual: 0.20   # TSLA+PLTR+NVDA+LLY (4종목 분산)
+    equity_individual: 0.15   # 2026-06-24 사용자: 0.20 → 0.15 (class_max_weight cap과 동일하게 하향)
     equity_developed:  0.05   # 2026-06-16 사용자: 0.03 → 0.05 (라이브 직접 반영)
     equity_emerging:   0.02   # VWO — 신흥국 분산
     commodity:         0.05
@@ -276,9 +276,9 @@ asset_routing:
     "218420": 1.00
   equity_individual:   # USD 계좌 전용 — 4종목 분산 (EV/AI/반도체/헬스케어)
     NVDA: 0.30
-    LLY:  0.25
+    LLY:  0.20   # 2026-06-24 사용자: TSLA와 비중 교체 (0.25 → 0.20)
     PLTR: 0.25
-    TSLA: 0.20
+    TSLA: 0.25   # 2026-06-24 사용자: LLY와 비중 교체 (0.20 → 0.25)
   equity_developed:    # USD 계좌 전용 — 선진 ex-US
     VEA:  1.00
   equity_emerging:     # USD 계좌 전용 — 신흥국
@@ -313,7 +313,7 @@ account_ratio_fallback:
 class_max_weight:
   equity_factor:     0.10   # VTV+AVUV — Reflation·Stagflation 8%가 최대, +2pp 여유
   equity_sector:     0.10   # 218420 — Reflation 7%가 최대, +3pp 여유
-  equity_individual: 0.20   # Satellite 20% 상한 (4종목 분산으로 종목당 5~6%)
+  equity_individual: 0.15   # 2026-06-24 사용자: 0.20 → 0.15, 해제된 5%는 equity_etf(베타)로 이동
   equity_developed:  0.05   # VEA — 글로벌 분산, 작은 비중 유지
   equity_emerging:   0.03   # VWO — 신흥국, 더 작은 비중
   commodity:         0.20   # DBC — Stagflation 20%가 최대
