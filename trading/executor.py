@@ -283,6 +283,13 @@ class KisRebalancer:
         self.illiquid_cfg: Dict[str, dict] = config["rebalancing"].get(
             "illiquid_order_handling", {}
         )
+        # 리밸런싱 대상에서 제외할 KRW 계좌 (정리·환전 등 수동 작업 중 일시 제외용).
+        # 주문 생성뿐 아니라 비중·drift 계산에서도 제외(get_portfolio_state)되어,
+        # 이 계좌에서의 수동 매도/환전이 다른 계좌의 보상성 매수를 유발하지 않는다.
+        # 드로우다운/전체자산(peak_krw 등)은 영향받지 않음 — 실제 보유 자산은 그대로 집계.
+        self.excluded_krw_accounts: set = set(
+            config["rebalancing"].get("excluded_krw_accounts", [])
+        )
         self.messenger = messenger
         auth_path = auth_path or Path(__file__).parent / "auth.yaml"
         self._clients = self._init_clients(auth_path)
@@ -602,25 +609,40 @@ class KisRebalancer:
             for t, v in orphan_krw.items():
                 print(f"    {t}: {v:,.0f} KRW ({v/total_all*100:.1f}%)")
 
-        # 계좌별 분리 계산
+        # excluded_krw_accounts는 비중·drift 계산에서도 제외한다 (정리·환전 중 매도가
+        # 종목별 전체 보유량을 줄여 drift를 부풀리고, 그게 다시 다른 계좌의 매수를
+        # 유발하는 간접 영향까지 차단). 드로우다운/전체자산(total_all_krw)은 holdings_krw
+        # 원본을 그대로 쓰므로 영향받지 않는다 — 실제 자산은 줄지 않았으므로 정확.
+        excluded_ticker_krw: Dict[str, float] = {}
+        excluded_cash_krw = 0.0
+        for acc in self.excluded_krw_accounts:
+            for t, v in krw_acc_holdings.get(acc, {}).items():
+                excluded_ticker_krw[t] = excluded_ticker_krw.get(t, 0.0) + v
+            excluded_cash_krw += krw_acc_cash.get(acc, 0.0)
+
+        universe_krw_for_weights = {
+            t: max(0.0, v - excluded_ticker_krw.get(t, 0.0)) for t, v in universe_krw.items()
+        }
+
+        # 계좌별 분리 계산 (비중·drift 기준 — excluded_krw_accounts 미반영)
         usd_holdings = sum(
-            v for t, v in universe_krw.items()
+            v for t, v in universe_krw_for_weights.items()
             if self.universe[t]["currency"] == "USD"
         )
         krw_holdings = sum(
-            v for t, v in universe_krw.items()
+            v for t, v in universe_krw_for_weights.items()
             if self.universe[t]["currency"] == "KRW"
         )
         total_usd_krw = usd_holdings + cash_by_currency.get("USD", 0.0)
-        total_krw_only = krw_holdings + cash_by_currency.get("KRW", 0.0)
+        total_krw_only = krw_holdings + max(0.0, cash_by_currency.get("KRW", 0.0) - excluded_cash_krw)
 
         universe_total_krw = total_usd_krw + total_krw_only
 
         if universe_total_krw == 0:
             return 0.0, 0.0, 0.0, {}, 0.0
 
-        # 현재 비중 = 전체 대비 (drift·출력용)
-        current_weights = {t: v / universe_total_krw for t, v in universe_krw.items()}
+        # 현재 비중 = 전체 대비 (drift·출력용, excluded_krw_accounts 미반영)
+        current_weights = {t: v / universe_total_krw for t, v in universe_krw_for_weights.items()}
 
         # 드로우다운: 전체 자산(orphan 포함) 기준
         # KRW deposit.amount=dnca_tot_amt(매도 즉시 반영)이므로 T+2 보정 불필요
@@ -696,6 +718,9 @@ class KisRebalancer:
 
         if force_full_rebalance:
             print("  [강제 평준화] per_ticker_drift_threshold 무시 — 모든 차이 주문 생성")
+
+        if self.excluded_krw_accounts:
+            print(f"  [계좌 제외] {', '.join(sorted(self.excluded_krw_accounts))} — 리밸런싱 주문 생성 제외 중 (수동 작업)")
 
         all_orders = self._build_orders(
             current_weights, target_usd, target_krw, total_usd_krw, total_krw_only,
@@ -891,6 +916,8 @@ class KisRebalancer:
                 # KRW: 계좌별로 별도 주문 생성 (동일 비중 유지)
                 target_w = target_krw.get(ticker, 0.0)
                 for acc_name, acc_total in self._krw_acc_totals.items():
+                    if acc_name in self.excluded_krw_accounts:
+                        continue
                     if acc_total <= 0:
                         continue
                     acc_current = self._krw_acc_holdings.get(acc_name, {}).get(ticker, 0.0)
