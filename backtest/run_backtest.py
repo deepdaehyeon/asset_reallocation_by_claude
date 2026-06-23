@@ -129,6 +129,7 @@ def _make_engine(config, universe_px, signal_px, args, fred_history, override_dr
         end=args.end,
         rebal_freq=REBAL_FREQ_MAP[args.rebal],
         tx_cost=args.tx_cost,
+        tx_cost_usd=args.tx_cost_usd,
         drift_threshold=drift_thr,
         cooldown_days=_live_cooldown(config),
         fred_history=fred_history,
@@ -275,6 +276,7 @@ def run_drift(config, universe_px, signal_px, args, fred_history=None) -> None:
             end=args.end,
             rebal_freq=REBAL_FREQ_MAP[args.rebal],
             tx_cost=args.tx_cost,
+            tx_cost_usd=args.tx_cost_usd,
             drift_threshold=thr,
             cooldown_days=args.cooldown,
             fred_history=fred_history,
@@ -354,6 +356,7 @@ def run_sens(config, universe_px, signal_px, args, fred_history=None) -> dict:
         end=args.end,
         rebal_freq=REBAL_FREQ_MAP[args.rebal],
         tx_cost=args.tx_cost,
+        tx_cost_usd=args.tx_cost_usd,
     )
 
     print_section("민감도 요약 (CAGR 변화 범위)")
@@ -391,6 +394,7 @@ def run_robustness(config, universe_px, signal_px, args, fred_history=None) -> N
         bm_returns=bm,
         rebal_freq=rebal_freq,
         tx_cost=args.tx_cost,
+        tx_cost_usd=args.tx_cost_usd,
     )
     if not subperiod_df.empty:
         fmt_cols = {
@@ -460,6 +464,7 @@ def run_robustness(config, universe_px, signal_px, args, fred_history=None) -> N
         end=args.end,
         rebal_freq=rebal_freq,
         tx_cost=args.tx_cost,
+        tx_cost_usd=args.tx_cost_usd,
     )
 
     print_section("비중 교란 요약")
@@ -510,7 +515,14 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=0.001,
         metavar="COST",
-        help="편도 거래비용 비율 (기본 0.001 = 0.1%%)",
+        help="KRW 종목 편도 거래비용 비율 (기본 0.001 = 0.1%%)",
+    )
+    p.add_argument(
+        "--tx-cost-usd",
+        type=float,
+        default=0.005,
+        metavar="COST",
+        help="USD 종목 편도 거래비용 비율 (기본 0.005 = 0.5%% — 환전 스프레드+수수료 실측)",
     )
     p.add_argument(
         "--no-cache",

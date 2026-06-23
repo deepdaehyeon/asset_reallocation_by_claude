@@ -75,7 +75,9 @@ class BacktestEngine:
     end           : 백테스트 종료일 "YYYY-MM-DD"
     rebal_freq    : 리밸런싱 주기 pandas offset 문자열
                     'W-FRI' = 주별(금요일) / 'BMS' = 월초
-    tx_cost       : 편도 거래비용 (기본 0.001 = 0.1%)
+    tx_cost       : KRW 종목 편도 거래비용 (기본 0.001 = 0.1%)
+    tx_cost_usd   : USD 종목 편도 거래비용 (기본 0.005 = 0.5% — 환전 스프레드+수수료 실측치,
+                    2026-06-24 사용자 확인. KRW보다 5배 비싸 종목 통화별로 차등 적용)
     usd_ratio     : USD 계좌 비중 (기본 0.30, 환율 변동 미반영)
     """
 
@@ -88,6 +90,7 @@ class BacktestEngine:
         end: str,
         rebal_freq: str = "W-FRI",
         tx_cost: float = 0.001,
+        tx_cost_usd: float = 0.005,
         usd_ratio: float = 0.30,
         drift_threshold: Optional[float] = None,
         cooldown_days: int = 7,
@@ -102,6 +105,7 @@ class BacktestEngine:
         self.end = end
         self.rebal_freq = rebal_freq
         self.tx_cost = tx_cost
+        self.tx_cost_usd = tx_cost_usd
         self.usd_ratio = usd_ratio
         self.drift_threshold = drift_threshold
         self.cooldown_days = cooldown_days
@@ -309,6 +313,24 @@ class BacktestEngine:
             return False
         elapsed = (current_date - self._last_regime_change_date).days
         return 0 < elapsed <= self.transition_days
+
+    def _rebalance_tx_cost(
+        self, new_weights: Dict[str, float], old_weights: Dict[str, float]
+    ) -> float:
+        """종목별 통화(KRW/USD)에 따라 다른 편도 거래비용을 적용한 당일 비용을 계산한다.
+
+        turnover를 종목 단위로 쪼개 USD 종목은 tx_cost_usd, KRW 종목은 tx_cost를 적용 —
+        USD 환전 스프레드+수수료가 KRW보다 훨씬 비싸 단일 비율로는 과소·과대평가됨.
+        """
+        universe = self.config["universe"]
+        total = 0.0
+        for t in set(new_weights) | set(old_weights):
+            diff = abs(new_weights.get(t, 0.0) - old_weights.get(t, 0.0)) / 2
+            if diff <= 0:
+                continue
+            rate = self.tx_cost_usd if universe.get(t, {}).get("currency") == "USD" else self.tx_cost
+            total += diff * rate
+        return total
 
     def _target_weights(
         self,
@@ -538,11 +560,7 @@ class BacktestEngine:
                     for t in available.index
                     if t in shares
                 }
-                turnover = sum(
-                    abs(new_weights.get(t, 0.0) - old_weights.get(t, 0.0))
-                    for t in set(new_weights) | set(old_weights)
-                ) / 2
-                day_tx = turnover * self.tx_cost
+                day_tx = self._rebalance_tx_cost(new_weights, old_weights)
                 portfolio_value *= (1 - day_tx)
 
                 shares = {
@@ -771,11 +789,7 @@ class BacktestEngine:
 
             day_tx = 0.0
             if do_rebal:
-                turnover = sum(
-                    abs(new_weights.get(t, 0.0) - current_w.get(t, 0.0))
-                    for t in set(new_weights) | set(current_w)
-                ) / 2
-                day_tx = turnover * self.tx_cost
+                day_tx = self._rebalance_tx_cost(new_weights, current_w)
                 portfolio_value *= (1 - day_tx)
 
                 shares = {
@@ -956,11 +970,7 @@ class BacktestEngine:
                     )
 
                     if do_rebal:
-                        turnover = sum(
-                            abs(new_weights.get(t, 0.0) - current_w.get(t, 0.0))
-                            for t in set(new_weights) | set(current_w)
-                        ) / 2
-                        day_tx = turnover * self.tx_cost
+                        day_tx = self._rebalance_tx_cost(new_weights, current_w)
                         portfolio_value *= (1 - day_tx)
                         shares = {
                             t: w * portfolio_value / float(available[t])
