@@ -246,24 +246,6 @@ regime_targets:
     gold:              0.12   # 0.15 → 0.12
     cash:              0.28   # 0.36 → 0.28
 
-  # ── Transition: 레짐 전환 직후 N일간 (transition_days, regime_filter 참조) ────
-  # 분류 불확실성 + 시장 변동성이 큰 시점 — 보수적 비중으로 risk-off.
-  # 안정화 후 본 레짐 비중으로 자동 복귀.
-  Transition:          # cash·bond·gold 위주, equity 최소
-    equity_etf:        0.15
-    equity_factor:     0.03
-    equity_sector:     0.00
-    equity_individual: 0.05
-    equity_developed:  0.01
-    equity_emerging:   0.01
-    commodity:         0.05
-    managed_futures:   0.05
-    bond_usd:          0.00   # 2026-06-11 채권 KRW 통합 (→ bond_krw)
-    bond_tips:         0.05
-    bond_krw:          0.24   # 0.12 + bond_usd 0.12 (KRW-native)
-    gold:              0.12
-    cash:              0.24
-
 # 자산군 → 종목 매핑 (within-class 상대 비중, 고정)
 asset_routing:
   equity_etf:          # KRW 계좌 전용

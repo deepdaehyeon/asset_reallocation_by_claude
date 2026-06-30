@@ -29,7 +29,7 @@
 | A2 | **corroboration_gate (레버 C)** | `regime.py:1214`, `engine.py:240` | ⛔ gamma 0.0 | rule이 risk-on인데 HMM이 단독 방어면 방어질량 회수 | core30이 효과 희석, crisis_priority_threshold가 면제, blend에 직접 작용 |
 | A3 | **class_max_weight (정적 상한)** | `portfolio.py:124` | ✅ | 자산군별 비중 상한, 초과분 cash | vol/core 적용 *후* 작동. equity_etf·bond·cash는 흡수자산이라 cap 없음 |
 | A4 | **dynamic_class_caps (VIX 동적 상한)** | `portfolio.py:144` | ✅ | VIX>30 시 commodity·equity_individual 상한 50%↓, >25 시 25%↓ | A3 위에 덧씌움. VIX 신호가 vol_targeting과 같은 위기에 동시 작동 |
-| A5 | **transition_phase** | `engine.py`, `regime_filter` | ⛔ days 0 | 레짐 전환 후 N일 Transition 비중(risk-off) | 켜면 blend·vol과 별개로 진입 비중 깎음(over-protection으로 보류) |
+| A5 | **transition_phase** | `engine.py`, `regime_filter` | ⛔ days 0, **타깃 삭제 2026-07-01** | 레짐 전환 후 N일 Transition 비중(risk-off) | 켜면 blend·vol과 별개로 진입 비중 깎음(over-protection으로 보류). `regime_targets.Transition` 블록은 2026-07-01 제거 — 기계장치(transition_phase 인자·_check_transition)는 보존되나 `transition_days:0`이라 비활성. 되살리려면 config에 Transition 블록 복원 + days>0 (없으면 portfolio.py:34가 일반 blend로 폴백) |
 | A6 | **drawdown_scaling (risk controls)** | `portfolio.py:388`, `run.py:520` | ⛔ | DD -10/-20/-30%에 equity 75/40/10%로 축소 | **vol_targeting과 이중 축소(redundant)** — 끈 핵심 이유. 켜면 회복기간 악화 |
 | A6b | **stagflation_subregime (실질금리 분기)** | `engine.py:_subregime_config` | ⛔ enabled false | 긴축형 스태그(real_rate_chg_3m≥0)면 Stagflation의 비중(tightening_targets)·vol목표(tightening_vol)·floor(tightening_floor)를 교체 | blend·vol_targeting에 작용. **세 채널 전부 OOS 개선 실패**: 비중=core30·vol흡수(experiment_2026-06-15_stagflation_subregime_oos), vol목표=floor클램프로 무효, floor=역효과(MaxDD무방어·수익훼손, experiment_2026-06-15_stagflation_voltighten_floor_oos). knob 보존·off. 진단(실질금리 분기축)은 견고하나 vol 채널로 개선 불가 |
 
