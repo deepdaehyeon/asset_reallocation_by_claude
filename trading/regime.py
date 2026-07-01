@@ -1,6 +1,7 @@
 """규칙 기반 시장 레짐 감지, 히스테리시스 필터, HMM 앙상블."""
 from __future__ import annotations
 
+import math
 from datetime import date
 
 # 5개 레짐: 성장·인플레·유동성 3축으로 정의
@@ -111,6 +112,74 @@ def detect_regime(features: dict) -> str:
     if growth_bearish >= 1:
         return "Slowdown"
     return "Goldilocks"
+
+
+def _logistic(x: float) -> float:
+    if x >= 0:
+        return 1.0 / (1.0 + math.exp(-x))
+    z = math.exp(x)
+    return z / (1.0 + z)
+
+
+def detect_regime_soft(features: dict, scale: float = 1.0) -> dict:
+    """
+    detect_regime의 소프트(확률) 버전. 하드 임계 비교(예: momentum>0.02)를
+    로지스틱 램프로 바꿔 5개 레짐에 대한 확률분포 {regime: prob, 합=1}를 반환한다.
+
+    scale: 램프 폭 배수. scale→0이면 하드 detect_regime과 (거의) 일치(nesting 확인용).
+           scale=1.0 기본 — 각 임계 근방 ±1 notch에서 멤버십이 0.27~0.73으로 전이.
+    임계·우선순위 트리는 detect_regime과 동일하며, 계단(step)을 부드러운 램프로만 대체한다.
+    """
+    s = max(float(scale), 0.0)
+    eps = 1e-9
+
+    def ramp(x: float, thr: float, width: float) -> float:
+        """x > thr 소프트 멤버십 [0,1] (s→0이면 계단)."""
+        return _logistic((x - thr) / max(width * s, eps))
+
+    def gate(count: float, k: int, width: float = 0.4) -> float:
+        """count ≥ k 소프트 게이트 (중심 k-0.5)."""
+        return _logistic((count - (k - 0.5)) / max(width * s, eps))
+
+    rvol   = features["realized_vol"]
+    vix    = features["vix"]
+    mom1m  = features["momentum_1m"]
+    mom3m  = features["momentum_3m"]
+    credit = features["credit_signal"]
+    hy     = features.get("hy_spread", 2.5)
+    curve  = features.get("curve_10y2y", 0.5)
+    commod = features.get("commodity_mom_1m", 0.0)
+
+    # 성장 소프트 투표 (max 4) — detect_regime 임계와 동일
+    g_bull = (ramp(mom1m, 0.02, 0.01) + ramp(mom3m, 0.03, 0.015)
+              + ramp(credit, 0.01, 0.01) + ramp(curve, 1.0, 0.5))
+    g_bear = (ramp(-mom1m, 0.02, 0.01) + ramp(-mom3m, 0.03, 0.015)
+              + ramp(-credit, 0.02, 0.01) + ramp(-curve, 0.0, 0.5))
+    # 인플레 소프트 투표 (max 3)
+    i_rise = ramp(hy, 3.0, 0.4) + ramp(vix, 25, 3.0) + ramp(commod, 0.05, 0.03)
+    i_low  = ramp(-hy, -1.8, 0.4) + ramp(-vix, -18, 3.0) + ramp(-commod, 0.05, 0.03)
+
+    # Crisis 소프트 멤버십 (rvol>0.30 or vix>37) — 최우선
+    c = max(ramp(rvol, 0.30, 0.03), ramp(vix, 37, 3.0))
+
+    G2b, G2u = gate(g_bear, 2), gate(g_bull, 2)
+    G1r, G1l, G1b = gate(i_rise, 1), gate(i_low, 1), gate(g_bear, 1)
+
+    a_stag = G2b * G1r              # 성장↓ + 인플레↑
+    a_slow = G2b * (1.0 - G1r)      # 성장↓
+    a_gold = G2u * G1l              # 성장↑ + 인플레 안정
+    a_refl = G2u * G1r              # 성장↑ + 인플레↑
+    leftover = max(0.0, 1.0 - (a_stag + a_slow + a_gold + a_refl))
+    a_slow += leftover * G1b        # 혼재: 성장약세면 Slowdown
+    a_gold += leftover * (1.0 - G1b)
+
+    nc = {"Stagflation": a_stag, "Slowdown": a_slow,
+          "Goldilocks": a_gold, "Reflation": a_refl}
+    nc_total = sum(nc.values()) or 1.0
+    probs = {r: (1.0 - c) * v / nc_total for r, v in nc.items()}
+    probs["Crisis"] = c
+    total = sum(probs.values()) or 1.0
+    return {r: probs.get(r, 0.0) / total for r in REGIMES}
 
 
 class RegimeFilter:

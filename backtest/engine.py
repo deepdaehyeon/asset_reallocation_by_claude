@@ -36,6 +36,7 @@ from regime import (
     compute_combined_confidence,
     compute_rule_confidence,
     detect_regime,
+    detect_regime_soft,
     ensemble_regime,
 )
 from portfolio import (
@@ -125,6 +126,9 @@ class BacktestEngine:
         self.hmm_fit_seeds = list(hmm_cfg.get("fit_seeds", [])) or None
         self.rf_forward_window = int(hmm_cfg.get("rf_forward_window", 0))
         self.rf_label_mode = str(hmm_cfg.get("rf_label_mode", "rule_at_future"))
+        # 실험(2026-07-01): RF(룰 근사기) 대신 analytic 소프트 룰 분포를 blend에 주입.
+        # None이면 기존 RF 사용(라이브 기본). 값(0.0 포함)이면 detect_regime_soft(scale) 사용.
+        self.soft_rule_scale = hmm_cfg.get("soft_rule_scale", None)
         self.confidence_method = str(
             config.get("regime_filter", {}).get("confidence_method", "mean")
         )
@@ -239,12 +243,16 @@ class BacktestEngine:
                     hmm_probs = clf.predict_proba(seq)
 
                 if self.rf_enabled:
-                    rf_clf = BalancedRFClassifier(
-                        forward_window=self.rf_forward_window,
-                        label_mode=self.rf_label_mode,
-                    )
-                    rf_clf.fit(fm)
-                    rf_probs = rf_clf.predict_proba(features)
+                    if self.soft_rule_scale is not None:
+                        # analytic 소프트 룰 (하드 임계 → 로지스틱 램프). RF 학습 생략.
+                        rf_probs = detect_regime_soft(features, float(self.soft_rule_scale))
+                    else:
+                        rf_clf = BalancedRFClassifier(
+                            forward_window=self.rf_forward_window,
+                            label_mode=self.rf_label_mode,
+                        )
+                        rf_clf.fit(fm)
+                        rf_probs = rf_clf.predict_proba(features)
                     w = self.rf_weight
                     raw = {r: (1 - w) * hmm_probs[r] + w * rf_probs[r] for r in REGIMES}
                     total = sum(raw.values())
