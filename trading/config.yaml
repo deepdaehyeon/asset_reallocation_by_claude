@@ -212,7 +212,10 @@ regime_targets:
     cash:              0.08
 
   # ── Stagflation: 성장↓ + 인플레↑ ───────────────────────────────────────────
-  # TIPS + gold + commodity 인플레 방어. equity_factor 보강 (Sharpe +1.34).
+  # 인플레 방어는 gold18(주도)·tips10·commodity6, 여기에 bond_krw15(인플레 헤지가
+  # 아니라 스태그→침체 전환 시 panic bid 보험)·cash14를 더해 분산 — 스태그 에피소드
+  # 이질성(2010s↔2022 방어자산 역전) 대비. commodity는 2026-06-16 18→6 축소.
+  # equity_factor 보강 (Sharpe +1.34).
   Stagflation:         # core 92% | satellite 8%
     equity_etf:        0.05
     equity_factor:     0.08   # 0.03 → 0.08 (Sharpe +1.34 3위)
