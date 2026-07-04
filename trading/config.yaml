@@ -355,6 +355,10 @@ vol_targeting:
   # 위기방어 무손상(docs/experiment_2026-06-17_voltarget_blend.md). 2026-06-17 라이브 채택.
   blend_target_vol: true
   floor:       0.65        # equity 최대 35% 축소 — 레짐 사다리 스윕에서 4지표 전항목 우위 (2026-06-13, ladder f65 dominant)
+  # equity 축소분 행선지: cash(현행) | defensive(채권·금·현금 비례) | nonequity(+원자재·MF)
+  # A/B/C 백테스트(2026-07-04): 차이 노이즈 수준·분배는 de-risk 약화로 위기낙폭·Ulcer 미세 악화 →
+  # cash 유지. docs/experiment_2026-07-04_voltarget_reduction_dest.md
+  reduction_dest: cash
   equity_asset_classes:
     - equity_etf
     - equity_factor

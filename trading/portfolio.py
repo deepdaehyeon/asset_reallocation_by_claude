@@ -248,12 +248,26 @@ def apply_vol_targeting(
             equity_reduction += reduction
             adjusted[cls] -= reduction
 
+    dest = str(vol_cfg.get("reduction_dest", "cash"))
     if equity_reduction > 0:
-        adjusted["cash"] = adjusted.get("cash", 0.0) + equity_reduction
+        if dest == "defensive":
+            dest_classes = ["bond_krw", "bond_tips", "gold", "cash"]
+        elif dest == "nonequity":
+            dest_classes = ["bond_krw", "bond_tips", "gold", "cash",
+                            "commodity", "managed_futures"]
+        else:  # "cash" (기본) — 현행
+            dest_classes = ["cash"]
+        base = sum(adjusted.get(c, 0.0) for c in dest_classes)
+        if base > 0 and dest_classes != ["cash"]:
+            # 축소분을 대상 클래스에 현재 비중 비례 분배 (분배 대상 총량 0이면 cash 폴백)
+            for c in dest_classes:
+                adjusted[c] = adjusted.get(c, 0.0) + equity_reduction * (adjusted.get(c, 0.0) / base)
+        else:
+            adjusted["cash"] = adjusted.get("cash", 0.0) + equity_reduction
 
     print(
         f"    변동성 타겟팅: rvol {realized_vol:.1%} / 목표 {target_vol:.0%}"
-        f" → equity ×{scale:.2f}  (cash +{equity_reduction:.1%})"
+        f" → equity ×{scale:.2f}  ({dest} +{equity_reduction:.1%})"
     )
     return adjusted
 

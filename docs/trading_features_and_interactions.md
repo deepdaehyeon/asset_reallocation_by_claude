@@ -18,7 +18,7 @@
 | # | 기능 | 위치 | 상태/값 | 하는 일 | 핵심 상호작용 |
 |---|---|---|---|---|---|
 | A0-1 | **레짐 블렌딩 (blend_regime_targets)** | `portfolio.py:11` | ✅ | 단일 레짐을 고르지 않고 HMM 사후확률로 5개 레짐 목표비중을 가중평균(연속 노출). 갑작스런 전환 충격 완화 | **거의 모든 A′ 기능(A7~A18)이 이 blend를 가공.** core30(A1)이 30%를 덮고, vol(A0-2)이 그 위에서 equity 축소. 평활(A12·A13)이 이 blend를 늦춤 |
-| A0-2 | **vol targeting** | `portfolio.py:168` | ✅ floor 0.65, 레짐별 목표 ×1.25 | 포트폴리오 EWMA 변동성이 레짐 목표(G0.1625~C0.075, 2026-06-17 전체 ×1.25 상향) 초과 시 equity를 비례 축소(floor까지), 축소분 cash | **A6 drawdown_scaling과 이중축소(끈 이유).** A1 core30이 위성 70%로 희석. A4 VIX캡과 같은 위기에 동시 작동. floor 결론이 B1 리밸 모드에 의존 |
+| A0-2 | **vol targeting** | `portfolio.py:168` | ✅ floor 0.65, 레짐별 목표 ×1.25 | 포트폴리오 EWMA 변동성이 레짐 목표(G0.1625~C0.075, 2026-06-17 전체 ×1.25 상향) 초과 시 equity를 비례 축소(floor까지), 축소분 cash | **A6 drawdown_scaling과 이중축소(끈 이유).** A1 core30이 위성 70%로 희석. A4 VIX캡과 같은 위기에 동시 작동. floor 결론이 B1 리밸 모드에 의존. **축소분 행선지 `reduction_dest`**(cash/defensive/nonequity) A/B/C 백테스트 결과 cash 유지(분배는 de-risk 약화로 위기낙폭·Ulcer 미세 악화, 차이 노이즈 [[experiment_2026-07-04_voltarget_reduction_dest]]) |
 | A0-2b | **blend_target_vol (목표변동성 확률블렌드)** | `portfolio.py:198`, `config.vol_targeting.blend_target_vol` | ✅ true (2026-06-17 라이브 채택) | 목표변동성을 확정레짐 단계 선택 대신 blend 확률 가중평균(연속). target_vol=Σp·vol | A7 regime_timing_source(룰 단계)를 대체하는 경로 — vol 단계가 룰이 아닌 blend로. A/B: 4지표 중립·tx↓·위기방어 무손상. 라이브 run.py 배선됨(monitor가 saved_blend_probs 저장→execute가 사용). [[experiment_2026-06-17_voltarget_blend]] |
 
 ### A1~. 부수 기능
