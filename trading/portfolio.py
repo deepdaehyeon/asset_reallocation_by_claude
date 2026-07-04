@@ -159,7 +159,7 @@ def apply_dynamic_class_caps(targets: dict, class_max: dict, vix: float) -> dict
     """
     VIX 수준에 따라 고변동 자산군 상한을 동적으로 축소한 뒤 apply_class_caps를 적용한다.
 
-    VIX > 30: commodity/equity_individual 상한 50% 축소
+    VIX > 30: commodity 상한 50% 축소 (equity_individual은 2026-07-04 제거)
     VIX > 25: 25% 축소
     """
     caps = dict(class_max)
@@ -170,7 +170,7 @@ def apply_dynamic_class_caps(targets: dict, class_max: dict, vix: float) -> dict
     else:
         return apply_class_caps(targets, caps)
 
-    for cls in ("commodity", "equity_individual"):
+    for cls in ("commodity",):
         if cls in caps:
             caps[cls] = caps[cls] * scale
 
@@ -316,8 +316,9 @@ def derive_account_weights(
         usd_pool[cls] = amt
         usd_remaining -= amt
 
-    # Priority 2a: USD equity core (factor/individual) — sector는 KRW-native(218420)로 분리
-    core_eq = ("equity_factor", "equity_individual")
+    # Priority 2a: USD equity core (factor) — sector는 KRW-native(218420)로 분리.
+    # equity_individual 제거(2026-07-04, 개별주 별도 계좌).
+    core_eq = ("equity_factor",)
     core_w, core_a = _allocate_group(core_eq, "equity_core")
     usd_remaining -= core_a
 
@@ -354,11 +355,11 @@ def derive_account_weights(
     # bond_krw는 USD 채권 부족분(bond_shortfall)까지 흡수 (forward 흡수).
     all_eq_classes = (
         "equity_etf", "equity_factor",
-        "equity_individual", "equity_developed", "equity_emerging",
+        "equity_developed", "equity_emerging",
     )
     equity_total_target = sum(targets.get(c, 0.0) for c in all_eq_classes)
     usd_eq_allocated = sum(usd_pool.get(c, 0.0) for c in (
-        "equity_factor", "equity_individual",
+        "equity_factor",
         "equity_developed", "equity_emerging",
     ))
     equity_etf_of_total = max(0.0, equity_total_target - usd_eq_allocated / total)

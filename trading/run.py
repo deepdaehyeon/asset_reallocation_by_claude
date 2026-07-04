@@ -533,7 +533,7 @@ def _apply_risk_controls(
     synthetic_pairs: dict = settlement_cfg.get("synthetic_pairs", {})
 
     equity_classes = set(config["risk"].get(
-        "equity_asset_classes", ["equity_etf", "equity_factor", "equity_individual"]
+        "equity_asset_classes", ["equity_etf", "equity_factor"]
     ))
     equity_tickers = {
         t for t, meta in config["universe"].items()

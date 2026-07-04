@@ -48,27 +48,8 @@ universe:
     currency: KRW
     exec_account: KRW
     asset_class: equity_sector
-  # ── Equity Individual (USD) — 4종목 다각화 (EV/AI/반도체/헬스케어) ────────
-  "TSLA":
-    name: "Tesla"
-    currency: USD
-    exec_account: USD
-    asset_class: equity_individual
-  "PLTR":
-    name: "Palantir"
-    currency: USD
-    exec_account: USD
-    asset_class: equity_individual
-  "NVDA":
-    name: "Nvidia"
-    currency: USD
-    exec_account: USD
-    asset_class: equity_individual
-  "LLY":
-    name: "Eli Lilly"
-    currency: USD
-    exec_account: USD
-    asset_class: equity_individual
+  # ── Equity Individual 제거(2026-07-04) — 개별주(NVDA/TSLA/PLTR/LLY)는 별도 계좌에서
+  #    수동 관리. equity_etf로 비중 이관해 USD 수요를 계좌 여력 안으로 눌러 오버플로·wash 제거.
   # ── Equity Developed ex-US (USD) — 글로벌 분산 ────────────────────────────
   "VEA":
     name: "Vanguard FTSE Developed Markets ex-US"
@@ -160,14 +141,14 @@ universe:
 # ※ 실제 실행 시에는 HMM 사후 확률로 가중 평균(Continuous Exposure)이 적용된다.
 #    이 값은 극단 레짐(확률 100%)일 때의 순수 배분이다.
 #
-# 포트폴리오 구조:
-#   Core 80%     — equity_etf / equity_factor / bond / gold / commodity / managed_futures / cash
-#   Satellite 20% — equity_individual (TSLA + PLTR: 장기투자 + 알파)
+# 포트폴리오 구조 (2026-07-04 개별주 satellite 접기 — 전량 코어):
+#   Core 100%    — equity_etf / equity_factor / bond / gold / commodity / managed_futures / cash
+#   ※ 개별주(NVDA/TSLA/PLTR/LLY)는 별도 계좌에서 수동 관리 — 이 시스템은 미관리.
+#     이유: USD 수요를 계좌 여력(≈37%) 안으로 눌러 오버플로·통화 왕복 wash를 구조적으로 제거.
 #
 # 자산군 설명:
-#   equity_etf        : KODEX S&P500 + 나스닥100 (KRW, 시장 베타)
+#   equity_etf        : KODEX S&P500 + 나스닥100 (KRW, 시장 베타 — 개별주 이관분 포함)
 #   equity_factor     : VTV(Value ETF) (USD, Reflation·금리 상승 수혜)
-#   equity_individual : TSLA + PLTR (USD, 고베타 성장주 = Satellite)
 #   commodity         : DBC (USD, 인플레 헤지 — Reflation·Stagflation 핵심)
 #   managed_futures   : DBMF (USD, CTA — Slowdown·Stagflation·Crisis 방어)
 #   bond_usd          : IEF + SHY (USD 중단기채 — Slowdown·Crisis 방어)
@@ -179,11 +160,11 @@ universe:
 regime_targets:
   # ── Goldilocks: 성장↑ + 유동성↑ (인플레 안정) ──────────────────────────────
   # 가장 Risk-On. cash 축소(15→8), equity_etf 확장(40→42), 해외 분산 추가.
-  Goldilocks:          # core 85% | satellite 15%
-    equity_etf:        0.47   # 2026-06-24 사용자: 0.42 → 0.47 (equity_individual 5% 흡수)
+  Goldilocks:          # 2026-07-04 개별주(satellite) 접기 — equity_etf로 통합
+    equity_etf:        0.62   # 2026-07-04 개별주 접기: 0.47 + individual 0.15 이관
     equity_factor:     0.08   # 2026-06-16 사용자: 0.05 → 0.08 (라이브 직접 반영)
     equity_sector:     0.03   # 2026-06-16 사용자: 0.00 → 0.03 (라이브 직접 반영)
-    equity_individual: 0.15   # 2026-06-24 사용자: 0.20 → 0.15 (class_max_weight cap과 동일하게 하향)
+    # equity_individual 제거(2026-07-04): equity_etf로 이관 — 개별주는 별도 계좌 관리
     equity_developed:  0.05   # 2026-06-16 사용자: 0.03 → 0.05 (라이브 직접 반영)
     equity_emerging:   0.02   # VWO — 신흥국 분산
     commodity:         0.05
@@ -196,11 +177,11 @@ regime_targets:
 
   # ── Reflation: 성장↑ + 인플레↑ ─────────────────────────────────────────────
   # TIPS + commodity + MF (인플레·트렌드 동반). gold 축소 (Reflation Sharpe 0.01).
-  Reflation:           # core 90% | satellite 10%
-    equity_etf:        0.22
+  Reflation:           # 2026-07-04 개별주 접기 — equity_etf 통합
+    equity_etf:        0.32   # 2026-07-04 개별주 접기: 0.22 + individual 0.10 이관
     equity_factor:     0.08
     equity_sector:     0.07
-    equity_individual: 0.10
+    # equity_individual 제거(2026-07-04): equity_etf로 이관
     equity_developed:  0.02
     equity_emerging:   0.02
     commodity:         0.16
@@ -213,11 +194,11 @@ regime_targets:
 
   # ── Slowdown: 성장↓ (인플레 낮음) ──────────────────────────────────────────
   # 채권·금 방어. bond_tips 추가 (Sharpe +1.19). MF 축소 (+0.07).
-  Slowdown:            # core 90% | satellite 10%
-    equity_etf:        0.15
+  Slowdown:            # 2026-07-04 개별주 접기 — equity_etf 통합
+    equity_etf:        0.25   # 2026-07-04 개별주 접기: 0.15 + individual 0.10 이관
     equity_factor:     0.05
     equity_sector:     0.00
-    equity_individual: 0.10
+    # equity_individual 제거(2026-07-04): equity_etf로 이관
     equity_developed:  0.02
     equity_emerging:   0.02
     commodity:         0.00   # 0.05 → 0 (SL2 OOS: 약체 원자재 → gold/bond, 양 시대 ΔMartin+ 2026-06-15)
@@ -233,11 +214,11 @@ regime_targets:
   # 아니라 스태그→침체 전환 시 panic bid 보험)·cash14를 더해 분산 — 스태그 에피소드
   # 이질성(2010s↔2022 방어자산 역전) 대비. commodity는 2026-06-16 18→6 축소.
   # equity_factor 보강 (Sharpe +1.34).
-  Stagflation:         # core 92% | satellite 8%
-    equity_etf:        0.05
+  Stagflation:         # 2026-07-04 개별주 접기 — equity_etf 통합
+    equity_etf:        0.13   # 2026-07-04 개별주 접기: 0.05 + individual 0.08 이관
     equity_factor:     0.08   # 0.03 → 0.08 (Sharpe +1.34 3위)
     equity_sector:     0.05
-    equity_individual: 0.08
+    # equity_individual 제거(2026-07-04): equity_etf로 이관
     equity_developed:  0.02
     equity_emerging:   0.02
     commodity:         0.06   # 2026-06-16 사용자: 0.18 → 0.06 (라이브 직접 반영)
@@ -251,11 +232,11 @@ regime_targets:
   # ── Crisis: 유동성 쇼크 ─────────────────────────────────────────────────────
   # equity_etf/bond_tips 추가 (Sharpe 2.85/2.28, 분류 후행 V-shape 보상 활용).
   # MF 제거 (Sharpe -0.48 — 음수). cash·gold 축소.
-  Crisis:              # core 95% | satellite 5%
-    equity_etf:        0.10   # 0.00 → 0.10 (Sharpe +2.85 2위)
+  Crisis:              # 2026-07-04 개별주 접기 — equity_etf 통합
+    equity_etf:        0.15   # 2026-07-04 개별주 접기: 0.10 + individual 0.05 이관
     equity_factor:     0.06   # 0.03 → 0.06
     equity_sector:     0.00
-    equity_individual: 0.05
+    # equity_individual 제거(2026-07-04): equity_etf로 이관
     equity_developed:  0.02
     equity_emerging:   0.02
     commodity:         0.05
@@ -276,11 +257,7 @@ asset_routing:
     AVUV: 0.40
   equity_sector:       # KRW 계좌 전용 — 218420(미국S&P500에너지) 100%
     "218420": 1.00
-  equity_individual:   # USD 계좌 전용 — 4종목 분산 (EV/AI/반도체/헬스케어)
-    NVDA: 0.30
-    LLY:  0.20   # 2026-06-24 사용자: TSLA와 비중 교체 (0.25 → 0.20)
-    PLTR: 0.25
-    TSLA: 0.25   # 2026-06-24 사용자: LLY와 비중 교체 (0.20 → 0.25)
+  # equity_individual 라우팅 제거(2026-07-04) — 개별주 별도 계좌 관리
   equity_developed:    # USD 계좌 전용 — 선진 ex-US
     VEA:  1.00
   equity_emerging:     # USD 계좌 전용 — 신흥국
@@ -348,7 +325,7 @@ equivalence_groups:
 class_max_weight:
   equity_factor:     0.10   # VTV+AVUV — Reflation·Stagflation 8%가 최대, +2pp 여유
   equity_sector:     0.10   # 218420 — Reflation 7%가 최대, +3pp 여유
-  equity_individual: 0.15   # 2026-06-24 사용자: 0.20 → 0.15, 해제된 5%는 equity_etf(베타)로 이동
+  # equity_individual 상한 제거(2026-07-04) — 개별주 접기
   equity_developed:  0.05   # VEA — 글로벌 분산, 작은 비중 유지
   equity_emerging:   0.03   # VWO — 신흥국, 더 작은 비중
   commodity:         0.20   # DBC — Stagflation 20%가 최대
@@ -382,7 +359,6 @@ vol_targeting:
     - equity_etf
     - equity_factor
     - equity_sector
-    - equity_individual
     - equity_developed
     - equity_emerging
 
@@ -610,7 +586,6 @@ risk:
     - equity_etf
     - equity_factor
     - equity_sector
-    - equity_individual
     - equity_developed
     - equity_emerging
 
@@ -623,10 +598,7 @@ settlement:
   buffer_tickers: []
   buffer_min: 0.0
   synthetic_pairs:
-    "TSLA": "379810"   # 나스닥100 (TSLA = NASDAQ100 구성종목)
-    "PLTR": "379810"   # 나스닥100 (PLTR = NASDAQ100 구성종목)
-    "NVDA": "379810"   # 나스닥100 (NVDA = NASDAQ100 핵심 종목)
-    "LLY":  "379800"   # S&P500 (LLY = SPX500, 헬스케어)
+    # NVDA/TSLA/PLTR/LLY 제거(2026-07-04) — 개별주 접기(universe에서 제외)
     "VTV":  "379800"   # S&P500 (Value subset)
     "AVUV": "379800"   # S&P500 (소형가치 대체재 없음)
     "VEA":  "379800"   # S&P500 (선진 ex-US KRW 대체재 없음, US fallback)
