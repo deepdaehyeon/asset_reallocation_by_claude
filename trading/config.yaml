@@ -631,12 +631,14 @@ settlement:
     "AVUV": "379800"   # S&P500 (소형가치 대체재 없음)
     "VEA":  "379800"   # S&P500 (선진 ex-US KRW 대체재 없음, US fallback)
     "VWO":  "379800"   # S&P500 (신흥국 KRW 대체재 없음, US fallback)
-    "IEF":  "305080"   # TIGER 미국채10년 (듀레이션 일치)
-    "SHY":  "469830"   # SOL 초단기채권 (단기채)
+    # ※ IEF/SHY 제거(2026-07-04) — bond_usd가 전 레짐 0이라 IEF/SHY는 forward로 안 사지고
+    #   오직 역합성(bond_krw 초과→bond_usd)으로만 매수됨. 역합성은 KRW가 꽉 찬 상황이라
+    #   305080/469830 KRW 프록시로 되돌리면 모순·churn. SPY/QQQ/GLD와 동일 사유.
     "DBC":               # broad commodity → 금+WTI 50/50
       "411060": 0.50
       "261220": 0.50
     "DBMF": "411060"   # 금 (CTA 트렌드 헷지 → 전천후 자산)
-    "SPY":  "379800"   # KODEX S&P500 (역합성 SPY 지연 시 동일 지수)
-    "QQQ":  "379810"   # KODEX 나스닥100 (역합성 QQQ 지연 시 동일 지수)
-    "GLD":  "411060"   # ACE KRX금현물 (역합성 GLD 지연 시 동일 금)
+    # ※ SPY/QQQ/GLD(역합성 USD 매수)는 synthetic_pairs에 넣지 않는다 — 역합성은 KRW가
+    #   꽉 차서 USD로 간 상황이라 KRW 프록시가 들어갈 자리가 없고, 억지로 넣으면 다른 KRW
+    #   보유를 밀어내 통화 왕복 churn을 만든다. 지연 시엔 프록시 없이 다음 실행에서 재시도.
+    #   (같은 자산 통화 왕복은 equivalence_groups + 주문 상계가 별도로 방지.) 2026-07-04.
