@@ -528,8 +528,27 @@ def apply_risk_controls(
     return dict(weights)
 
 
-def compute_drift(current: dict, target: dict) -> float:
-    """목표 대비 현재 비중 차이의 합계를 반환한다 (리밸런싱 필요 여부 판단)."""
+def compute_drift(current: dict, target: dict, groups: list | None = None) -> float:
+    """목표 대비 현재 비중 차이의 합계를 반환한다 (리밸런싱 필요 여부 판단).
+
+    groups: 경제적 동일 자산 묶음 [[ticker, ...], ...]. 주어지면 같은 그룹의 종목들을
+      합산한 뒤 차이를 계산한다 — QQQ(USD)↔379810(KRW 나스닥)처럼 통화(계좌)만 다른
+      동일 노출의 재배치를 drift(=회전 유발)로 세지 않기 위함(역합성 부작용 방지).
+      그룹에 없는 종목은 각자 개별 비교.
+    """
+    if groups:
+        t2g: dict = {}
+        for i, g in enumerate(groups):
+            for t in g:
+                t2g[t] = i
+        cur_g: dict = {}
+        tgt_g: dict = {}
+        for t in set(current) | set(target):
+            key = t2g.get(t, t)   # 그룹 소속이면 그룹 id, 아니면 종목 자신
+            cur_g[key] = cur_g.get(key, 0.0) + current.get(t, 0.0)
+            tgt_g[key] = tgt_g.get(key, 0.0) + target.get(t, 0.0)
+        return sum(abs(cur_g.get(k, 0.0) - tgt_g.get(k, 0.0)) for k in set(cur_g) | set(tgt_g))
+
     all_tickers = set(current) | set(target)
     return sum(abs(current.get(t, 0.0) - target.get(t, 0.0)) for t in all_tickers)
 

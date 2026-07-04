@@ -155,15 +155,19 @@ def _compute_side_drifts(
     target_krw: Dict[str, float],
     total_usd_krw: float,
     total_krw_only: float,
+    equivalence_groups: list | None = None,
 ) -> Tuple[float, float]:
     """
     전체 포트폴리오 기준 drift를 한 번만 계산해 KRW/USD 양쪽에 동일하게 적용한다
     (백테스트와 동일한 기준). 계좌별로 각자 총액 기준 재정규화해서 비교하면
     분모가 작아져 같은 절대 drift가 부풀려지고, 라이브가 백테스트보다 훨씬 자주
     트리거되는 원인이 된다.
+
+    equivalence_groups: 경제적 동일 자산 묶음. 같은 나스닥(QQQ↔379810) 등을 통화만
+    바꿔 재배치하는 것을 drift로 세지 않아 쓸데없는 통화 왕복 회전을 막는다(역합성 부작용).
     """
     merged_target = merge_to_total_weights(target_usd, target_krw, total_usd_krw, total_krw_only)
-    drift = compute_drift(current_weights, merged_target)
+    drift = compute_drift(current_weights, merged_target, groups=equivalence_groups)
     return drift, drift
 
 
@@ -670,6 +674,7 @@ def run_monitor(config: dict, state: dict, messenger: Messenger, args) -> None:
     drift_krw, drift_usd = _compute_side_drifts(
         current_weights, target_usd, target_krw,
         total_usd_krw, total_krw_only,
+        equivalence_groups=config.get("equivalence_groups"),
     )
 
     today_iso = datetime.now().date().isoformat()
