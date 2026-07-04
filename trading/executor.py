@@ -137,6 +137,52 @@ def _looks_like_insufficient_funds(msg: str) -> bool:
     return any(k.lower() in m for k in keywords)
 
 
+def _net_equivalent_orders(
+    orders: List[Tuple[str, str, float, str]],
+    groups: Optional[list],
+    min_order_krw: float,
+) -> List[Tuple[str, str, float, str]]:
+    """같은 equivalence group 내 상쇄되는 매수/매도를 상계해 통화 왕복(wash) 매매를 제거한다.
+
+    orders: [(ticker, currency, diff_krw, acc_name)] — diff>0 매수, <0 매도 (모두 KRW 환산).
+    같은 그룹(예: QQQ↔379810 나스닥)의 순매수·순매도 중 겹치는 부분(min)을 양쪽에서 비례
+    축소한다. 그룹 순노출 변화(net)는 보존하고 상쇄분만 제거 → **매매를 줄이기만** 하므로 안전
+    (경제적으로 동일한 자산을 통화만 바꿔 팔고 되사는 것을 방지). side 필터 전에 호출해야
+    USD 매수와 KRW 매도가 서로 상계된다. groups 없으면 원본 그대로 반환.
+    """
+    if not groups:
+        return orders
+    t2g: dict = {}
+    for i, g in enumerate(groups):
+        for t in g:
+            t2g[t] = i
+    result: List[Tuple[str, str, float, str]] = []
+    by_group: dict = {}
+    for o in orders:
+        gid = t2g.get(o[0])
+        if gid is None:
+            result.append(o)          # 그룹 밖은 그대로 통과
+        else:
+            by_group.setdefault(gid, []).append(o)
+    for gos in by_group.values():
+        total_buy = sum(o[2] for o in gos if o[2] > 0)
+        total_sell = -sum(o[2] for o in gos if o[2] < 0)
+        offset = min(total_buy, total_sell)
+        if offset <= 0:               # 한 방향뿐이면 상쇄 없음
+            result.extend(gos)
+            continue
+        for (tk, cur, diff, acc) in gos:
+            if diff > 0 and total_buy > 0:
+                new_diff = diff * (1.0 - offset / total_buy)
+            elif diff < 0 and total_sell > 0:
+                new_diff = diff * (1.0 - offset / total_sell)
+            else:
+                new_diff = diff
+            if abs(new_diff) >= min_order_krw:
+                result.append((tk, cur, new_diff, acc))
+    return result
+
+
 # ── SQLite 상태 관리 ─────────────────────────────────────────────────────────
 
 def _db_init(db_path: Path) -> sqlite3.Connection:
@@ -726,6 +772,16 @@ class KisRebalancer:
             current_weights, target_usd, target_krw, total_usd_krw, total_krw_only,
             force_full_rebalance=force_full_rebalance,
         )
+
+        # 동일자산(equivalence group) 상계 — QQQ↔379810처럼 통화만 다른 동일 노출을 팔고
+        # 되사는 wash 매매 제거. side 필터 전에 적용해야 USD 매수↔KRW 매도가 상계됨.
+        eq_groups = self.config.get("equivalence_groups")
+        if eq_groups:
+            _before = sum(abs(a) for _, _, a, _ in all_orders)
+            all_orders = _net_equivalent_orders(all_orders, eq_groups, self.min_order_krw)
+            _removed = _before - sum(abs(a) for _, _, a, _ in all_orders)
+            if _removed >= self.min_order_krw:
+                print(f"  [동일자산 상계] 통화 왕복 매매 {_removed:,.0f}원 제거 (wash netting)")
 
         # 단일 실행 회전율 상한 체크 (매수+매도 합산 / 포트폴리오 총액)
         max_run = float(self.config.get("rebalancing", {}).get("max_run_turnover", 0.0))
