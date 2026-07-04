@@ -136,6 +136,23 @@ universe:
     name: "KODEX WTI원유선물(H)"
     currency: KRW
     asset_class: commodity_krw
+  # ── Reverse-synthetic USD 대체 (KRW 초과분 흡수 전용, regime_targets 미포함) ──
+  # KRW 계좌가 KRW-native 목표를 다 못 담을 때만 매수됨 (reverse_synthetic 참조).
+  "SPY":
+    name: "SPDR S&P 500 ETF"
+    currency: USD
+    exec_account: USD
+    asset_class: equity_etf_usd
+  "QQQ":
+    name: "Invesco QQQ (Nasdaq 100)"
+    currency: USD
+    exec_account: USD
+    asset_class: equity_etf_usd
+  "GLD":
+    name: "SPDR Gold Shares"
+    currency: USD
+    exec_account: USD
+    asset_class: gold_usd
 
 # ────────────────────────────────────────────────────────────────────────────
 # 동적 자산 배분 — 레짐별 자산군 목표 비중 (합계 = 1.0)
@@ -285,11 +302,32 @@ asset_routing:
     "469830": 1.00
   cash_usd:            # USD 계좌 전용 — 초과 USD 잔여 흡수 (단기 T-Bill)
     SGOV: 1.00
+  equity_etf_usd:      # USD 계좌 전용 — 역합성(equity_etf KRW 초과분) SPY+QQQ (KRW 379800/379810 대칭)
+    SPY: 0.64
+    QQQ: 0.36
+  gold_usd:            # USD 계좌 전용 — 역합성(gold KRW 초과분) GLD
+    GLD: 1.00
 
 # dry-run 또는 계좌 조회 실패 시 사용할 KRW/USD 비율 폴백
 account_ratio_fallback:
   usd: 0.30
   krw: 0.70
+
+# ── 역합성 (KRW 계좌 초과분을 USD 대체 종목으로 이동) ──────────────────────────
+# forward 흡수(USD 부족→KRW equity_etf/bond_krw)의 거울. KRW-native 목표 합이 KRW 계좌
+# 여력을 초과하면(방어 국면 + USD 과잉), 경제적 등가 USD 클래스가 있는 KRW 클래스부터
+# USD 잔여 예산 한도 내에서 USD 계좌로 옮겨 노출 총량을 보존한다. 매핑 없는 클래스
+# (equity_sector·bond_tips)는 기존대로 비례 축소. derive_account_weights에서 모니터링
+# 시점에 잔고비율(krw_ratio) vs 목표 비교로 계산. usd_remaining>0(=USD 과잉)일 때만
+# 발동하므로 bond_shortfall(USD 부족)과 상호 배타 — 순환 없음. 2026-07-04 신설.
+reverse_synthetic:
+  enabled: true
+  # KRW class → USD 등가 class (asset_routing의 USD 클래스명). 방어 우선순위 순.
+  map:
+    bond_krw:   bond_usd        # 305080(미국채10년) → IEF/SHY
+    cash:       cash_usd        # 469830(초단기채)   → SGOV
+    gold:       gold_usd        # 411060(KRX금현물)  → GLD
+    equity_etf: equity_etf_usd  # KODEX S&P500/나스닥 → SPY/QQQ
 
 # ── 자산군별 최대 비중 상한 ──────────────────────────────────────────────────
 # 레짐 블렌딩으로 인한 과집중 방지. 초과분은 cash로 이동.
@@ -587,3 +625,6 @@ settlement:
       "411060": 0.50
       "261220": 0.50
     "DBMF": "411060"   # 금 (CTA 트렌드 헷지 → 전천후 자산)
+    "SPY":  "379800"   # KODEX S&P500 (역합성 SPY 지연 시 동일 지수)
+    "QQQ":  "379810"   # KODEX 나스닥100 (역합성 QQQ 지연 시 동일 지수)
+    "GLD":  "411060"   # ACE KRX금현물 (역합성 GLD 지연 시 동일 금)

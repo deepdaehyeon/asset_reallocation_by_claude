@@ -349,6 +349,59 @@ def derive_account_weights(
             f"{bond_w/total*100:.1f}% → {bond_a/total*100:.1f}%, 부족분 {bond_shortfall/total*100:.1f}%를 bond_krw로 대체"
         )
 
+    # ── 유효 KRW-native 목표 집계 (fraction of total) ─────────────────────────
+    # equity_etf는 잔여 흡수(전체 equity 목표 - USD 실제 equity 배분).
+    # bond_krw는 USD 채권 부족분(bond_shortfall)까지 흡수 (forward 흡수).
+    all_eq_classes = (
+        "equity_etf", "equity_factor",
+        "equity_individual", "equity_developed", "equity_emerging",
+    )
+    equity_total_target = sum(targets.get(c, 0.0) for c in all_eq_classes)
+    usd_eq_allocated = sum(usd_pool.get(c, 0.0) for c in (
+        "equity_factor", "equity_individual",
+        "equity_developed", "equity_emerging",
+    ))
+    equity_etf_of_total = max(0.0, equity_total_target - usd_eq_allocated / total)
+
+    krw_eff = {
+        "equity_etf":    equity_etf_of_total,
+        "gold":          targets.get("gold", 0.0),
+        "bond_krw":      targets.get("bond_krw", 0.0) + bond_shortfall / total,
+        "cash":          targets.get("cash", 0.0),
+        "equity_sector": targets.get("equity_sector", 0.0),
+        "bond_tips":     targets.get("bond_tips", 0.0),
+    }
+
+    # ── 역합성: KRW 계좌 초과분을 USD 대체 클래스로 이동 ──────────────────────
+    # forward 흡수(USD 부족→KRW)의 거울. KRW-native 목표 합이 KRW 계좌 여력을 넘으면,
+    # 경제적 등가 USD 클래스(config reverse_synthetic.map)가 있는 클래스부터 USD 잔여
+    # 예산 한도 내에서 USD 계좌로 옮겨 노출 총량을 보존한다. 매핑 없는 클래스는 이후
+    # 비례 축소. usd_remaining>0(USD 과잉)일 때만 발동 → bond_shortfall(USD 부족)과 배타.
+    rs_cfg = config.get("reverse_synthetic", {})
+    if rs_cfg.get("enabled", False) and krw_ratio > 0 and usd_remaining > 0:
+        rs_map = rs_cfg.get("map", {})
+        krw_cash_min_pre = float(config.get("rebalancing", {}).get("krw_cash_min", 0.01))
+        krw_capacity = krw_ratio * (1.0 - krw_cash_min_pre)   # KRW 계좌 여력 (fraction of total)
+        overflow = sum(krw_eff.values()) - krw_capacity       # 초과분 (fraction of total)
+        if overflow > 0.001:
+            # 방어 우선순위: 채권·현금·금·주식 순으로 USD 대체
+            for krw_cls in ("bond_krw", "cash", "gold", "equity_etf"):
+                if overflow <= 0 or usd_remaining <= 0:
+                    break
+                usd_cls = rs_map.get(krw_cls)
+                if not usd_cls or krw_cls not in krw_eff:
+                    continue
+                movable = min(krw_eff[krw_cls], overflow, usd_remaining / total)
+                if movable <= 0:
+                    continue
+                usd_pool[usd_cls] = usd_pool.get(usd_cls, 0.0) + movable * total
+                krw_eff[krw_cls] -= movable
+                overflow -= movable
+                usd_remaining -= movable * total
+                print(
+                    f"    [KRW 초과 → USD 대체] {krw_cls} {movable*100:.1f}%p → {usd_cls}"
+                )
+
     # 잔여 USD → USD 초단기채(cash_usd/SGOV)로 보존.
     # 리스크자산 과배분(옛 비례 확대) 대신 단기 T-Bill로 holding → 단기금리 수취·근(near)무위험.
     if usd_remaining > 0:
@@ -361,32 +414,17 @@ def derive_account_weights(
         for ticker, split in routing.get(cls, {}).items():
             usd_w[ticker] = usd_w.get(ticker, 0.0) + (amt / total_usd_krw) * split
 
-    # ── KRW 배정 ────────────────────────────────────────────────────────────
-    all_eq_classes = (
-        "equity_etf", "equity_factor",
-        "equity_individual", "equity_developed", "equity_emerging",
-    )
-    equity_total_target = sum(targets.get(c, 0.0) for c in all_eq_classes)
-    usd_eq_allocated = sum(usd_pool.get(c, 0.0) for c in (
-        "equity_factor", "equity_individual",
-        "equity_developed", "equity_emerging",
-    ))
-    equity_etf_of_total = max(0.0, equity_total_target - usd_eq_allocated / total)
-
+    # ── KRW 배정 (역합성 반영된 krw_eff 사용) ────────────────────────────────
     krw_w: dict = {}
     if krw_ratio > 0:
         for ticker, split in routing.get("equity_etf", {}).items():
-            krw_w[ticker] = (equity_etf_of_total / krw_ratio) * split
-
-        bond_krw_extra = (bond_shortfall / total) / krw_ratio
+            krw_w[ticker] = (krw_eff["equity_etf"] / krw_ratio) * split
         for cls in ("gold", "bond_krw", "cash", "equity_sector", "bond_tips"):
-            frac = targets.get(cls, 0.0) / krw_ratio
-            if cls == "bond_krw":
-                frac += bond_krw_extra
+            frac = krw_eff.get(cls, 0.0) / krw_ratio
             for ticker, split in routing.get(cls, {}).items():
                 krw_w[ticker] = krw_w.get(ticker, 0.0) + frac * split
 
-    # KRW 1% 현금 reserve 보존 후 정규화
+    # KRW 1% 현금 reserve 보존 후 정규화 (역합성 후에도 남은 초과분·매핑 불가 클래스 대비)
     krw_cash_min = float(config.get("rebalancing", {}).get("krw_cash_min", 0.01))
     krw_investable = 1.0 - krw_cash_min
     krw_total = sum(krw_w.values())
