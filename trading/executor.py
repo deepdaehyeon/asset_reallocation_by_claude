@@ -822,8 +822,10 @@ class KisRebalancer:
             if c == "USD":
                 usd_buys_by_acc.setdefault(acc, []).append((t, a))
         for acc_name, buys in usd_buys_by_acc.items():
-            ref_ticker = buys[0][0]
-            orderable = self._fetch_usd_orderable(acc_name, ref_ticker)
+            # 한 종목 호가 실패가 계좌 전체 예산을 삭감하지 않도록 매수 후보 전 종목을
+            # 넘긴다 — ovrs_ord_psbl_amt는 계좌 단위라 유효 호가 하나면 충분.
+            ref_tickers = [t for t, _ in buys]
+            orderable = self._fetch_usd_orderable(acc_name, ref_tickers)
             total_buy = sum(d for _, d in buys)
             if orderable > 0 and total_buy > orderable:
                 scale = orderable / total_buy
@@ -1032,7 +1034,7 @@ class KisRebalancer:
             )
             return fallback
 
-    def _fetch_usd_orderable(self, acc_name: str, ref_ticker: str) -> float:
+    def _fetch_usd_orderable(self, acc_name: str, ref_tickers) -> float:
         """해외(USD) 계좌의 주문가능금액을 원화 환산으로 조회한다 (매도 직후 호출).
 
         KRW 경로와 동일한 버그(주문가능금액 초과)가 USD 계좌에서도 발생(2026-06-08·09 VWO).
@@ -1043,35 +1045,51 @@ class KisRebalancer:
         - ovrs_ord_psbl_amt(amount)·max_ord_psbl_qty(quantity)는 KIS가 매수증거금·환전·수수료를
           모두 반영해 자체 계산한 권위값 — KIS가 주문 수락/거부에 쓰는 바로 그 기준.
         - 가격은 _execute_order와 동일한 ask(_get_price)를 사용.
-        조회 실패 시 _usd_cash_krw(매도 전 출금가능현금)×0.98 폴백 — 보수적(작게 잡아 안전).
+
+        ref_tickers: 기준 호가를 조회할 종목(str 또는 list). ovrs_ord_psbl_amt는 계좌 단위 값이라
+          유효 호가를 주는 종목 아무거나면 되므로, 한 종목 호가 실패(VEA ask=0 등, 레이트리밋·stale)
+          시 다음 후보로 순차 재시도한다 — 한 종목 실패가 계좌 전체 예산을 삭감하던 버그 수정
+          (2026-07-04). 전 종목 실패 시에만 _usd_cash_krw(매도 전 출금가능현금)×0.98 폴백.
         """
+        if isinstance(ref_tickers, str):
+            ref_tickers = [ref_tickers]
         client = self._clients[acc_name]
-        try:
-            stock = client.stock(ref_ticker)
-            price = self._get_price(stock, "buy", "USD")
-            if price <= 0:
-                raise ValueError(f"{ref_ticker} ask 가격 비정상: {price}")
-            oa = stock.orderable_amount(price=price)
-            amount_usd = float(oa.amount)         # ovrs_ord_psbl_amt (USD, 통화 기준)
-            max_qty = int(oa.quantity)             # max_ord_psbl_qty (통화 기준)
-            qty_based_usd = float(max_qty) * price
-            # amount(주문가능금액)과 qty×price 중 작은 값 — 정수주 반올림으로 qty_based가 약간 작음
-            usable_usd = min(amount_usd, qty_based_usd) if amount_usd > 0 else qty_based_usd
-            effective_krw = usable_usd * self.usd_krw * 0.98
-            print(
-                f"    [주문가능금액] {acc_name}: {effective_krw:,.0f}원"
-                f" (max_qty={max_qty}×${price:.2f}=${qty_based_usd:,.0f},"
-                f" ovrs_ord_psbl=${amount_usd:,.0f}, ask·98% 적용)"
-            )
-            return effective_krw
-        except Exception as e:
-            base_cash = self._usd_cash_krw if self._usd_cash_krw > 0 else float("inf")
-            fallback = base_cash * 0.98 if base_cash != float("inf") else base_cash
-            print(
-                f"  [경고] {acc_name} USD 주문가능금액 조회 실패: {type(e).__name__}: {e}"
-                f" → fallback {fallback:,.0f}원 (USD현금 {base_cash:,.0f}×0.98)"
-            )
-            return fallback
+        last_err = None
+        for ref_ticker in ref_tickers:
+            try:
+                stock = client.stock(ref_ticker)
+                price = self._get_price(stock, "buy", "USD")
+                if price <= 0:
+                    raise ValueError(f"{ref_ticker} ask 가격 비정상: {price}")
+                oa = stock.orderable_amount(price=price)
+                amount_usd = float(oa.amount)         # ovrs_ord_psbl_amt (USD, 통화 기준)
+                max_qty = int(oa.quantity)             # max_ord_psbl_qty (통화 기준)
+                qty_based_usd = float(max_qty) * price
+                # amount(주문가능금액)과 qty×price 중 작은 값 — 정수주 반올림으로 qty_based가 약간 작음
+                usable_usd = min(amount_usd, qty_based_usd) if amount_usd > 0 else qty_based_usd
+                effective_krw = usable_usd * self.usd_krw * 0.98
+                print(
+                    f"    [주문가능금액] {acc_name}: {effective_krw:,.0f}원"
+                    f" (기준 {ref_ticker}, max_qty={max_qty}×${price:.2f}=${qty_based_usd:,.0f},"
+                    f" ovrs_ord_psbl=${amount_usd:,.0f}, ask·98% 적용)"
+                )
+                return effective_krw
+            except Exception as e:
+                last_err = e
+                print(
+                    f"  [경고] {acc_name} 주문가능금액 조회 실패 ({ref_ticker}):"
+                    f" {type(e).__name__}: {e} → 다음 종목 호가로 재시도"
+                )
+                continue
+
+        base_cash = self._usd_cash_krw if self._usd_cash_krw > 0 else float("inf")
+        fallback = base_cash * 0.98 if base_cash != float("inf") else base_cash
+        print(
+            f"  [경고] {acc_name} USD 주문가능금액 전 종목({len(ref_tickers)}) 조회 실패"
+            f" (마지막 {type(last_err).__name__ if last_err else '?'})"
+            f" → fallback {fallback:,.0f}원 (USD현금 {base_cash:,.0f}×0.98)"
+        )
+        return fallback
 
     def _wait_for_fill(
         self,
