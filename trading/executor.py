@@ -623,6 +623,24 @@ class KisRebalancer:
                         # 폴백: withdrawable_amount이 0 또는 비정상이면 deposit.amount 사용
                         if cash_usd <= 0:
                             cash_usd = float(deposit.amount)
+                        # 당일 매도대금(frcr_sll_amt_smtl)은 T+2 결제 전이라 예수금/출금가능에
+                        # 미반영 → 대량 매도일에 총자산·USD비중이 그만큼 저평가(가짜 드로우다운).
+                        # KRW의 prvs_rcdl_excc_amt와 동일 취지로 미결제 매도대금을 더한다.
+                        # (매수증거금은 withdrawable에서 이미 차감돼 있어 중복 아님.) 2026-07-07.
+                        try:
+                            raw = balance.raw()
+                            out2 = raw.get("output2") if raw else None
+                            if isinstance(out2, list) and out2:
+                                out2 = out2[0]
+                            if isinstance(out2, dict):
+                                pend = out2.get("frcr_sll_amt_smtl")
+                                if pend not in (None, ""):
+                                    pend_usd = float(pend)
+                                    if pend_usd > 0:
+                                        cash_usd += pend_usd
+                                        print(f"  [{acc_name} USD 미결제 매도대금] +${pend_usd:,.0f} 반영 (T+2 결제 대기)")
+                        except Exception as e:
+                            print(f"  [경고] {acc_name} frcr_sll_amt_smtl 추출 실패: {e} — 미반영")
                         cash = cash_usd * self.usd_krw
                 except Exception as e:
                     print(f"  [경고] {acc_name} 예수금 변환 실패: {e} — 0 처리")
