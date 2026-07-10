@@ -171,6 +171,32 @@ def _compute_side_drifts(
     return drift, drift
 
 
+def _report_benchmark_alpha(state, rebalancer, total_all_krw, spy_prices=None) -> str:
+    """S&P500(SPY) 벤치마크 대비 알파 계산·저장·출력. 리포트용 한 줄 반환(실패 시 '').
+
+    spy_prices(signal DataFrame)에 SPY가 있으면 재사용, 없으면 SPY만 재조회.
+    입출금(net_flow)은 rebalancer가 이번 실행에 감지한 값을 재사용(peak 보정과 동일 소스,
+    processed_through로 같은 날 중복 방지). 매매 로직 미영향.
+    """
+    try:
+        from benchmark import update_benchmark, format_alpha_line
+        if spy_prices is None or "SPY" not in getattr(spy_prices, "columns", []):
+            spy_prices = fetch_signal_prices(["SPY"], lookback_days=10)
+        spy_usd = float(spy_prices["SPY"].dropna().iloc[-1])
+        spy_krw = spy_usd * float(getattr(rebalancer, "usd_krw", 0.0) or 0.0)
+        net_flow = float(getattr(rebalancer, "_last_net_flow_krw", 0.0) or 0.0)
+        info = update_benchmark(state, float(total_all_krw), spy_krw, net_flow)
+        if info:
+            state["last_alpha"] = info
+        line = format_alpha_line(info)
+        if line:
+            print(f"    📊 {line}")
+        return line
+    except Exception as e:
+        print(f"    [벤치마크 스킵] {type(e).__name__}: {e}")
+        return ""
+
+
 # ── 파이프라인 단계 ───────────────────────────────────────────────────────────
 
 def _run_market_analysis(config: dict, state: dict) -> dict:
@@ -636,6 +662,8 @@ def run_monitor(config: dict, state: dict, messenger: Messenger, args) -> None:
     krw_pct = total_krw_only / total_krw * 100 if total_krw else 0
     print(f"    총 자산: {total_krw:,.0f} 원  │  USD {usd_pct:.1f}% / KRW {krw_pct:.1f}%")
     print(f"    드로우다운: {drawdown:+.2%}")
+    alpha_line = _report_benchmark_alpha(
+        state, rebalancer, rebalancer._last_total_all_krw, market["prices"])
 
     print("[5] 목표 비중 산출 중...")
     blended_targets = blend_regime_targets(market["blend_probs"], config)
@@ -747,6 +775,7 @@ def run_monitor(config: dict, state: dict, messenger: Messenger, args) -> None:
         trigger_usd=trigger_usd,
         reason_krw=reason_krw,
         reason_usd=reason_usd,
+        alpha_line=alpha_line,
     )
     print("━" * 50)
     print("모니터링 완료")
@@ -939,6 +968,9 @@ def run_execution(config: dict, state: dict, messenger: Messenger, args) -> None
     if new_deferred:
         print(f"    지연 매수 {len(new_deferred)}건 저장 → 다음 실행 시 합성 노출 반영")
 
+    alpha_line = _report_benchmark_alpha(state, rebalancer, rebalancer._last_total_all_krw)
+    save_state(state)  # 벤치마크 shares·last_alpha 영속화
+
     messenger.send_complete(
         regime=regime,
         total_krw=total_krw,
@@ -949,6 +981,7 @@ def run_execution(config: dict, state: dict, messenger: Messenger, args) -> None
         deferred_buys=new_deferred,
         confidence=combined_conf,
         universe=config["universe"],
+        alpha_line=alpha_line,
     )
 
     print("━" * 50)

@@ -442,6 +442,7 @@ class KisRebalancer:
           processed_through_iso: KIS profits 백엔드를 사용한 경우 마지막 처리일(YYYY-MM-DD).
                                   호출자가 state에 캐시하면 같은 날 중복 호출 시 매도손익 이중 계산을 막는다.
         """
+        self._last_net_flow_krw = 0.0  # 벤치마크 알파용 — 이번 실행 감지된 입출금 net (기본 0)
         if peak <= 0 or prev_total <= 0 or not prev_total_at:
             return peak, None
 
@@ -460,6 +461,7 @@ class KisRebalancer:
 
         if events is not None:
             net_flow = compute_net_flow(events)
+            self._last_net_flow_krw = float(net_flow)  # 벤치마크 알파용
             processed_through = (
                 datetime.now().date().isoformat() if source == "kis_profits" else None
             )

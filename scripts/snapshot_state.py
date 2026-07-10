@@ -117,6 +117,12 @@ def build() -> str:
         a(f"| 누적 손익 | {_fmt_won(pnl)} ({pnl/principal*100:+.2f}%) |")
     a(f"| 고점 | {_fmt_won(st.get('peak_krw'))} |")
     a(f"| 드로우다운 | {_fmt_pct(st.get('last_drawdown'))} |")
+    _alpha = st.get("last_alpha")
+    if isinstance(_alpha, dict) and not _alpha.get("inception"):
+        _av = _alpha.get("alpha", 0.0)
+        _ap = _alpha.get("alpha_pct", 0.0)
+        a(f"| S&P500였다면 | {_fmt_won(_alpha.get('bench_value'))} |")
+        a(f"| **알파(vs S&P500)** | **{_fmt_won(_av)} ({_ap*100:+.2f}%)** |")
     a(f"| 이번 달 회전액 | {_fmt_won(st.get('monthly_traded_krw'))} ({st.get('monthly_ym', '—')}) |")
     a(f"| USD/KRW | {st.get('usd_krw_rate', '—'):,.1f} ({_fmt_dt(st.get('usd_krw_at'))}) |"
       if isinstance(st.get('usd_krw_rate'), (int, float)) else "| USD/KRW | — |")

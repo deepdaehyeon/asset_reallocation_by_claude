@@ -84,6 +84,7 @@ class Messenger:
         deferred_buys: Optional[List[dict]] = None,
         confidence: float = 0.0,
         universe: Optional[Dict[str, dict]] = None,
+        alpha_line: str = "",
     ) -> None:
         def _label(ticker: str) -> str:
             if not universe:
@@ -108,9 +109,11 @@ class Messenger:
             deferred_section = f"\n*지연 매수 (합성 노출로 대체):*\n{lines}"
 
         conf_str = f" | 신뢰도 `{confidence:.0%}`" if confidence > 0 else ""
+        alpha_md = f"> :bar_chart: {alpha_line}\n" if alpha_line else ""
         text = (
             f":white_check_mark: *리밸런싱 완료*\n"
             f"> 레짐: `{regime}`{conf_str} | 자산: {total_krw:,.0f}원 | DD: {drawdown:+.1%}\n"
+            f"{alpha_md}"
             f"*비중 변화:*\n{weight_lines}\n"
             f"*주문 내역:*\n{orders}"
             f"{deferred_section}"
@@ -137,6 +140,7 @@ class Messenger:
         reason_usd: str,
         hmm_probs: Optional[Dict[str, float]] = None,
         rf_probs: Optional[Dict[str, float]] = None,
+        alpha_line: str = "",
     ) -> None:
         conf_str = f"`{confidence:.0%}`" if confidence > 0 else "—"
 
@@ -153,6 +157,7 @@ class Messenger:
 
         hy_str = f" | HY {features['hy_spread']:.2f}%" if "hy_spread" in features else ""
         curve_str = f" | 10Y-2Y {features['curve_10y2y']:+.2f}%" if "curve_10y2y" in features else ""
+        alpha_md = f"> {alpha_line}\n" if alpha_line else ""
 
         text = (
             f":bar_chart: *모니터링 완료*\n"
@@ -164,6 +169,7 @@ class Messenger:
             f"실현변동성 `{features.get('realized_vol', 0):.1%}`"
             f"{hy_str}{curve_str}\n"
             f"> 자산 `{total_krw:,.0f}원` | DD `{drawdown:+.1%}`\n"
+            f"{alpha_md}"
             f"{krw_icon} KRW drift `{drift_krw:.1%}` → {reason_krw}\n"
             f"{usd_icon} USD drift `{drift_usd:.1%}` → {reason_usd}"
         )
