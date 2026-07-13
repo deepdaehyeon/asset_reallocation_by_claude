@@ -527,6 +527,7 @@ def _compute_targets(
     regime: str = "",
     vix: float = 0.0,
     blend_probs: dict | None = None,
+    current_weights: dict | None = None,
 ) -> Tuple[dict, dict]:
     """
     단계 5b-5d: vol targeting → dynamic class caps → 계좌별 종목 비중 도출.
@@ -540,7 +541,8 @@ def _compute_targets(
         blended = apply_dynamic_class_caps(blended, class_max, vix)
     else:
         blended = apply_class_caps(blended, class_max)
-    target_usd, target_krw = derive_account_weights(blended, config, total_usd_krw, total_krw_only)
+    target_usd, target_krw = derive_account_weights(
+        blended, config, total_usd_krw, total_krw_only, current_weights=current_weights)
     return target_usd, target_krw
 
 
@@ -696,6 +698,7 @@ def run_monitor(config: dict, state: dict, messenger: Messenger, args) -> None:
         regime=market["regime"],
         vix=market["features"]["vix"],
         blend_probs=market["blend_probs"],
+        current_weights=current_weights,
     )
 
     print("[6] 트리거 계산 중...")
@@ -891,6 +894,7 @@ def run_execution(config: dict, state: dict, messenger: Messenger, args) -> None
     target_usd, target_krw = _compute_targets(
         blended_targets, eff_vol, config, total_usd_krw, total_krw_only,
         regime=regime, vix=saved_vix, blend_probs=saved_blend_probs,
+        current_weights=current_weights,
     )
 
     print("[6] 결제 상태 점검 중...")

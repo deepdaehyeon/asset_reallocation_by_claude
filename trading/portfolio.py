@@ -274,29 +274,79 @@ def apply_vol_targeting(
 
 # ── 계좌별 비중 도출 ─────────────────────────────────────────────────────────
 
+def route_accounts(econ: dict, cur_k: dict, cur_u: dict,
+                   krw_room: float, usd_room: float) -> Tuple[dict, dict]:
+    """등가 그룹의 목표·현재보유·계좌용량으로 KRW/USD 배정(won)을 직접 계산한다.
+
+    현재보유를 최대한 유지하고, 델타(목표−현재)만 여유 있는 계좌로 라우팅한다(KRW 우선).
+    통화 왕복(기존 보유를 팔아 다른 통화로 되사기)을 원천적으로 만들지 않는다:
+      - 부족분: KRW 여유 있으면 KRW, 없으면 USD에서 추가 매수.
+      - 초과분: 그 통화에서 매도(현금 확보).
+      - KRW 진짜 과포화: 필요한 만큼만 KRW→USD 이동(진짜 relocate).
+      - 양쪽 다 초과: 비례 축소(진짜 계좌 한계).
+    econ/cur_k/cur_u/room 모두 won 단위.
+    """
+    alloc_k = {g: 0.0 for g in econ}
+    alloc_u = {g: 0.0 for g in econ}
+    for g, T in econ.items():
+        k = min(cur_k.get(g, 0.0), T)
+        u = min(cur_u.get(g, 0.0), max(0.0, T - k))
+        alloc_k[g], alloc_u[g] = k, u
+    used_k = sum(alloc_k.values())
+    used_u = sum(alloc_u.values())
+    for g, T in econ.items():
+        need = T - (alloc_k[g] + alloc_u[g])
+        if need <= 1e-9:
+            continue
+        add_k = min(need, max(0.0, krw_room - used_k))
+        alloc_k[g] += add_k
+        used_k += add_k
+        need -= add_k
+        if need > 1e-9:
+            alloc_u[g] += need
+            used_u += need
+    if used_k > krw_room + 1e-6:
+        excess = used_k - krw_room
+        for g in econ:
+            if excess <= 1e-9:
+                break
+            mv = min(alloc_k[g], excess, max(0.0, usd_room - used_u))
+            if mv <= 0:
+                continue
+            alloc_k[g] -= mv
+            alloc_u[g] += mv
+            used_k -= mv
+            used_u += mv
+            excess -= mv
+    if used_u > usd_room + 1e-6 and used_u > 0:
+        s = usd_room / used_u
+        alloc_u = {g: v * s for g, v in alloc_u.items()}
+    if used_k > krw_room + 1e-6 and used_k > 0:
+        s = krw_room / used_k
+        alloc_k = {g: v * s for g, v in alloc_k.items()}
+    return alloc_k, alloc_u
+
+
 def derive_account_weights(
     targets: dict,
     config: dict,
     total_usd_krw: float,
     total_krw_only: float,
+    current_weights: Optional[dict] = None,
 ) -> Tuple[dict, dict]:
-    """
-    블렌딩·조정된 자산군 목표 비중으로부터 계좌별 종목 비중을 동적으로 도출한다.
+    """자산군 목표 비중 + 현재보유 → 계좌별 종목 비중을 직접 도출한다 (2026-07-13 재작성).
 
-    USD 배정 우선순위 (단계 내 pro-rata):
-      1순위 — commodity, managed_futures           (대체 불가, 전액 배정)
-      2a순위 — equity_factor/individual           (USD core equity, equity_etf 대체)
-      2b순위 — equity_developed/equity_emerging   (USD intl equity, 한국 대체재 회피로 equity_etf 대체)
-      3순위 — bond_usd                            (USD bonds, bond_krw 대체)
-      잔여 USD → cash_usd(SGOV, 단기 T-Bill)로 보존 (1% 현금 reserve만 유지)
+    핵심: 경제적 등가 자산(KRW ETF ↔ USD ETF, 예 379800↔SPY·411060↔GLD)을 **하나로 보고**,
+    목표·현재보유·계좌용량으로 각 계좌 매수/매도를 직접 계산한다(`route_accounts`). 기존 보유는
+    유지하고 델타만 여유 계좌로 → 통화 왕복(역합성↔상계 교착)이 원천 소멸.
 
-    KRW 배정:
-      equity_etf = 모든 equity_* 목표 - USD 실제 equity 배분 (자동 흡수)
-      bond_krw = 자체 목표 + bond_usd 부족분
-      equity_sector(218420)·bond_tips(468370)·gold·cash = 목표 그대로 (KRW-native 직접 라우팅)
+      - USD 전용(commodity·MF·factor·developed·emerging): USD 계좌 채움. equity 부족분은
+        equity_etf 그룹 KRW로 근사 대체(대체재 없음).
+      - KRW 전용(equity_sector·bond_tips): KRW 계좌.
+      - 등가 그룹(equity_etf·gold·bond·cash): route_accounts로 직접 배분.
+      - 잔여 USD → cash_usd(SGOV).
 
-    Args:
-        targets: blend_regime_targets() 또는 regime_targets[regime] 반환값
+    current_weights 없으면(백테스트) 현재보유 0으로 보고 KRW 우선 채움(기존과 유사).
     """
     total = total_usd_krw + total_krw_only
     if total <= 0:
@@ -306,138 +356,102 @@ def derive_account_weights(
         total_krw_only = float(fb["krw"])
 
     routing = config["asset_routing"]
-    krw_ratio = total_krw_only / total
-
-    # ── USD 예산 배정 ────────────────────────────────────────────────────────
+    uni = config.get("universe", {})
     usd_cash_min = float(config.get("rebalancing", {}).get("usd_cash_min", 0.01))
-    usd_investable = total_usd_krw * (1.0 - usd_cash_min)
+    krw_cash_min = float(config.get("rebalancing", {}).get("krw_cash_min", 0.01))
 
+    def _kfrac(won):
+        return won / total_krw_only if total_krw_only > 0 else 0.0
+
+    def _ufrac(won):
+        return won / total_usd_krw if total_usd_krw > 0 else 0.0
+
+    # 등가 그룹 정의 (config reverse_synthetic.map: KRW class → USD class)
+    rs_map = config.get("reverse_synthetic", {}).get("map", {
+        "bond_krw": "bond_usd", "cash": "cash_usd",
+        "gold": "gold_usd", "equity_etf": "equity_etf_usd"})
+    groups: dict = {}
+    for krw_cls, usd_cls in rs_map.items():
+        econ_frac = targets.get(krw_cls, 0.0)
+        if krw_cls == "bond_krw":
+            econ_frac += targets.get("bond_usd", 0.0)  # 미국채: bond_krw+bond_usd 통합
+        groups[krw_cls] = {
+            "econ": econ_frac * total,
+            "krw_tk": routing.get(krw_cls, {}),
+            "usd_tk": routing.get(usd_cls, {}),
+        }
+
+    # 현재 그룹 보유(won) — KRW/USD 분리
+    tk2grp_k: dict = {}
+    tk2grp_u: dict = {}
+    for g, info in groups.items():
+        for tk in info["krw_tk"]:
+            tk2grp_k[tk] = g
+        for tk in info["usd_tk"]:
+            tk2grp_u[tk] = g
+    cur_k = {g: 0.0 for g in groups}
+    cur_u = {g: 0.0 for g in groups}
+    if current_weights:
+        for tk, w in current_weights.items():
+            won = float(w) * total
+            if tk in tk2grp_k:
+                cur_k[tk2grp_k[tk]] += won
+            elif tk in tk2grp_u:
+                cur_u[tk2grp_u[tk]] += won
+
+    # ── USD 전용 배정 (대체불가 우선; USD equity 부족분은 equity_etf 그룹 KRW 대체) ──
+    usd_room = total_usd_krw * (1.0 - usd_cash_min)
     usd_pool: dict = {}
-    usd_remaining = usd_investable
-
-    def _allocate_group(classes, group_label: str) -> Tuple[float, float]:
-        """그룹 내 pro-rata 배정. (wanted, actual) 반환."""
-        wanted = sum(targets.get(c, 0.0) * total for c in classes)
-        actual = min(wanted, max(usd_remaining, 0.0))
-        for cls in classes:
-            cls_t = targets.get(cls, 0.0) * total
-            usd_pool[cls] = actual * cls_t / wanted if wanted > 0 else 0.0
-        return wanted, actual
-
-    # Priority 1: 비대체 자산
     for cls in ("commodity", "managed_futures"):
-        amt = min(targets.get(cls, 0.0) * total, usd_remaining)
+        amt = min(targets.get(cls, 0.0) * total, usd_room)
         usd_pool[cls] = amt
-        usd_remaining -= amt
+        usd_room -= amt
+    for cls in ("equity_factor", "equity_developed", "equity_emerging"):
+        want = targets.get(cls, 0.0) * total
+        amt = min(want, usd_room)
+        usd_pool[cls] = amt
+        usd_room -= amt
+        short = want - amt
+        if short > total * 0.001 and "equity_etf" in groups:
+            groups["equity_etf"]["econ"] += short  # KRW 근사 대체
+            print(f"    [USD 부족 대체] {cls} {short/total*100:.1f}%p → equity_etf(KRW)")
+    usd_room = max(0.0, usd_room)
 
-    # Priority 2a: USD equity core (factor) — sector는 KRW-native(218420)로 분리.
-    # equity_individual 제거(2026-07-04, 개별주 별도 계좌).
-    core_eq = ("equity_factor",)
-    core_w, core_a = _allocate_group(core_eq, "equity_core")
-    usd_remaining -= core_a
+    # ── KRW 전용 배정 ──
+    krw_room = total_krw_only * (1.0 - krw_cash_min)
+    krw_pool: dict = {}
+    for cls in ("equity_sector", "bond_tips"):
+        amt = targets.get(cls, 0.0) * total
+        krw_pool[cls] = amt
+        krw_room -= amt
+    krw_room = max(0.0, krw_room)
 
-    # Priority 2b: USD equity intl (developed/emerging) — 한국 대체재 회피, 마지막 equity
-    intl_eq = ("equity_developed", "equity_emerging")
-    intl_w, intl_a = _allocate_group(intl_eq, "equity_intl")
-    usd_remaining -= intl_a
+    # ── 등가 그룹: 직접 계좌 배분 ──
+    econ = {g: groups[g]["econ"] for g in groups}
+    alloc_k, alloc_u = route_accounts(econ, cur_k, cur_u, krw_room, usd_room)
 
-    # Priority 3: USD bonds (bond_usd) — bond_tips는 KRW-native(468370)로 분리
-    bond_cls = ("bond_usd",)
-    bond_w, bond_a = _allocate_group(bond_cls, "bond_usd")
-    usd_remaining -= bond_a
-
-    # 로깅
-    if core_w - core_a > total * 0.001:
-        print(
-            f"    [USD 예산 조정] equity_core(factor+individual) "
-            f"{core_w/total*100:.1f}% → {core_a/total*100:.1f}% (USD 한도 {total_usd_krw/total:.0%})"
-        )
-    if intl_w - intl_a > total * 0.001:
-        print(
-            f"    [USD 부족 대체] equity_intl(developed+emerging) "
-            f"{intl_w/total*100:.1f}% → {intl_a/total*100:.1f}%, 부족분 equity_etf로 대체"
-        )
-    bond_shortfall = max(0.0, bond_w - bond_a)
-    if bond_shortfall > total * 0.001:
-        print(
-            f"    [USD 부족 대체] bond(usd) "
-            f"{bond_w/total*100:.1f}% → {bond_a/total*100:.1f}%, 부족분 {bond_shortfall/total*100:.1f}%를 bond_krw로 대체"
-        )
-
-    # ── 유효 KRW-native 목표 집계 (fraction of total) ─────────────────────────
-    # equity_etf는 잔여 흡수(전체 equity 목표 - USD 실제 equity 배분).
-    # bond_krw는 USD 채권 부족분(bond_shortfall)까지 흡수 (forward 흡수).
-    all_eq_classes = (
-        "equity_etf", "equity_factor",
-        "equity_developed", "equity_emerging",
-    )
-    equity_total_target = sum(targets.get(c, 0.0) for c in all_eq_classes)
-    usd_eq_allocated = sum(usd_pool.get(c, 0.0) for c in (
-        "equity_factor",
-        "equity_developed", "equity_emerging",
-    ))
-    equity_etf_of_total = max(0.0, equity_total_target - usd_eq_allocated / total)
-
-    krw_eff = {
-        "equity_etf":    equity_etf_of_total,
-        "gold":          targets.get("gold", 0.0),
-        "bond_krw":      targets.get("bond_krw", 0.0) + bond_shortfall / total,
-        "cash":          targets.get("cash", 0.0),
-        "equity_sector": targets.get("equity_sector", 0.0),
-        "bond_tips":     targets.get("bond_tips", 0.0),
-    }
-
-    # ── 역합성: KRW 계좌 초과분을 USD 대체 클래스로 이동 ──────────────────────
-    # forward 흡수(USD 부족→KRW)의 거울. KRW-native 목표 합이 KRW 계좌 여력을 넘으면,
-    # 경제적 등가 USD 클래스(config reverse_synthetic.map)가 있는 클래스부터 USD 잔여
-    # 예산 한도 내에서 USD 계좌로 옮겨 노출 총량을 보존한다. 매핑 없는 클래스는 이후
-    # 비례 축소. usd_remaining>0(USD 과잉)일 때만 발동 → bond_shortfall(USD 부족)과 배타.
-    rs_cfg = config.get("reverse_synthetic", {})
-    if rs_cfg.get("enabled", False) and krw_ratio > 0 and usd_remaining > 0:
-        rs_map = rs_cfg.get("map", {})
-        krw_cash_min_pre = float(config.get("rebalancing", {}).get("krw_cash_min", 0.01))
-        krw_capacity = krw_ratio * (1.0 - krw_cash_min_pre)   # KRW 계좌 여력 (fraction of total)
-        overflow = sum(krw_eff.values()) - krw_capacity       # 초과분 (fraction of total)
-        if overflow > 0.001:
-            # 방어 우선순위: 채권·현금·금·주식 순으로 USD 대체
-            for krw_cls in ("bond_krw", "cash", "gold", "equity_etf"):
-                if overflow <= 0 or usd_remaining <= 0:
-                    break
-                usd_cls = rs_map.get(krw_cls)
-                if not usd_cls or krw_cls not in krw_eff:
-                    continue
-                movable = min(krw_eff[krw_cls], overflow, usd_remaining / total)
-                if movable <= 0:
-                    continue
-                usd_pool[usd_cls] = usd_pool.get(usd_cls, 0.0) + movable * total
-                krw_eff[krw_cls] -= movable
-                overflow -= movable
-                usd_remaining -= movable * total
-                print(
-                    f"    [KRW 초과 → USD 대체] {krw_cls} {movable*100:.1f}%p → {usd_cls}"
-                )
-
-    # 잔여 USD → USD 초단기채(cash_usd/SGOV)로 보존.
-    # 리스크자산 과배분(옛 비례 확대) 대신 단기 T-Bill로 holding → 단기금리 수취·근(near)무위험.
-    if usd_remaining > 0:
-        usd_pool["cash_usd"] = usd_pool.get("cash_usd", 0.0) + usd_remaining
-        usd_remaining = 0.0
-
-    # USD 계좌 비중
-    usd_w: dict = {}
-    for cls, amt in usd_pool.items():
-        for ticker, split in routing.get(cls, {}).items():
-            usd_w[ticker] = usd_w.get(ticker, 0.0) + (amt / total_usd_krw) * split
-
-    # ── KRW 배정 (역합성 반영된 krw_eff 사용) ────────────────────────────────
+    # ── 종목 비중 조립 ──
     krw_w: dict = {}
-    if krw_ratio > 0:
-        for ticker, split in routing.get("equity_etf", {}).items():
-            krw_w[ticker] = (krw_eff["equity_etf"] / krw_ratio) * split
-        for cls in ("gold", "bond_krw", "cash", "equity_sector", "bond_tips"):
-            frac = krw_eff.get(cls, 0.0) / krw_ratio
-            for ticker, split in routing.get(cls, {}).items():
-                krw_w[ticker] = krw_w.get(ticker, 0.0) + frac * split
+    for cls, won in krw_pool.items():
+        for tk, split in routing.get(cls, {}).items():
+            krw_w[tk] = krw_w.get(tk, 0.0) + _kfrac(won) * split
+    for g, info in groups.items():
+        for tk, split in info["krw_tk"].items():
+            krw_w[tk] = krw_w.get(tk, 0.0) + _kfrac(alloc_k[g]) * split
+
+    usd_w: dict = {}
+    for cls, won in usd_pool.items():
+        for tk, split in routing.get(cls, {}).items():
+            usd_w[tk] = usd_w.get(tk, 0.0) + _ufrac(won) * split
+    for g, info in groups.items():
+        for tk, split in info["usd_tk"].items():
+            usd_w[tk] = usd_w.get(tk, 0.0) + _ufrac(alloc_u[g]) * split
+    # 잔여 USD → SGOV(cash_usd)
+    usd_used = sum(usd_pool.values()) + sum(alloc_u.values())
+    leftover = total_usd_krw * (1.0 - usd_cash_min) - usd_used
+    if leftover > total * 0.001:
+        for tk, split in routing.get("cash_usd", {}).items():
+            usd_w[tk] = usd_w.get(tk, 0.0) + _ufrac(leftover) * split
 
     # KRW 1% 현금 reserve 보존 후 정규화 (역합성 후에도 남은 초과분·매핑 불가 클래스 대비)
     krw_cash_min = float(config.get("rebalancing", {}).get("krw_cash_min", 0.01))
