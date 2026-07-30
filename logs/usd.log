@@ -3251,3 +3251,6 @@ USD 리밸런싱 완료
 [07/30 03:02:10] 모니터링 완료
 [07/30 03:02:11] [USD] 트리거 없음 (no_trigger(drift=3.2%)) → 실행 생략
 [snapshot] /Users/kimdhyeon/asset_reallocation_by_claude/STATUS.md 생성 완료
+[main 7a84b39] logs: auto-update 2026-07-30 03:02
+ 4 files changed, 80 insertions(+), 34 deletions(-)
+[push_logs] 완료: 2026-07-30 03:02
