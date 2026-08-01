@@ -320,9 +320,14 @@ def fetch_deposit_withdrawal_events(
     since 이후 입출금 이벤트를 조회한다.
 
     조회 우선순위:
-      1. CSV 로그 (파일이 존재하면 → 결과로 채택, 비어 있어도 '0건')
+      1. CSV 로그 — 해당 구간에 기록이 **있으면** 채택 (수동 기록이 가장 정확)
       2. KIS profits 역산 (state에 last_principal_krw가 있고 current_principal_krw 전달 시)
       3. 둘 다 불가 → None → 호출자가 휴리스틱 fallback 사용
+
+    2026-08-01: 이전에는 "CSV 파일이 존재하면 비어 있어도 0건으로 확정"이었다. 헤더만 있는
+    빈 CSV가 백엔드 2·3을 통째로 막아 실제 입금(2026-07-31 2,200만원)을 놓쳤다
+    (알파가 입금액만큼 부풀고 peak 보정 누락). 이제 기록이 없으면 자동 감지로 넘어간다.
+    수동 기록이 있으면 여전히 최우선이므로 정확도는 그대로다.
 
     Parameters
     ----------
@@ -342,9 +347,12 @@ def fetch_deposit_withdrawal_events(
     path = log_path or Path(os.environ.get("DEPOSIT_LOG_PATH", DEFAULT_LOG_PATH))
 
     if path.exists():
-        return read_events_from_csv(path, since=since), "csv"
+        csv_events = read_events_from_csv(path, since=since)
+        if csv_events:
+            return csv_events, "csv"
+        # 구간 내 기록 없음 → 아래 자동 감지로 폴백 (빈 CSV가 감지를 막지 않도록)
 
-    # CSV 미존재 → KIS profits 역산 시도
+    # CSV 미존재/기록 없음 → KIS profits 역산 시도
     api_events = _try_kis_profits(
         pykis_clients=pykis_clients,
         since=since,

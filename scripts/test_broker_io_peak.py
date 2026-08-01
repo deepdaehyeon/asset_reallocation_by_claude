@@ -132,14 +132,33 @@ def test_fetch_routes_to_csv():
         _record("test_fetch_routes_to_csv / 1건", len(evs) == 1)
 
 
-def test_fetch_empty_csv_is_zero_events():
-    """헤더만 있는 CSV → 빈 리스트 (휴리스틱 fallback 안 함)."""
+def test_fetch_empty_csv_falls_through():
+    """헤더만 있는 CSV → 자동 감지로 폴백 (2026-08-01 동작 변경).
+
+    이전에는 '파일이 있으면 0건으로 확정'이라 빈 CSV가 API·휴리스틱을 통째로 막았고,
+    실제 입금 2,200만원(2026-07-31)을 놓쳐 알파가 입금액만큼 부풀었다.
+    """
     with tempfile.TemporaryDirectory() as td:
         log = Path(td) / "deposits.csv"
         _write_csv(log, [])  # 헤더만
         evs, src = fetch_deposit_withdrawal_events(since=None, log_path=log)
-        _record("test_fetch_empty_csv_is_zero_events / source=csv (fallback 안 함)",
-                src == "csv" and evs == [])
+        _record("test_fetch_empty_csv_falls_through / 자동 감지로 폴백",
+                src == "none" and evs is None, f"got src={src}, evs={evs}")
+
+
+def test_fetch_csv_outside_window_falls_through():
+    """구간(since) 밖 기록만 있는 CSV → 폴백. 오래된 기록이 감지를 막지 않는다."""
+    with tempfile.TemporaryDirectory() as td:
+        log = Path(td) / "deposits.csv"
+        _write_csv(log, [{
+            "ts": "2026-01-02T09:00:00", "acc_name": "USD",
+            "amount_krw": "5000000", "kind": "deposit", "note": "과거", "id": "d0",
+        }])
+        evs, src = fetch_deposit_withdrawal_events(
+            since=datetime.fromisoformat("2026-05-20T09:00:00"), log_path=log,
+        )
+        _record("test_fetch_csv_outside_window_falls_through / 폴백",
+                src == "none" and evs is None, f"got src={src}, evs={evs}")
 
 
 def test_fetch_no_csv_falls_to_none():
@@ -500,11 +519,14 @@ def test_kis_profits_already_processed_today():
 
 
 def test_kis_profits_csv_takes_precedence():
-    """CSV가 존재하면 KIS profits 백엔드는 호출 안 됨."""
+    """CSV에 해당 구간 기록이 있으면 KIS profits 백엔드는 호출 안 됨 (수동 기록 최우선)."""
     from deposit_log import fetch_deposit_withdrawal_events
     with tempfile.TemporaryDirectory() as td:
         log = Path(td) / "deposits.csv"
-        _write_csv(log, [])
+        _write_csv(log, [{
+            "ts": "2026-05-21T09:00:00", "acc_name": "USD",
+            "amount_krw": "3000000", "kind": "deposit", "note": "수동기록", "id": "d1",
+        }])
         clients = _make_mock_kis_clients(realized_profit_krw=999_999_999)
         events, src = fetch_deposit_withdrawal_events(
             since=datetime.fromisoformat("2026-05-20T09:00:00"),
@@ -514,11 +536,35 @@ def test_kis_profits_csv_takes_precedence():
             current_principal_krw=1_000_000_000,
         )
         _record("test_kis_profits_csv_takes_precedence / source=csv", src == "csv")
+        _record("test_kis_profits_csv_takes_precedence / CSV 기록 채택 (+3,000,000원)",
+                len(events) == 1 and events[0].signed_amount_krw == 3_000_000)
         # profits().profit이 호출되지 않았는지 — 모킹의 호출 카운트 확인
         _record(
             "test_kis_profits_csv_takes_precedence / profits() 미호출",
             clients["KRW_1"].account().profits.call_count == 0,
         )
+
+
+def test_kis_profits_used_when_csv_empty():
+    """빈 CSV여도 KIS 역산이 동작해야 한다 — 2026-07-31 입금 누락 회귀 방지."""
+    from deposit_log import fetch_deposit_withdrawal_events
+    with tempfile.TemporaryDirectory() as td:
+        log = Path(td) / "deposits.csv"
+        _write_csv(log, [])  # 헤더만 — 사용자가 기록을 깜빡한 상황
+        clients = _make_mock_kis_clients(realized_profit_krw=0.0)
+        events, src = fetch_deposit_withdrawal_events(
+            since=datetime.fromisoformat("2026-05-20T09:00:00"),
+            log_path=log,
+            pykis_clients=clients,
+            state_snapshot={"last_principal_krw": 200_000_000},
+            current_principal_krw=222_000_000,  # +2,200만원 입금
+        )
+        _record("test_kis_profits_used_when_csv_empty / source=kis_profits",
+                src == "kis_profits", f"got {src}")
+        _record("test_kis_profits_used_when_csv_empty / 입금 +22,000,000원 감지",
+                events is not None and len(events) == 1
+                and events[0].signed_amount_krw == 22_000_000,
+                f"got {events}")
 
 
 def test_kis_profits_small_noise_below_threshold():
@@ -550,7 +596,8 @@ def main():
     test_csv_bad_rows_skipped()
     test_csv_missing_file()
     test_fetch_routes_to_csv()
-    test_fetch_empty_csv_is_zero_events()
+    test_fetch_empty_csv_falls_through()
+    test_fetch_csv_outside_window_falls_through()
     test_fetch_no_csv_falls_to_none()
 
     print("\n[시나리오] _correct_peak_for_io")
@@ -568,6 +615,7 @@ def main():
     test_kis_profits_initial_run_no_principal()
     test_kis_profits_already_processed_today()
     test_kis_profits_csv_takes_precedence()
+    test_kis_profits_used_when_csv_empty()
     test_kis_profits_small_noise_below_threshold()
 
     print("\n" + "=" * 60)

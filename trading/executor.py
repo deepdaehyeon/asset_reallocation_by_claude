@@ -329,10 +329,11 @@ class KisRebalancer:
         self.illiquid_cfg: Dict[str, dict] = config["rebalancing"].get(
             "illiquid_order_handling", {}
         )
-        # 리밸런싱 대상에서 제외할 KRW 계좌 (정리·환전 등 수동 작업 중 일시 제외용).
-        # 주문 생성뿐 아니라 비중·drift 계산에서도 제외(get_portfolio_state)되어,
-        # 이 계좌에서의 수동 매도/환전이 다른 계좌의 보상성 매수를 유발하지 않는다.
-        # 드로우다운/전체자산(peak_krw 등)은 영향받지 않음 — 실제 보유 자산은 그대로 집계.
+        # 리밸런싱 대상에서 제외할 KRW 계좌 = "없는 계좌"로 취급한다.
+        # 주문 생성·비중·drift는 물론 성과 지표(총자산·peak·드로우다운·알파·원금)에서도
+        # 전부 제외된다(get_portfolio_state). 세금 등으로 동결한 계좌의 잔고가 성과에
+        # 섞이면 입금이 알파로 둔갑하고, 굴리지 않는 현금이 수익률 분모에 들어간다.
+        # 2026-08-01 성과 제외로 전환 — 그 전에는 비중·drift에서만 제외했다.
         self.excluded_krw_accounts: set = set(
             config["rebalancing"].get("excluded_krw_accounts", [])
         )
@@ -534,6 +535,7 @@ class KisRebalancer:
         cash_by_currency: Dict[str, float] = {"KRW": 0.0, "USD": 0.0}
         krw_acc_holdings: Dict[str, Dict[str, float]] = {}  # acc_name → {ticker: krw}
         krw_acc_cash: Dict[str, float] = {}  # acc_name → cash
+        krw_acc_purchase: Dict[str, float] = {}  # acc_name → 매입금액 합 (제외 계좌 차감용)
         purchase_amount_krw_total: float = 0.0  # 매입금액 합 (KRW 환산) — KIS profits 백엔드용
 
         processed_acc: set = set()
@@ -555,6 +557,7 @@ class KisRebalancer:
                 balance_cache[key] = _fetch_balance_with_retry(client, currency, acc_name)
             balance = balance_cache[key]
             acc_stock_holdings: Dict[str, float] = {}
+            acc_purchase_krw: float = 0.0
 
             for stock in balance.stocks:
                 ticker = stock.symbol
@@ -580,12 +583,12 @@ class KisRebalancer:
                     purch = float(stock.purchase_amount)
                 except Exception:
                     purch = 0.0
-                purchase_amount_krw_total += (
-                    purch * self.usd_krw if currency == "USD" else purch
-                )
+                purch_krw = purch * self.usd_krw if currency == "USD" else purch
+                purchase_amount_krw_total += purch_krw
 
                 if currency == "KRW":
                     acc_stock_holdings[ticker] = acc_stock_holdings.get(ticker, 0.0) + krw_amt
+                    acc_purchase_krw += purch_krw
 
                 # 유니버스 외 종목 기록 (acc_name 포함)
                 if ticker not in self.universe and krw_amt > 0:
@@ -652,6 +655,7 @@ class KisRebalancer:
             if currency == "KRW":
                 krw_acc_holdings[acc_name] = acc_stock_holdings
                 krw_acc_cash[acc_name] = cash
+                krw_acc_purchase[acc_name] = acc_purchase_krw
 
         # KRW 계좌별 총액 저장 (주식 + 현금) — orphan은 제외 (target 비중 왜곡 방지)
         self._krw_acc_holdings = krw_acc_holdings
@@ -675,16 +679,27 @@ class KisRebalancer:
             for t, v in orphan_krw.items():
                 print(f"    {t}: {v:,.0f} KRW ({v/total_all*100:.1f}%)")
 
-        # excluded_krw_accounts는 비중·drift 계산에서도 제외한다 (정리·환전 중 매도가
+        # excluded_krw_accounts는 비중·drift 계산에서 제외한다 (정리·환전 중 매도가
         # 종목별 전체 보유량을 줄여 drift를 부풀리고, 그게 다시 다른 계좌의 매수를
-        # 유발하는 간접 영향까지 차단). 드로우다운/전체자산(total_all_krw)은 holdings_krw
-        # 원본을 그대로 쓰므로 영향받지 않는다 — 실제 자산은 줄지 않았으므로 정확.
+        # 유발하는 간접 영향까지 차단).
+        #
+        # 2026-08-01: 성과 계산(총자산·peak·드로우다운·알파·원금)에서도 제외로 전환.
+        # 제외 계좌는 "없는 계좌"로 취급한다 — 세금 때문에 동결한 계좌의 잔고가
+        # 성과 지표에 섞이면 (a) 입금이 알파로 둔갑하고 (b) 굴리지 않는 현금이
+        # 수익률 분모에 들어가 실력 측정을 흐린다.
+        #
+        # 부수 효과(의도된 것): KRW_1↔USD는 계좌번호가 같아 외부 입출금 API로는
+        # 환전이 잡히지 않는데, 제외 기준 원금(P+C)으로 보면 환전이 곧 순유입으로
+        # 나타난다 → deposit_log의 KIS 역산 백엔드가 자동 감지한다.
         excluded_ticker_krw: Dict[str, float] = {}
         excluded_cash_krw = 0.0
+        excluded_purchase_krw = 0.0
         for acc in self.excluded_krw_accounts:
             for t, v in krw_acc_holdings.get(acc, {}).items():
                 excluded_ticker_krw[t] = excluded_ticker_krw.get(t, 0.0) + v
             excluded_cash_krw += krw_acc_cash.get(acc, 0.0)
+            excluded_purchase_krw += krw_acc_purchase.get(acc, 0.0)
+        excluded_holdings_krw = sum(excluded_ticker_krw.values())
 
         universe_krw_for_weights = {
             t: max(0.0, v - excluded_ticker_krw.get(t, 0.0)) for t, v in universe_krw.items()
@@ -710,15 +725,21 @@ class KisRebalancer:
         # 현재 비중 = 전체 대비 (drift·출력용, excluded_krw_accounts 미반영)
         current_weights = {t: v / universe_total_krw for t, v in universe_krw_for_weights.items()}
 
-        # 드로우다운: 전체 자산(orphan 포함) 기준
+        # 드로우다운: 전체 자산(orphan 포함, excluded_krw_accounts 제외) 기준
         # KRW deposit.amount=dnca_tot_amt(매도 즉시 반영)이므로 T+2 보정 불필요
         state = load_state()
-        total_all_krw = sum(holdings_krw.values()) + sum(cash_by_currency.values())
+        total_all_krw = (
+            sum(holdings_krw.values()) + sum(cash_by_currency.values())
+            - excluded_holdings_krw - excluded_cash_krw
+        )
         peak = state.get("peak_krw", 0.0)
 
         prev_total = float(state.get("last_total_all_krw", 0.0))
         prev_total_at = state.get("last_total_all_krw_at")
-        current_principal_krw = purchase_amount_krw_total + sum(cash_by_currency.values())
+        current_principal_krw = (
+            purchase_amount_krw_total + sum(cash_by_currency.values())
+            - excluded_purchase_krw - excluded_cash_krw
+        )
         peak, kis_profits_processed_through = self._correct_peak_for_io(
             peak=peak,
             prev_total=prev_total,

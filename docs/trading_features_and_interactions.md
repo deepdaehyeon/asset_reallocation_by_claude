@@ -84,7 +84,9 @@
 | C8 | **min_order_krw** | `rebalancing` | 🔒 1만원 | 잔주문 필터 | B6 대체 |
 | C9 | **order_throttle_s** | `rebalancing` | 🔒 0.25s | 주문 간 대기(KIS rate limit) | — |
 | C10 | **sell-first-then-buy + orphan 매도** | `executor.py:656,1085` | ✅ | 매도로 현금 확보 후 매수, 유니버스 외 보유 청산 | orphan은 drift/target에서 제외 |
-| C11 | **_correct_peak_for_io** | `executor.py:369` | ✅ | 입출금을 drawdown peak 계산에서 보정 | 입금이 DD를 가짜 리셋하는 것 방지 → B3·A6 트리거 정확도 |
+| C11 | **_correct_peak_for_io** | `executor.py:422` | ✅ | 입출금을 drawdown peak·벤치마크 알파에서 보정 | 입금이 DD를 가짜 리셋하는 것 방지 → B3·A6 트리거 정확도. **C13과 짝** — 감지 net_flow가 `benchmark.py`로도 흘러 SPY 주수를 조정 |
+| C13 | **입출금 감지 백엔드 우선순위** | `deposit_log.py:342` | ✅ | ①deposits.csv 기록 → ②KIS profits 역산(Δ원금−실현손익) → ③휴리스틱(Δ>10%, <30h) | **빈 CSV가 ②③을 막던 버그 수정(2026-08-01)** — 헤더만 있는 CSV를 '0건 확정'으로 처리해 2,200만원 입금을 놓쳤다. 이제 *구간 내 기록이 있을 때만* CSV 채택 |
+| C14 | **excluded_krw_accounts (성과 제외)** | `executor.py:332,681`, `rebalancing` | ✅ `["KRW_1"]` | 지정 KRW 계좌를 **없는 계좌로 취급** — 주문·비중·drift는 물론 총자산·peak·드로우다운·알파·원금에서도 전부 제외 | **C13과 강하게 상호작용**: KRW_1↔USD는 계좌번호가 같아 환전이 외부 입출금으로 안 잡히는데, 제외 기준 원금으로 보면 환전이 순유입으로 나타나 ②가 자동 감지한다. 반대로 **제외 계좌에서 수동 매매하면 실현손익이 섞여 ② 오염** |
 | C12 | **_adjust_tick** | `executor.py:238` | ✅ | 호가단위 가격 반올림 | — |
 
 ---
@@ -104,6 +106,7 @@
 | 유니버스 종목 추가/교체 | C1 waterfall, C7 illiquid, A3/A4 caps, asset_routing | KRW/USD 라우팅·유동성·상한·합성쌍(synthetic_pairs) 동시 갱신 필요 |
 | drawdown_scaling 재가동 (A6) | vol_targeting, B3 DD트리거 | vol과 이중축소(끈 이유). B3 트리거는 별개로 유지 중 |
 | 노이즈 평활/시드 (A19·A20) | A12/A13 평활, A15 앵커, B1 리밸 모드 | A19는 HMM *입력*을 늦추고 A12/A13은 *출력*(blend)을 늦춤 — 회전 감소 효과가 겹쳐 귀속 모호. A20은 A15 앵커 안정성과 직결. 백테스트는 회전 효과 미반영(라이브 모니터링 필요) |
+| 성과 지표(알파·DD·Ulcer) 해석 | **C14 제외계좌**, C13 입출금 감지, C11 peak 보정 | 세 개가 한 파이프라인이다. 제외계좌가 바뀌면 총자산·원금 *기준*이 바뀌어 state 재앵커(peak_krw·bench_spy_shares·last_principal_krw) 없이는 다음 실행이 기준차를 입출금으로 오인한다. 알파 이력도 기준 전후로 불연속([[project-krw1-perf-exclusion]]) |
 
 ## 백테스트 충실도 체크리스트 (실험 코드 작성 시)
 
