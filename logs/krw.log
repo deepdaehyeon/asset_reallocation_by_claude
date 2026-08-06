@@ -2698,3 +2698,56 @@
 [main 6db73df] logs: auto-update 2026-08-05 10:24
  4 files changed, 56 insertions(+), 9 deletions(-)
 [push_logs] 완료: 2026-08-05 10:24
+[08/06 10:00:10] [KRW] 트리거 확인: deferred_buys
+[08/06 10:00:10] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[08/06 10:00:10] [4] 계좌 잔고 조회 중...
+[08/06 10:00:11]     USD/KRW: 1,417.6 (실시간)
+[08/06 10:00:11]   [재시도] KRW_2 잔고 조회 실패 (1/3), 1s 후 재시도: KisHTTPError: HTTP 요청에 실패했습니다.
+[08/06 10:00:11] (500) Internal Server Error
+[08/06 10:00:11] {"rt_cd":"1","msg1":"원장에서 허용 가능한 초당 거래건수를 초과하였습니다.","msg_cd":"EGW00215"}
+
+[08/06 10:00:11] [  Request  ]: GET https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/trading/inquire-balance
+[08/06 10:00:11] Headers: {'User-Agent': 'PyKis/2.1.6', 'Accept-Encoding': 'gzip, deflate, br', 'Accept': '*/*', 'Connection': 'keep-alive', 'tr_id': 'TTTC8434R', 'appkey': '***', 'appsecret': '***', 'Authorization': 'Bearer ***'}
+[08/06 10:00:11] Params: {'AFHR_FLPR_YN': ['N'], 'INQR_DVSN': ['02'], 'UNPR_DVSN': ['01'], 'FUND_STTL_ICLD_YN': ['Y'], 'FNCG_AMT_AUTO_RDPT_YN': ['N'], 'PRCS_DVSN': ['00'], 'CANO': ['64521213'], 'ACNT_PRDT_CD': ['01']}
+[08/06 10:00:11] Body: [EMPTY BODY]
+[08/06 10:00:13]   [USD USD 미결제 매도대금] +$2,411 반영 (T+2 결제 대기)
+[08/06 10:00:13]     총 자산: 210,485,864 원  │  USD 41.3% / KRW 58.7%
+[08/06 10:00:13]     드로우다운: -2.25%
+[08/06 10:00:13] [4b] 유니버스 외 종목 자동 정리 중...
+[08/06 10:00:13]     정리 대상 없음
+[08/06 10:00:13] [5] 목표 비중 산출 중...
+[08/06 10:00:13]     [core+satellite] core 30% (Goldilocks 고정) + satellite 70% (엔진)
+[08/06 10:00:13] [6] 결제 상태 점검 중...
+[08/06 10:00:13] [7] 리스크 제어 적용 중...
+[08/06 10:00:13]     목표 비중 [KRW 계좌]:
+[08/06 10:00:13]         379800(KODEX S&P500)     계좌:48.9%  전체:28.7%  현재:29.0%
+[08/06 10:00:13]         379810(KODEX 나스닥100)     계좌:27.5%  전체:16.1%  현재:16.2%
+[08/06 10:00:13]         411060(ACE KRX금현물)       계좌:7.5%  전체:4.4%  현재:4.5%
+[08/06 10:00:13]         469830(SOL 초단기채권)        계좌:6.9%  전체:4.1%  현재:4.1%
+[08/06 10:00:13]         218420(KODEX 미국S&P500에너지(합성)) 계좌:5.5%  전체:3.3%  현재:2.8%
+[08/06 10:00:13]         468370(KODEX iShares 미국인플레이션국채액티브) 계좌:1.5%  전체:0.9%  현재:0.9%
+[08/06 10:00:13]         305080(TIGER 미국채10년)     계좌:1.0%  전체:0.6%  현재:0.6%
+[08/06 10:00:13] [8] 리밸런싱 실행...
+[08/06 10:00:13]   [계좌 제외] KRW_1 — 리밸런싱 주문 생성 제외 중 (수동 작업)
+[08/06 10:00:13]   [동일자산 상계] 통화 왕복 매매 1,230,528원 제거 (wash netting)
+[08/06 10:00:13] → [KRW] 실행 4건 (매도 2, 매수 2)
+[08/06 10:00:13]   [재시도] KRW_2 잔고 조회 실패 (1/3), 1s 후 재시도: KisHTTPError: HTTP 요청에 실패했습니다.
+[08/06 10:00:13] (500) Internal Server Error
+[08/06 10:00:13] {"rt_cd":"1","msg1":"원장에서 허용 가능한 초당 거래건수를 초과하였습니다.","msg_cd":"EGW00215"}
+
+[08/06 10:00:13] [  Request  ]: GET https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/trading/inquire-balance
+[08/06 10:00:13] Headers: {'User-Agent': 'PyKis/2.1.6', 'Accept-Encoding': 'gzip, deflate, br', 'Accept': '*/*', 'Connection': 'keep-alive', 'tr_id': 'TTTC8434R', 'appkey': '***', 'appsecret': '***', 'Authorization': 'Bearer ***'}
+[08/06 10:00:13] Params: {'AFHR_FLPR_YN': ['N'], 'INQR_DVSN': ['02'], 'UNPR_DVSN': ['01'], 'FUND_STTL_ICLD_YN': ['Y'], 'FNCG_AMT_AUTO_RDPT_YN': ['N'], 'PRCS_DVSN': ['00'], 'CANO': ['64521213'], 'ACNT_PRDT_CD': ['01']}
+[08/06 10:00:13] Body: [EMPTY BODY]
+[08/06 10:00:15]   sell 411060(ACE KRX금현물) 2주 @ 27,300.00 KRW
+[08/06 10:02:05]   sell 469830(SOL 초단기채권) 1주 @ 54,200.00 KRW
+[08/06 10:02:05]     [주문가능금액] KRW_2: 1,530,858원 (max_qty=82×19050=1,562,100, ask·98% 적용, 참고 ord_psbl_cash=1,554,835)
+[1;33m[08/06 10:02:05] WARNING: API 호출 횟수를 초과하였습니다.[0m
+[08/06 10:02:06]   buy 218420(KODEX 미국S&P500에너지(합성)) 47주 @ 19,050.00 KRW
+[08/06 10:02:06]   buy 468370(KODEX iShares 미국인플레이션국채액티브) 6주 @ 11,000.00 KRW
+[08/06 10:02:07]     [yfinance 품질 경고] SPY:10/30일
+[08/06 10:02:07]     📊 S&P500였다면 210,049,338원 · 실제 210,485,864원 · 알파 +436,526원 (+0.2%)
+[08/06 10:02:07] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[08/06 10:02:07] KRW 리밸런싱 완료
+[slack_review] 전송 완료
+[snapshot] /Users/kimdhyeon/asset_reallocation_by_claude/STATUS.md 생성 완료
