@@ -3831,3 +3831,46 @@ USD 리밸런싱 완료
 [main 0a8e216] logs: auto-update 2026-08-08 03:03
  4 files changed, 82 insertions(+), 34 deletions(-)
 [push_logs] 완료: 2026-08-08 03:03
+[08/11 03:00:17] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[08/11 03:00:17] [1] 시장 데이터 수집 중...
+[08/11 03:00:18]     수집 기간  : 503일
+[08/11 03:02:36]     [FRED] 일부 series 실패: T10Y2Y(RuntimeError), T5YIE(RuntimeError), CPIAUCSL(RuntimeError), UNRATE(RuntimeError), M2SL(RuntimeError), WALCL(RuntimeError)
+[08/11 03:02:36]     FRED 조회  : hy_spread, hy_spread_zscore, nfci
+[08/11 03:02:36] [2] 피처 계산 중...
+[08/11 03:02:36]     momentum_1m : +3.07%
+[08/11 03:02:36]     momentum_3m : +4.80%
+[08/11 03:02:36]     realized_vol: 14.16% (연환산)
+[08/11 03:02:36]     VIX         : 15.5
+[08/11 03:02:36]     credit_signal: +2.42%
+[08/11 03:02:36]     HY 스프레드 : 1.61% (FRED)
+[08/11 03:02:36]     자산 간 상관계수: 0.19
+[08/11 03:02:36] [3] 레짐 감지 중...
+[08/11 03:02:38]     매핑       : unsupervised | state 변화 4/5
+[08/11 03:02:38]     누적 legacy 사용: 0/81 (0%)
+[08/11 03:02:38]     규칙 기반  : Goldilocks
+[08/11 03:02:38]     HMM 예측   : Goldilocks (61%) | Goldilocks:61% / Reflation:39% / Slowdown:0% / Stagflation:0% / Crisis:0%
+[08/11 03:02:41]     RF(balanced): Goldilocks (95%) | crisis=0%  stag=0%
+[08/11 03:02:41]     blend 평활 (α=0.5, conf=64%): Goldilocks 79%
+[08/11 03:02:41]     전환 엔트로피: 0.149 (0=안정 / 높을수록 불안정)
+[08/11 03:02:41]     Anomaly    : 21%
+[08/11 03:02:41]     신뢰도     : 64%  (규칙기반 71% | HMM 79% | anomaly 패널티 -8%)
+[08/11 03:02:41]     → 레짐: Goldilocks
+[08/11 03:02:41]     연속 노출  : Goldilocks 79% / Reflation 10% / Slowdown 11%
+[08/11 03:02:41] [4] 계좌 잔고 조회 중...
+[08/11 03:02:41]     USD/KRW: 1,418.1 (실시간)
+[1;33m[08/11 03:02:42] WARNING: API 호출 횟수를 초과하였습니다.[0m
+[08/11 03:02:43]   [peak 보정/kis_profits] 1건 (입금 1 / 출금 0) net +622,870원 → peak 211,525,486→212,148,356원
+[08/11 03:02:43]     총 자산: 209,295,264 원  │  USD 40.5% / KRW 59.5%
+[08/11 03:02:43]     드로우다운: -1.34%
+[08/11 03:02:43]     📊 S&P500였다면 207,735,460원 · 실제 209,295,264원 · 알파 +1,559,804원 (+0.8%)
+[08/11 03:02:43] [5] 목표 비중 산출 중...
+[08/11 03:02:43]     [블렌딩] equity_etf:55%  equity_factor:8%  gold:7%  managed_futures:6%  cash:6%  commodity:6%  equity_developed:4%  equity_sector:3%  bond_krw:3%  equity_emerging:2%  bond_tips:1%
+[08/11 03:02:43]     포트폴리오 EWMA vol: 0.00% (λ=0.94)
+[08/11 03:02:43]     [core+satellite] core 30% (Goldilocks 고정) + satellite 70% (엔진)
+[08/11 03:02:43] [6] 트리거 계산 중...
+[08/11 03:02:43]     [KRW] drift=3.2%  →  ✗ 스킵  (no_trigger(drift=3.2%))
+[08/11 03:02:43]     [USD] drift=3.2%  →  ✗ 스킵  (no_trigger(drift=3.2%))
+[08/11 03:02:44] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[08/11 03:02:44] 모니터링 완료
+[08/11 03:02:50] [USD] 트리거 없음 (no_trigger(drift=3.2%)) → 실행 생략
+[snapshot] /Users/kimdhyeon/asset_reallocation_by_claude/STATUS.md 생성 완료
