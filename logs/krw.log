@@ -2772,3 +2772,6 @@
 [main bf93807] logs: auto-update 2026-08-11 10:01
  4 files changed, 9 insertions(+), 1 deletion(-)
 [push_logs] 완료: 2026-08-11 10:01
+[08/12 10:00:10] [KRW] 트리거 없음 (no_trigger(drift=3.7%)) → 실행 생략
+[slack_review] 전송 실패: <urlopen error [Errno 49] Can't assign requested address>
+[snapshot] /Users/kimdhyeon/asset_reallocation_by_claude/STATUS.md 생성 완료
