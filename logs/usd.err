@@ -126,3 +126,25 @@ To github.com:deepdaehyeon/asset_reallocation_by_claude.git
    4be629e..ae35ff0  main -> main
 To github.com:deepdaehyeon/asset_reallocation_by_claude.git
    bf93807..596afa8  main -> main
+$SPY: possibly delisted; no price data found  (period=500d)
+$TLT: possibly delisted; no price data found  (period=500d)
+$^VIX9D: possibly delisted; no price data found  (period=500d)
+$^VIX: possibly delisted; no price data found  (period=500d)
+$DJP: possibly delisted; no price data found  (period=500d)
+$HYG: possibly delisted; no price data found  (period=500d)
+$DX-Y.NYB: possibly delisted; no price data found  (period=500d)
+
+7 Failed downloads:
+['SPY', 'TLT', '^VIX9D', '^VIX', 'DJP', 'HYG', 'DX-Y.NYB']: possibly delisted; no price data found  (period=500d)
+Traceback (most recent call last):
+  File "/Users/kimdhyeon/asset_reallocation_by_claude/trading/run.py", line 1082, in <module>
+    main()
+  File "/Users/kimdhyeon/asset_reallocation_by_claude/trading/run.py", line 1069, in main
+    run_monitor(config, state, messenger, args)
+  File "/Users/kimdhyeon/asset_reallocation_by_claude/trading/run.py", line 623, in run_monitor
+    market = _run_market_analysis(config, state)
+  File "/Users/kimdhyeon/asset_reallocation_by_claude/trading/run.py", line 217, in _run_market_analysis
+    prices = fetch_signal_prices(
+  File "/Users/kimdhyeon/asset_reallocation_by_claude/trading/fetcher.py", line 77, in fetch_signal_prices
+    raise RuntimeError(f"yfinance 빈 응답 (요청 ticker: {tickers})")
+RuntimeError: yfinance 빈 응답 (요청 ticker: ['SPY', '^VIX', '^VIX9D', 'TLT', 'HYG', 'DX-Y.NYB', 'DJP'])
