@@ -263,3 +263,5 @@ RuntimeError: USD 잔고 조회 최종 실패 (3회): HTTP 요청에 실패했�
 Headers: {'User-Agent': 'PyKis/2.1.6', 'Accept-Encoding': 'gzip, deflate, br', 'Accept': '*/*', 'Connection': 'keep-alive', 'Content-Length': '283', 'Content-Type': 'application/json'}
 Params: {}
 Body: [PROTECTED BODY]
+/opt/homebrew/Caskroom/miniforge/base/lib/python3.10/multiprocessing/resource_tracker.py:224: UserWarning: resource_tracker: There appear to be 33 leaked semaphore objects to clean up at shutdown
+  warnings.warn('resource_tracker: There appear to be %d '

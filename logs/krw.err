@@ -193,3 +193,8 @@ Traceback (most recent call last):
   File "/Users/kimdhyeon/asset_reallocation_by_claude/trading/executor.py", line 108, in _fetch_balance_with_retry
     raise RuntimeError(
 RuntimeError: KRW_1 잔고 조회 최종 실패 (3회): HTTPSConnectionPool(host='openapi.koreainvestment.com', port=9443): Max retries exceeded with url: /uapi/domestic-stock/v1/trading/inquire-balance?AFHR_FLPR_YN=N&OFL_YN=&INQR_DVSN=02&UNPR_DVSN=01&FUND_STTL_ICLD_YN=Y&FNCG_AMT_AUTO_RDPT_YN=N&PRCS_DVSN=00&CANO=64378890&ACNT_PRDT_CD=01&ctx_area_fk100=&ctx_area_nk100= (Caused by NewConnectionError("<urllib3.connection.HTTPSConnection object at 0x169d04880>: Failed to establish a new connection: [Errno 49] Can't assign requested address"))
+ssh: connect to host github.com port 22: Can't assign requested address
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
