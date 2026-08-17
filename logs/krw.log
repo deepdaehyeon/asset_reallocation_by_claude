@@ -2785,3 +2785,15 @@
 [08/14 10:00:09] [KRW] 트리거 없음 (no_trigger(drift=3.7%)) → 실행 생략
 [slack_review] 전송 실패: <urlopen error [Errno 49] Can't assign requested address>
 [snapshot] /Users/kimdhyeon/asset_reallocation_by_claude/STATUS.md 생성 완료
+[main 2362f91] logs: auto-update 2026-08-14 10:03
+ 5 files changed, 36 insertions(+), 1 deletion(-)
+[08/17 10:00:16] [KRW] 트리거 확인: drift(6.8%)
+[08/17 10:00:16] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[08/17 10:00:16] [4] 계좌 잔고 조회 중...
+[08/17 10:00:16]     [USD/KRW] stale cache 사용: 1416.5 (5.0h 전 저장)
+[08/17 10:00:16]     USD/KRW: 1,416.5 (실시간)
+[08/17 10:00:16]   [재시도] KRW_1 잔고 조회 실패 (1/3), 1s 후 재시도: ConnectionError: HTTPSConnectionPool(host='openapi.koreainvestment.com', port=9443): Max retries exceeded with url: /uapi/domestic-stock/v1/trading/inquire-balance?AFHR_FLPR_YN=N&OFL_YN=&INQR_DVSN=02&UNPR_DVSN=01&FUND_STTL_ICLD_YN=Y&FNCG_AMT_AUTO_RDPT_YN=N&PRCS_DVSN=00&CANO=64378890&ACNT_PRDT_CD=01&ctx_area_fk100=&ctx_area_nk100= (Caused by NewConnectionError("<urllib3.connection.HTTPSConnection object at 0x169d16a10>: Failed to establish a new connection: [Errno 49] Can't assign requested address"))
+[08/17 10:00:17]   [재시도] KRW_1 잔고 조회 실패 (2/3), 2s 후 재시도: ConnectionError: HTTPSConnectionPool(host='openapi.koreainvestment.com', port=9443): Max retries exceeded with url: /uapi/domestic-stock/v1/trading/inquire-balance?AFHR_FLPR_YN=N&OFL_YN=&INQR_DVSN=02&UNPR_DVSN=01&FUND_STTL_ICLD_YN=Y&FNCG_AMT_AUTO_RDPT_YN=N&PRCS_DVSN=00&CANO=64378890&ACNT_PRDT_CD=01&ctx_area_fk100=&ctx_area_nk100= (Caused by NewConnectionError("<urllib3.connection.HTTPSConnection object at 0x169d171c0>: Failed to establish a new connection: [Errno 49] Can't assign requested address"))
+[08/17 10:00:23] [Slack 오류] <urlopen error [Errno 49] Can't assign requested address>
+[slack_review] 전송 실패: <urlopen error [Errno 49] Can't assign requested address>
+[snapshot] /Users/kimdhyeon/asset_reallocation_by_claude/STATUS.md 생성 완료
