@@ -20,6 +20,12 @@ from deposit_log import (
     fetch_deposit_withdrawal_events,
 )
 
+# 입출금 자동감지 이상 경고 임계값 — 감지된 입출금으로 설명 안 되는 자산 변동이
+# 이 비율을 넘으면 조용히 넘기지 않고 로그에 경고를 남긴다.
+# 2026-08-18: kis_profits 역산이 실제 입출금을 net_flow≈0으로 놓친 사례(사용자 신고로 발견,
+# 자동감지 자체는 침묵) → 감지 실패를 "알파로 착시"가 아니라 눈에 띄게 만드는 안전장치.
+IO_ANOMALY_ALERT_THRESHOLD = 0.05  # 5%p
+
 # 시장 코드 → 통화 매핑 (pykis stock.market 값 기준)
 MARKET_TO_CURRENCY: Dict[str, str] = {
     "KRX":    "KRW",
@@ -466,6 +472,18 @@ class KisRebalancer:
             processed_through = (
                 datetime.now().date().isoformat() if source == "kis_profits" else None
             )
+
+            # 이상 감지 — 감지된 입출금으로 설명 안 되는 큰 변동은 침묵하지 않는다.
+            # (자동 백엔드가 실제 입출금을 놓치면 그 금액이 그대로 "알파"로 착시되던 문제)
+            unexplained_rel = (total_all_krw - prev_total - net_flow) / prev_total
+            if abs(unexplained_rel) > IO_ANOMALY_ALERT_THRESHOLD:
+                print(
+                    f"  ⚠️ [입출금 감지 경고/{source}] 자산 {prev_total:,.0f}→{total_all_krw:,.0f}원"
+                    f" ({(total_all_krw / prev_total - 1):+.1%}) 중 감지된 입출금 {net_flow:+,.0f}원으로"
+                    f" 설명 안 되는 변동 {unexplained_rel:+.1%}p."
+                    f" 미탐지 입출금이거나 이례적 시장 변동 — 확인 권장"
+                    f" (필요시 trading/logs/deposits.csv에 수동 기록)."
+                )
 
             if net_flow == 0.0:
                 return peak, processed_through
