@@ -16,6 +16,7 @@ from portfolio import compute_drift
 from messenger import Messenger
 from settlement import SettlementTracker
 from deposit_log import (
+    DEFAULT_LOG_PATH as DEPOSIT_LOG_PATH,
     compute_net_flow,
     fetch_deposit_withdrawal_events,
 )
@@ -25,6 +26,12 @@ from deposit_log import (
 # 2026-08-18: kis_profits 역산이 실제 입출금을 net_flow≈0으로 놓친 사례(사용자 신고로 발견,
 # 자동감지 자체는 침묵) → 감지 실패를 "알파로 착시"가 아니라 눈에 띄게 만드는 안전장치.
 IO_ANOMALY_ALERT_THRESHOLD = 0.05  # 5%p
+
+# 설명 안 되는 감소(출금 추정) 자동감지 결과를 적는 검토용 파일. deposits.csv와 달리
+# fetch_deposit_withdrawal_events가 읽지 않으므로 낙폭(drawdown) 계산에 자동 반영되지
+# 않는다 — 진짜 폭락을 출금으로 오인해 낙폭을 지워버리는 위험을 피하기 위함.
+# 사람이 확인 후 진짜 출금이면 trading/logs/deposits.csv로 직접 옮긴다.
+PENDING_WITHDRAWAL_REVIEW_PATH = Path(__file__).parent / "logs" / "deposits_pending_review.csv"
 
 # 시장 코드 → 통화 매핑 (pykis stock.market 값 기준)
 MARKET_TO_CURRENCY: Dict[str, str] = {
@@ -44,6 +51,38 @@ ORDER_LOG_FILE = Path(__file__).parent / "logs" / "orders.csv"
 _ORDER_LOG_HEADERS = [
     "datetime", "ticker", "action", "qty", "price", "currency", "amount_krw", "status"
 ]
+
+_IO_EVENT_CSV_HEADERS = ["ts", "acc_name", "amount_krw", "kind", "note", "id"]
+
+
+def _append_io_event_csv(
+    path: Path,
+    ts: datetime,
+    acc_name: str,
+    amount_krw: float,
+    kind: str,
+    note: str,
+) -> None:
+    """입출금 이벤트를 deposits.csv 형식(ts,acc_name,amount_krw,kind,note,id)으로 append.
+
+    deposit_log.read_events_from_csv가 읽는 형식과 동일하게 맞춘다.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    write_header = not path.exists() or path.stat().st_size == 0
+    row = {
+        "ts": ts.isoformat(timespec="seconds"),
+        "acc_name": acc_name,
+        "amount_krw": f"{amount_krw:.0f}",
+        "kind": kind,
+        "note": note,
+        "id": "",
+    }
+    with open(path, "a", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=_IO_EVENT_CSV_HEADERS)
+        if write_header:
+            writer.writeheader()
+        writer.writerow(row)
+
 
 def _append_order_log(
     ticker: str,
@@ -475,15 +514,45 @@ class KisRebalancer:
 
             # 이상 감지 — 감지된 입출금으로 설명 안 되는 큰 변동은 침묵하지 않는다.
             # (자동 백엔드가 실제 입출금을 놓치면 그 금액이 그대로 "알파"로 착시되던 문제)
-            unexplained_rel = (total_all_krw - prev_total - net_flow) / prev_total
+            #
+            # 방향에 따라 처리를 달리한다 (2026-08-18 결정):
+            #   증가(입금 추정) → deposits.csv에 자동 기록하고 이번 실행에 즉시 반영.
+            #     틀려도 최악은 "입금을 알파로 오인" 정도라 위험이 작다.
+            #   감소(출금 추정) → 검토용 파일에만 기록, peak/낙폭 계산엔 반영하지 않는다.
+            #     진짜 폭락을 출금으로 오인해 낙폭을 지워버리면 이 시스템의 1순위 목표
+            #     (하락 회피 지표의 정확성)를 해친다 — 그건 사람이 확인한 뒤 반영한다.
+            unexplained = total_all_krw - prev_total - net_flow
+            unexplained_rel = unexplained / prev_total
             if abs(unexplained_rel) > IO_ANOMALY_ALERT_THRESHOLD:
-                print(
-                    f"  ⚠️ [입출금 감지 경고/{source}] 자산 {prev_total:,.0f}→{total_all_krw:,.0f}원"
-                    f" ({(total_all_krw / prev_total - 1):+.1%}) 중 감지된 입출금 {net_flow:+,.0f}원으로"
-                    f" 설명 안 되는 변동 {unexplained_rel:+.1%}p."
-                    f" 미탐지 입출금이거나 이례적 시장 변동 — 확인 권장"
-                    f" (필요시 trading/logs/deposits.csv에 수동 기록)."
-                )
+                now = datetime.now()
+                if unexplained > 0:
+                    print(
+                        f"  ⚠️ [입출금 감지 경고/{source}] 자산 {prev_total:,.0f}→{total_all_krw:,.0f}원"
+                        f" ({(total_all_krw / prev_total - 1):+.1%}) 중 감지된 입출금 {net_flow:+,.0f}원으로"
+                        f" 설명 안 되는 증가 {unexplained:+,.0f}원({unexplained_rel:+.1%}p)"
+                        f" → 입금 추정, deposits.csv에 자동 기록 + 이번 실행에 반영"
+                    )
+                    _append_io_event_csv(
+                        DEPOSIT_LOG_PATH, now, "(자동감지)", abs(unexplained), "deposit",
+                        f"자동감지({source}) — 설명 안 되는 자산 증가 추정치, 정확한 금액인지 확인 권장",
+                    )
+                    net_flow += unexplained
+                else:
+                    print(
+                        f"  ⚠️ [입출금 감지 경고/{source}] 자산 {prev_total:,.0f}→{total_all_krw:,.0f}원"
+                        f" ({(total_all_krw / prev_total - 1):+.1%}) 중 감지된 입출금 {net_flow:+,.0f}원으로"
+                        f" 설명 안 되는 감소 {unexplained:+,.0f}원({unexplained_rel:+.1%}p)"
+                        f" → 출금 추정이나 실제 하락일 수 있어 낙폭 계산엔 미반영."
+                        f" {PENDING_WITHDRAWAL_REVIEW_PATH.name}에 기록 — 실제 출금이면"
+                        f" deposits.csv로 옮겨 확인해주세요"
+                    )
+                    _append_io_event_csv(
+                        PENDING_WITHDRAWAL_REVIEW_PATH, now, "(자동감지·미확인)", abs(unexplained),
+                        "withdrawal",
+                        f"자동감지({source}) — 설명 안 되는 자산 감소 추정치. 실제 출금이면"
+                        " deposits.csv로 옮기고, 시장 하락이면 무시(낙폭은 이미 정확히 반영됨)",
+                    )
+                    # net_flow는 그대로 둔다 — peak/낙폭 계산에 자동 반영하지 않음
 
             if net_flow == 0.0:
                 return peak, processed_through
