@@ -194,3 +194,5 @@ Traceback (most recent call last):
 RuntimeError: yfinance 빈 응답 (요청 ticker: ['SPY', '^VIX', '^VIX9D', 'TLT', 'HYG', 'DX-Y.NYB', 'DJP'])
 To github.com:deepdaehyeon/asset_reallocation_by_claude.git
    596afa8..0f029c0  main -> main
+To github.com:deepdaehyeon/asset_reallocation_by_claude.git
+   7051706..231f055  main -> main
