@@ -44,8 +44,28 @@ USD NAV 현금 = withdrawable_amount + unsettled_sell - unsettled_buy
 기존 총자산 250,603,147원에서 이중계상된 매수액 21,085,736원을 빼면 약 229,517,411원으로,
 리밸런싱 직전 229,509,216원과 8,195원 차이여서 원인이 숫자로 재현된다.
 
-## 운영 후속
+## 운영 상태 재설정 (2026-08-28 15:33 완료)
 
-이 코드 수정과 별개로 08-28 자동 생성된 `deposits.csv` 가짜 입금과 오염된 `peak_krw`,
-`last_total_all_krw`, `last_principal_krw`, `last_alpha`는 라이브 상태 복구가 필요하다. 상태 변경은
-주문 판단에 영향을 주므로 코드 배포와 분리해 실계좌 재조회 후 명시적으로 수행한다.
+사용자 결정에 따라 과거 성과를 이어 붙이지 않고 08-28 현재 시점부터 새로 추적한다.
+
+- 수정된 계산식으로 실계좌 읽기 전용 재조회(KRW_1 제외): 총자산 228,922,995원,
+  원금 기준 234,229,976원, USD/KRW 1,379.10원.
+- SPY $771.10 기준 `bench_spy_shares=215.269736744858`로 재앵커.
+- `peak_krw=last_total_all_krw=bench_start_value=228,922,995원`, 드로우다운 0%, 알파 0원.
+- `deposits.csv`는 헤더만 남겨 입출금 0원에서 재시작.
+- `_benchmark_history.csv`도 새 기준행 한 건만 남김.
+- 08-28 당일 KIS profits 재처리로 과거 흐름이 다시 들어오지 않도록
+  `kis_profits_processed_through=2026-08-28` 유지.
+
+복구 전 파일은 다음 이름으로 보존했다.
+
+- `trading/state.db.bak_20260828_153210_alpha_reanchor`
+- `trading/state.json.bak_20260828_153210_alpha_reanchor`
+- `trading/logs/deposits.csv.bak_20260828_153210_alpha_reanchor`
+- `trading/logs/deposits_pending_review.csv.bak_20260828_153210_alpha_reanchor`
+- `docs/_benchmark_history.csv.bak_20260828_153210_alpha_reanchor`
+
+재설정 과정에서 `scripts/test_broker_io_peak.py`의 격리 결함도 발견했다. 테스트 조회는 임시 CSV를
+사용했지만 자동 이상기록 경로는 실제 `trading/logs/deposits.csv`를 가리켜 테스트용 1,500만원 행을
+남길 수 있었다. 조회 환경변수·입금 자동기록·출금 검토기록 경로를 모두 임시 디렉터리로 patch하도록
+수정하고, 테스트 전후 실제 CSV 해시가 동일함을 확인했다.

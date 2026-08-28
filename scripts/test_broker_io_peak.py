@@ -199,7 +199,9 @@ def _harness_correct_peak(
 ) -> float:
     """
     KisRebalancer._correct_peak_for_io를 격리 호출하기 위한 래퍼.
-    DEPOSIT_LOG_PATH env로 log_path 전달, datetime.now()는 monkey-patch.
+    입출금 조회 환경변수와 executor의 자동기록 경로를 모두 임시 경로로 patch하고
+    datetime.now()도 고정한다. 조회만 임시화하고 자동기록 경로를 놓치면 테스트가 실제
+    trading/logs/deposits.csv를 오염시킬 수 있다.
     """
     from executor import KisRebalancer
     obj = KisRebalancer.__new__(KisRebalancer)  # __init__ 우회 (pykis 클라이언트 불필요)
@@ -218,18 +220,23 @@ def _harness_correct_peak(
         def fromisoformat(cls, s):
             return real_dt.fromisoformat(s)
 
-    os.environ["DEPOSIT_LOG_PATH"] = str(log_path)
-    try:
-        with patch.object(_exec, "datetime", _FakeDt):
-            new_peak, _ = obj._correct_peak_for_io(
-                peak=peak,
-                prev_total=prev_total,
-                prev_total_at=prev_total_at,
-                total_all_krw=total_all_krw,
-            )
-            return new_peak
-    finally:
-        os.environ.pop("DEPOSIT_LOG_PATH", None)
+    with (
+        patch.dict(os.environ, {"DEPOSIT_LOG_PATH": str(log_path)}),
+        patch.object(_exec, "datetime", _FakeDt),
+        patch.object(_exec, "DEPOSIT_LOG_PATH", log_path),
+        patch.object(
+            _exec,
+            "PENDING_WITHDRAWAL_REVIEW_PATH",
+            log_path.with_name("deposits_pending_review.csv"),
+        ),
+    ):
+        new_peak, _ = obj._correct_peak_for_io(
+            peak=peak,
+            prev_total=prev_total,
+            prev_total_at=prev_total_at,
+            total_all_krw=total_all_krw,
+        )
+        return new_peak
 
 
 def test_scenario_small_withdrawal():
