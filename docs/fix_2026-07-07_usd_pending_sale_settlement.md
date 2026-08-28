@@ -2,6 +2,8 @@
 
 > **요약**: ① 개별주 접기로 07-07 새벽 USD 개별주(NVDA/TSLA/PLTR/LLY ≈$19,229)를 매도한 뒤, 전체 자산이 222.3M→193.7M로 떨어지고 드로우다운이 −13.76%로 찍혀 실제 손실처럼 보였다. ② 원인은 잔고 조회의 **USD 예수금 계산이 `withdrawable_amount`(frcr_drwg_psbl_amt_1)만 써서 당일 매도대금(frcr_sll_amt_smtl, T+2 결제 전)을 통째로 누락**한 것 — KRW쪽은 이미 `prvs_rcdl_excc_amt`로 미결제 매도를 반영하는데 USD만 빠져 있었다(실제 총자산은 130 ISA+14 KRW_1+78 USD=222M로 무손실, 미결제 $19,229=2,950만원이 안 세어졌을 뿐). ③ USD 예수금에 `frcr_sll_amt_smtl`을 더하도록 수정(KRW `prvs_rcdl_excc_amt`와 동일 취지). 실조회 검증: 전체 193.7M→**222.7M**, USD 49M→**78.4M**, 드로우다운 −13.76%→**−0.89%**로 정정.
 
+> **2026-08-28 정정**: 이 수정은 매도만 있는 날에는 맞지만, 같은 날 매수도 있으면 gross 매도액을 더해 매수액을 이중계산한다. 일반식은 `출금가능 예수금 + 미결제 매도 - 미결제 매수`이며, 상세 원인과 회귀 검증은 `fix_2026-08-28_usd_pending_net_settlement.md`에 기록했다.
+
 ## 증상
 
 - 2026-07-07 03:01 개별주 매도 후, 10:00 KRW 런에서 `total_all_krw` 193.7M, 드로우다운 **−13.76%**.
@@ -19,11 +21,11 @@ USD 계좌(64378890-01, country=US) 필드:
 
 ## 수정 (`trading/executor.py` get_portfolio_state)
 
-USD 예수금 계산에 `frcr_sll_amt_smtl`(미결제 매도대금)을 더한다 — KRW `prvs_rcdl_excc_amt`와 동일 취지.
-매수증거금은 `withdrawable_amount`에서 이미 차감돼 있어 중복 아님. raw output2에서 추출, 실패 시 폴백(기존 동작).
+USD 예수금 계산에 미결제 순매매(`frcr_sll_amt_smtl - frcr_buy_amt_smtl`)를 더한다.
+당일 매수 종목은 보유종목 평가액에 이미 들어오므로, gross 매도액만 더하면 매수액이 이중계산된다. raw output2에서 두 필드를 추출하며, 실패 시 출금가능 예수금만 쓰는 폴백을 유지한다.
 
 ```
-cash_usd = withdrawable_amount (+ frcr_sll_amt_smtl if >0)
+cash_usd = withdrawable_amount + frcr_sll_amt_smtl - frcr_buy_amt_smtl
 ```
 
 ## 검증 (실조회)

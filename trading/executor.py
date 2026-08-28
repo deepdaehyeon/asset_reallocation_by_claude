@@ -42,6 +42,50 @@ MARKET_TO_CURRENCY: Dict[str, str] = {
     "NYSE":   "USD",
 }
 
+
+def _compute_usd_nav_cash(
+    withdrawable_amount: object,
+    deposit_amount: object,
+    raw_balance: object,
+) -> Tuple[float, float, float]:
+    """USD NAV 현금을 ``기준 예수금 + 미결제 매도 - 미결제 매수``로 계산한다.
+
+    KIS 해외 체결기준현재잔고는 당일 매수 종목을 ``stocks``에 즉시 포함하지만,
+    ``frcr_drwg_psbl_amt_1``에는 당일 미결제 매수·매도가 모두 반영되지 않을 수 있다.
+    따라서 총자산(NAV)에서는 gross 매도액만 더하지 말고 미결제 순매매만 반영해야 한다.
+
+    Returns
+    -------
+    (cash_usd, unsettled_sell_usd, unsettled_buy_usd)
+    """
+    cash_usd = float(withdrawable_amount)
+    if cash_usd <= 0:
+        cash_usd = float(deposit_amount)
+
+    if not isinstance(raw_balance, dict):
+        return cash_usd, 0.0, 0.0
+
+    out2 = raw_balance.get("output2")
+    if isinstance(out2, list):
+        out2 = out2[0] if out2 else None
+    if not isinstance(out2, dict):
+        return cash_usd, 0.0, 0.0
+
+    def _nonnegative_amount(key: str) -> float:
+        value = out2.get(key)
+        if value in (None, ""):
+            return 0.0
+        amount = float(value)
+        if not math.isfinite(amount) or amount < 0:
+            raise ValueError(f"{key} 비정상 값: {value}")
+        return amount
+
+    unsettled_sell_usd = _nonnegative_amount("frcr_sll_amt_smtl")
+    unsettled_buy_usd = _nonnegative_amount("frcr_buy_amt_smtl")
+    cash_usd += unsettled_sell_usd - unsettled_buy_usd
+    return cash_usd, unsettled_sell_usd, unsettled_buy_usd
+
+
 # 상태 파일 경로
 STATE_FILE = Path(__file__).parent / "state.json"   # 레거시 JSON (읽기 전용 폴백)
 STATE_DB   = Path(__file__).parent / "state.db"     # SQLite (primary)
@@ -620,6 +664,7 @@ class KisRebalancer:
         """
         holdings_krw: Dict[str, float] = {}  # ticker → KRW 환산 금액 (전 계좌 합산)
         cash_by_currency: Dict[str, float] = {"KRW": 0.0, "USD": 0.0}
+        usd_withdrawable_cash_krw: float = 0.0  # 주문가능 API 실패 시 보수적 폴백용
         krw_acc_holdings: Dict[str, Dict[str, float]] = {}  # acc_name → {ticker: krw}
         krw_acc_cash: Dict[str, float] = {}  # acc_name → cash
         krw_acc_purchase: Dict[str, float] = {}  # acc_name → 매입금액 합 (제외 계좌 차감용)
@@ -708,31 +753,34 @@ class KisRebalancer:
                         except Exception as e:
                             print(f"  [경고] {acc_name} prvs_rcdl_excc_amt 추출 실패: {e} — dnca_tot_amt 사용")
                     else:
-                        # USD: pykis deposit.amount = frcr_dncl_amt_2 (예수금)는 매수증거금 포함.
-                        # 매수 결제 대기분이 stocks 평가에도 잡혀 있어 이중계산.
-                        # frcr_drwg_psbl_amt_1 (출금가능금액, 매수증거금 차감)을 사용.
-                        cash_usd = float(deposit.withdrawable_amount)  # = frcr_drwg_psbl_amt_1
-                        # 폴백: withdrawable_amount이 0 또는 비정상이면 deposit.amount 사용
-                        if cash_usd <= 0:
-                            cash_usd = float(deposit.amount)
-                        # 당일 매도대금(frcr_sll_amt_smtl)은 T+2 결제 전이라 예수금/출금가능에
-                        # 미반영 → 대량 매도일에 총자산·USD비중이 그만큼 저평가(가짜 드로우다운).
-                        # KRW의 prvs_rcdl_excc_amt와 동일 취지로 미결제 매도대금을 더한다.
-                        # (매수증거금은 withdrawable에서 이미 차감돼 있어 중복 아님.) 2026-07-07.
+                        # USD 체결기준 잔고는 당일 매수 종목을 stocks에 즉시 포함하지만,
+                        # 출금가능 예수금에는 당일 미결제 매수·매도가 모두 빠질 수 있다.
+                        # NAV 현금 = 출금가능 예수금 + 미결제 매도 - 미결제 매수.
+                        # gross 매도만 더하면 당일 매수액이 주식+현금에 이중계산된다(2026-08-28).
+                        base_cash_usd = float(deposit.withdrawable_amount)
+                        if base_cash_usd <= 0:
+                            base_cash_usd = float(deposit.amount)
+                        usd_withdrawable_cash_krw += max(0.0, base_cash_usd) * self.usd_krw
                         try:
                             raw = balance.raw()
-                            out2 = raw.get("output2") if raw else None
-                            if isinstance(out2, list) and out2:
-                                out2 = out2[0]
-                            if isinstance(out2, dict):
-                                pend = out2.get("frcr_sll_amt_smtl")
-                                if pend not in (None, ""):
-                                    pend_usd = float(pend)
-                                    if pend_usd > 0:
-                                        cash_usd += pend_usd
-                                        print(f"  [{acc_name} USD 미결제 매도대금] +${pend_usd:,.0f} 반영 (T+2 결제 대기)")
+                            cash_usd, sell_usd, buy_usd = _compute_usd_nav_cash(
+                                deposit.withdrawable_amount,
+                                deposit.amount,
+                                raw,
+                            )
+                            if sell_usd > 0 or buy_usd > 0:
+                                net_usd = sell_usd - buy_usd
+                                print(
+                                    f"  [{acc_name} USD 미결제 순매매]"
+                                    f" 매도 ${sell_usd:,.0f} - 매수 ${buy_usd:,.0f}"
+                                    f" = ${net_usd:+,.0f} 반영 (T+2 결제 대기)"
+                                )
                         except Exception as e:
-                            print(f"  [경고] {acc_name} frcr_sll_amt_smtl 추출 실패: {e} — 미반영")
+                            cash_usd = base_cash_usd
+                            print(
+                                f"  [경고] {acc_name} USD 미결제 순매매 추출 실패: {e}"
+                                " — 출금가능 예수금만 사용"
+                            )
                         cash = cash_usd * self.usd_krw
                 except Exception as e:
                     print(f"  [경고] {acc_name} 예수금 변환 실패: {e} — 0 처리")
@@ -754,7 +802,9 @@ class KisRebalancer:
             for acc in krw_acc_holdings
         }
         self._krw_acc_cash = krw_acc_cash  # T+2 보정 전 실제 현금 (매수 cap용)
-        self._usd_cash_krw = cash_by_currency.get("USD", 0.0)  # USD 출금가능현금(원화 환산) — USD 매수 cap fallback용
+        # NAV용 현금에는 미결제 순매매가 들어가지만, 주문가능 API 실패 시에는 이를
+        # 다시 쓸 수 있다고 가정하지 않고 원래 출금가능 예수금만 보수적으로 사용한다.
+        self._usd_cash_krw = usd_withdrawable_cash_krw
 
         # 유니버스 외 보유 종목 분리 및 안내
         universe_krw = {t: v for t, v in holdings_krw.items() if t in self.universe}

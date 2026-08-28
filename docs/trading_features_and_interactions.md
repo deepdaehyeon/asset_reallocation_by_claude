@@ -78,6 +78,7 @@
 | C2 | **usd_cash_min / krw_cash_min** | `rebalancing` | 🔒 1% | 계좌별 최소현금 reserve | waterfall·정규화에 반영 |
 | C3 | **T+2 synthetic reallocation** | `portfolio.py:502`, `run.py:569` | ✅ | 지연 USD매수를 KRW 동등자산(synthetic_pairs)으로 임시 노출 | C4와 짝. 라이브 합성 순환매 원인 |
 | C4 | **deferred_buys / SettlementTracker** | `settlement.py`, `executor.py` | ✅ | T+2 미결제로 못 산 매수 이연 | B4 트리거·C3 합성과 연동 |
+| C4b | **USD 미결제 순매매 NAV 보정** | `executor.py:_compute_usd_nav_cash` | ✅ | 해외 체결기준 잔고의 현금을 `출금가능 예수금 + 미결제 매도 - 미결제 매수`로 계산. 당일 매수 종목은 이미 stocks에 들어오므로 gross 매도만 더해 매수액을 이중계산하지 않음 | **총자산·USD/KRW 비중·drift·peak·입출금 자동감지·알파·주문 수량에 직접 영향.** 주문가능 API 실패 폴백은 미결제 순매매를 제외한 출금가능 예수금만 사용해 재사용 가능 자금을 과대평가하지 않음. [[fix_2026-08-28_usd_pending_net_settlement]] |
 | C5 | **buffer_floor** | `portfolio.py:473` | ⛔ 빈 리스트 | 버퍼자산 최소비중 강제 | 모든 레짐 cash≥0.08이라 redundant |
 | C6 | **orderable cap (KRW/USD) + 잔고부족 축소 재시도** | `executor.py:952,1000`, `_execute_buy_capped` | ✅ | 매도 직후 1회 cap으로 비례 축소 + 매수 거부(APBK0952) 시 한도 재조회·금액 ~3%씩 축소 후 같은 종목 재시도(최대 2회) | 사전 cap만으로는 max_buy_qty가 T+2 매도대금 과대반영→순서상 마지막 매수가 거부됨(fix_2026-06-18). 축소 재시도로 종목 유지([[feedback-illiquid-fix-over-swap]]), 최종 실패만 C4 deferred |
 | C7 | **illiquid_order_handling** | `executor.py:283` | ✅ 468370 | 얇은 종목 주문 분할·재시도·가격추격 | 신규 KRW-native 종목 추가 시 확장 필요([[feedback-illiquid-fix-over-swap]]) |
