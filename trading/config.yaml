@@ -381,6 +381,12 @@ hmm:
   lookback_days: 500       # HMM 학습 윈도우 (거래일)
   predict_lookback: 60     # 추론 시 사용할 시퀀스 길이 — 전이 확률 문맥 반영
   min_samples: 100
+  # 데이터 품질 fail-safe: 선택 피처 하나의 부분 응답이 전체 HMM 학습표를 붕괴시키지
+  # 않도록 충분한 이력이 있는 열만 채택한다. 필수 학습표 자체가 기준 미달이면 직전
+  # 정상 목표를 동결하고, 가격 기반 Crisis 위험축소만 예외로 허용한다.
+  optional_feature_min_coverage: 0.80
+  optional_feature_min_observations: 100
+  min_matrix_coverage: 0.70
   # 공분산 floor (GaussianHMM min_covar) — 표준화 데이터 기준.
   #   1e-3 (현재) — 매우 작음 → 방출 뾰족 → 사후확률 0/100 포화 (단일 HMM 휘프소 원인)
   #   0.05~0.25 — floor를 올려 방출을 넓힘 → 여러 상태가 확률 분담(포화 완화)
@@ -557,7 +563,11 @@ rebalancing:
   max_monthly_turnover: 0            # 월간 누적 회전율 상한 (0=무제한, 매월 1일 자동 초기화) — 6월부터 0.30으로 복구 예정
   usd_cash_min: 0.01                 # USD 계좌 최소 현금 비율 (1%) — 수수료·환전 여유분
   krw_cash_min: 0.01                 # KRW 계좌 최소 현금 비율 (1%) — 수수료·거래 거절 방지
-  order_throttle_s: 0.25             # 주문 사이 대기 (초) — KIS rate limit 예방, 0=비활성
+  order_throttle_s: 1.0              # 주문 사이 대기 (초) — KIS rate limit 예방, 0=비활성
+  order_timeout_s: 180               # 한 종목이 전체 리밸런싱을 막을 수 있는 최대 시간
+  order_retry_interval_s: 30         # 미체결 주문 취소·재가격 간격
+  order_poll_interval_s: 2           # 체결 상태 조회 간격 (API 과호출 방지)
+  order_max_retries: 4               # 취소 확인 후 남은 수량 재주문 횟수
   # 리밸런싱 대상에서 제외할 KRW 계좌.
   # 주문 생성뿐 아니라 비중·drift 계산에서도 제외되어, 이 계좌의 보유가 다른 계좌의
   # 보상성 매수를 유발하지 않는다. 드로우다운/전체자산은 영향 없음(실제 보유 그대로 반영).
@@ -570,9 +580,10 @@ rebalancing:
   illiquid_order_handling:
     "468370":
       max_order_krw: 2000000   # 이 금액 이하로 분할 (약 165주씩)
-      max_retries: 15          # 미체결 재시도 횟수 (기본 10)
+      max_retries: 4           # 전체 180초 상한 안에서 재시도
       price_chase: 0.003       # 재시도당 가격 추격폭 (기본 0.001 = 0.1%)
-      retry_interval_s: 40     # 재가격 전 대기(초) (기본 100)
+      retry_interval_s: 30     # 재가격 전 대기(초)
+      max_wait_s: 180          # 한 청크 최대 대기시간
 
 # 리스크 제어
 # severe: equity를 floor(10%)까지 축소, 채권·금·현금 유지 — 반등 구간 미스 방지

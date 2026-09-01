@@ -114,20 +114,25 @@ def _compute_trigger(
     last_rebalanced_at: Optional[str],
     config: dict,
     has_deferred: bool = False,
+    has_failed_sell: bool = False,
 ) -> Tuple[bool, str]:
     """
     리밸런싱 트리거 여부를 결정한다.
 
     우선순위:
       1. 드로우다운 비상 (moderate 이하) → 쿨다운 무시하고 즉시 트리거
-      2. 미처리 지연 매수 존재 → 쿨다운 무시하고 즉시 트리거
-      3. 쿨다운 미경과 → 스킵
-      4. 레짐 전환 확정
-      5. drift > drift_threshold
+      2. 미완료 매도 존재 → 쿨다운 무시하고 즉시 트리거
+      3. 미처리 지연 매수 존재 → 쿨다운 무시하고 즉시 트리거
+      4. 쿨다운 미경과 → 스킵
+      5. 레짐 전환 확정
+      6. drift > drift_threshold
     """
     thresholds = config["risk"]["drawdown_thresholds"]
     if drawdown <= thresholds["moderate"]:
         return True, f"drawdown_emergency({drawdown:.1%})"
+
+    if has_failed_sell:
+        return True, "failed_sells"
 
     if has_deferred:
         return True, "deferred_buys"
@@ -254,8 +259,25 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
     override_thr = hmm_cfg.get("override_threshold", 0.60)
     predict_lookback = hmm_cfg.get("predict_lookback", 60)
     feature_matrix = compute_feature_matrix(
-        prices, smooth_window=_smooth_window, smooth_features=_smooth_features
+        prices,
+        smooth_window=_smooth_window,
+        smooth_features=_smooth_features,
+        optional_min_coverage=float(hmm_cfg.get("optional_feature_min_coverage", 0.80)),
+        optional_min_observations=int(hmm_cfg.get("optional_feature_min_observations", hmm_min)),
     )
+    expected_matrix_rows = max(len(prices) - 63, 1)
+    matrix_coverage = len(feature_matrix) / expected_matrix_rows
+    min_matrix_coverage = float(hmm_cfg.get("min_matrix_coverage", 0.70))
+    feature_data_valid = (
+        len(feature_matrix) >= hmm_min and matrix_coverage >= min_matrix_coverage
+    )
+    model_data_valid = not hmm_enabled or feature_data_valid
+    model_data_reason = "ok"
+    if hmm_enabled and not model_data_valid:
+        model_data_reason = (
+            f"HMM 학습표 {len(feature_matrix)}/{expected_matrix_rows}일 "
+            f"(최소 {hmm_min}일·커버리지 {min_matrix_coverage:.0%})"
+        )
     raw_regime = rule_regime
     hmm_probs: dict = {}
     hmm_only_probs: dict = {}  # RF 블렌드 전 순수 HMM 확률 (Slack 표시용)
@@ -269,14 +291,15 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
     # 벗어난 정도(unsupervised, detect_regime 자기참조 없음). 출력은 원위치 유지.
     anomaly_cfg = config.get("anomaly", {})
     anomaly_score = 0.0
-    if anomaly_cfg.get("enabled", True) and len(feature_matrix) >= hmm_min:
+    if anomaly_cfg.get("enabled", True) and feature_data_valid:
         anomaly_det = AnomalyDetector(
             contamination=float(anomaly_cfg.get("contamination", 0.05))
         )
         anomaly_det.fit(feature_matrix)
         anomaly_score = anomaly_det.anomaly_score(features)
 
-    if hmm_enabled and len(feature_matrix) >= hmm_min:
+    crisis_data_override = False
+    if hmm_enabled and model_data_valid:
         unsupervised_mapping = hmm_cfg.get("unsupervised_mapping", True)
         hmm_clf = HmmRegimeClassifier(
             unsupervised_mapping=unsupervised_mapping,
@@ -300,18 +323,33 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
         new_mapping = hmm_clf.state_to_regime
         method = hmm_clf.mapping_method
 
+        alignment = hmm_clf.alignment_stats
         if prev_mapping:
-            changed_states = sum(
-                1 for s, r in new_mapping.items()
-                if s in prev_mapping and prev_mapping[s] != r
-            )
+            # stabilize_mapping 이후에는 숫자 state ID가 재학습 때 바뀔 수 있으므로
+            # 같은 번호끼리 비교하면 가짜 5/5가 발생한다. anchor로 매칭된 군집끼리
+            # 의미 라벨을 비교한 수치를 우선 사용한다.
+            if int(alignment.get("compared", 0)) > 0:
+                changed_states = int(alignment["semantic_changes"])
+                compared_states = int(alignment["compared"])
+                align_str = (
+                    f" (anchor 기준, 유지 {int(alignment['accepted'])}/{compared_states}, "
+                    f"거리 평균/최대 {float(alignment['mean_distance']):.2f}/"
+                    f"{float(alignment['max_distance']):.2f})"
+                )
+            else:
+                changed_states = sum(
+                    1 for s, r in new_mapping.items()
+                    if s in prev_mapping and prev_mapping[s] != r
+                )
+                compared_states = HmmRegimeClassifier.N_STATES
+                align_str = " (state ID 기준)"
             regime_diff = (
                 set(new_mapping.values()) ^ set(prev_mapping.values())
             )
             diff_str = f" | 레짐 집합 변화 {sorted(regime_diff)}" if regime_diff else ""
             print(
                 f"    매핑       : {method} | state 변화 "
-                f"{changed_states}/{HmmRegimeClassifier.N_STATES}{diff_str}"
+                f"{changed_states}/{compared_states}{align_str}{diff_str}"
             )
         else:
             print(f"    매핑       : {method} (첫 학습)")
@@ -429,7 +467,23 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
         if not (trans_entropy != trans_entropy):  # NaN 체크
             print(f"    전환 엔트로피: {trans_entropy:.3f} (0=안정 / 높을수록 불안정)")
     elif hmm_enabled:
-        print(f"    HMM        : 학습 데이터 부족 ({len(feature_matrix)}/{hmm_min}일), 규칙 기반 사용")
+        print(f"    [데이터 품질 차단] {model_data_reason}")
+        prev_blend = state.get("prev_blend_probs") or {}
+        if rule_regime == "Crisis":
+            # 모델 입력이 깨져도 가격 기반 독립 위기 신호의 위험축소는 막지 않는다.
+            hmm_probs = {r: (1.0 if r == "Crisis" else 0.0) for r in REGIMES}
+            raw_regime = "Crisis"
+            crisis_data_override = True
+            print("    [위기 예외] 가격 기반 Crisis → 위험축소 목표만 허용")
+        elif prev_blend and sum(float(prev_blend.get(r, 0.0)) for r in REGIMES) > 0:
+            total_prev = sum(float(prev_blend.get(r, 0.0)) for r in REGIMES)
+            hmm_probs = {r: float(prev_blend.get(r, 0.0)) / total_prev for r in REGIMES}
+            prev_confirmed = state.get("confirmed_regime")
+            raw_regime = prev_confirmed if prev_confirmed in REGIMES else DEFAULT_REGIME
+            print("    [목표 동결] 직전 정상 blend 유지 — 위험증가 신호 생성 안 함")
+        else:
+            raw_regime = DEFAULT_REGIME
+            print("    [초기 안전대기] 직전 정상 목표 없음 — 이번 실행 주문 차단")
 
     rule_conf = compute_rule_confidence(features, raw_regime)
     hmm_conf: Optional[float] = hmm_probs.get(raw_regime) if hmm_probs else None
@@ -437,7 +491,7 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
     combined_conf = compute_combined_confidence(rule_conf, hmm_conf, method=conf_method)
 
     # 이상 탐지 결과 출력 (anomaly_score는 상단 HMM 블록 이전에 계산됨).
-    if anomaly_cfg.get("enabled", True) and len(feature_matrix) >= hmm_min:
+    if anomaly_cfg.get("enabled", True) and feature_data_valid:
         icon = " ⚠" if anomaly_score > 0.7 else ""
         print(f"    Anomaly    : {anomaly_score:.0%}{icon}")
 
@@ -515,6 +569,9 @@ def _run_market_analysis(config: dict, state: dict) -> dict:
         "regime_filter": regime_filter,
         "avg_corr": avg_corr,
         "prices": prices,
+        "signal_data_valid": model_data_valid,
+        "signal_data_reason": model_data_reason,
+        "crisis_data_override": crisis_data_override,
     }
 
 
@@ -668,7 +725,13 @@ def run_monitor(config: dict, state: dict, messenger: Messenger, args) -> None:
         state, rebalancer, rebalancer._last_total_all_krw, market["prices"])
 
     print("[5] 목표 비중 산출 중...")
-    blended_targets = blend_regime_targets(market["blend_probs"], config)
+    previous_blended_targets = state.get("saved_blended_targets") or {}
+    data_hold = not market["signal_data_valid"] and not market["crisis_data_override"]
+    if data_hold and previous_blended_targets:
+        blended_targets = dict(previous_blended_targets)
+        print("    [데이터 품질] 직전 정상 자산군 목표를 그대로 사용")
+    else:
+        blended_targets = blend_regime_targets(market["blend_probs"], config)
     cls_str = "  ".join(
         f"{k}:{v:.0%}" for k, v in sorted(blended_targets.items(), key=lambda x: -x[1])
         if v >= 0.005
@@ -684,10 +747,23 @@ def run_monitor(config: dict, state: dict, messenger: Messenger, args) -> None:
                     for t, m in config["universe"].items()
                     if m["asset_class"] in blended_targets}
         port_vol = compute_portfolio_ewma_vol(prices, ticker_w, lam=lam)
-        print(f"    포트폴리오 EWMA vol: {port_vol:.2%} (λ={lam})")
-        eff_vol = port_vol if port_vol > 0 else market["features"]["realized_vol"]
+        if port_vol > 0:
+            print(f"    포트폴리오 EWMA vol: {port_vol:.2%} (λ={lam})")
+            eff_vol = port_vol
+        else:
+            eff_vol = market["features"]["realized_vol"]
+            print(
+                f"    포트폴리오 EWMA vol 계산 불가 → "
+                f"SPY EWMA vol {eff_vol:.2%} 사용 (λ=0.94)"
+            )
     else:
         eff_vol = market["features"]["realized_vol"]
+
+    target_vix = market["features"]["vix"]
+    if data_hold and previous_blended_targets:
+        eff_vol = float(state.get("saved_eff_vol", eff_vol))
+        target_vix = float((state.get("saved_features") or {}).get("vix", target_vix))
+        print(f"    [데이터 품질] 변동성·VIX 입력도 직전 정상값으로 동결")
 
     target_usd, target_krw = _compute_targets(
         blended_targets,
@@ -696,7 +772,7 @@ def run_monitor(config: dict, state: dict, messenger: Messenger, args) -> None:
         total_usd_krw,
         total_krw_only,
         regime=market["regime"],
-        vix=market["features"]["vix"],
+        vix=target_vix,
         blend_probs=market["blend_probs"],
         current_weights=current_weights,
     )
@@ -718,22 +794,41 @@ def run_monitor(config: dict, state: dict, messenger: Messenger, args) -> None:
     # USD 지연 매수의 합성 노출은 KRW 실행에서 처리되므로, KRW도 함께 트리거해야 한다.
     if has_deferred_usd:
         has_deferred_krw = True
+    active_failed_sells = [
+        d for d in state.get("failed_sells", [])
+        if d.get("expires", "9999-12-31") > today_iso
+    ]
+    has_failed_sell_krw = any(d.get("currency") == "KRW" for d in active_failed_sells)
+    has_failed_sell_usd = any(d.get("currency") == "USD" for d in active_failed_sells)
 
     trigger_krw, reason_krw = _compute_trigger(
         drift_krw, market["regime_changed"], drawdown,
         state.get("last_rebalanced_krw_at"), config,
         has_deferred=has_deferred_krw,
+        has_failed_sell=has_failed_sell_krw,
     )
     trigger_usd, reason_usd = _compute_trigger(
         drift_usd, market["regime_changed"], drawdown,
         state.get("last_rebalanced_usd_at"), config,
         has_deferred=has_deferred_usd,
+        has_failed_sell=has_failed_sell_usd,
     )
+    if data_hold and not previous_blended_targets:
+        trigger_krw, reason_krw = False, "data_quality_hold(no_previous_target)"
+        trigger_usd, reason_usd = False, "data_quality_hold(no_previous_target)"
 
     print(f"    [KRW] drift={drift_krw:.1%}  →  {'✓ 트리거' if trigger_krw else '✗ 스킵'}  ({reason_krw})")
     print(f"    [USD] drift={drift_usd:.1%}  →  {'✓ 트리거' if trigger_usd else '✗ 스킵'}  ({reason_usd})")
 
     features = market["features"]
+    if data_hold and previous_blended_targets:
+        saved_features_for_state = dict(state.get("saved_features") or features)
+        saved_realized_vol = float(state.get("saved_realized_vol", features["realized_vol"]))
+    else:
+        saved_features_for_state = {
+            k: v for k, v in features.items() if isinstance(v, (int, float))
+        }
+        saved_realized_vol = features["realized_vol"]
     state.update({
         "trigger_krw":            trigger_krw,
         "trigger_reason_krw":     reason_krw,
@@ -742,19 +837,19 @@ def run_monitor(config: dict, state: dict, messenger: Messenger, args) -> None:
         "trigger_set_at":         datetime.now().isoformat(),
         "saved_blended_targets":  blended_targets,
         "saved_blend_probs":      dict(market["blend_probs"]),
-        "saved_realized_vol":     features["realized_vol"],
+        "saved_realized_vol":     saved_realized_vol,
         "saved_eff_vol":          round(eff_vol, 6),
         "saved_regime":           market["regime"],
         "saved_confidence":       round(market["combined_conf"], 4),
-        "saved_features": {
-            k: v for k, v in features.items() if isinstance(v, (int, float))
-        },
+        "saved_features":         saved_features_for_state,
         "last_run_confidence":    round(market["combined_conf"], 4),
         "last_run_at":            datetime.now().isoformat(),
         "last_drawdown":          round(drawdown, 4),
         "last_total_krw":         float(total_krw),
         "last_drift_krw":         round(drift_krw, 4),
         "last_drift_usd":         round(drift_usd, 4),
+        "signal_data_valid":      bool(market["signal_data_valid"]),
+        "signal_data_reason":     market["signal_data_reason"],
     })
     state.update(market["regime_filter"].to_dict())
     save_state(state)
@@ -902,11 +997,14 @@ def run_execution(config: dict, state: dict, messenger: Messenger, args) -> None
         prev_deferred: list = []
     else:
         prev_deferred = tracker.get_deferred()
+        prev_failed_sells = tracker.get_failed_sells()
         # clear_deferred는 rebalance 성공 후 실행 (실패 시 deferred_buys 보존)
         if prev_deferred:
             print(f"    이전 지연 매수 {len(prev_deferred)}건 → 합성 노출 반영")
             for d in prev_deferred:
                 print(f"      {d['ticker']} {d['amount_krw']:,.0f}원 ({d['currency']})")
+        if prev_failed_sells:
+            print(f"    이전 미완료 매도 {len(prev_failed_sells)}건 → 현재 잔고 기준 우선 복구")
 
     print("[7] 리스크 제어 적용 중...")
     target_usd, target_krw = _apply_risk_controls(
@@ -927,9 +1025,9 @@ def run_execution(config: dict, state: dict, messenger: Messenger, args) -> None
     # 소규모 회복 거래(deferred_buys, cooldown override)는 기존 임계 유지.
     force_full = reason.startswith(("drift", "regime_change", "drawdown_emergency", "force"))
 
-    order_log, new_deferred = [], []
+    order_log, new_deferred, new_failed_sells = [], [], []
     try:
-        order_log, new_deferred = rebalancer.rebalance(
+        order_log, new_deferred, new_failed_sells = rebalancer.rebalance(
             current_weights=current_weights,
             target_usd=target_usd,
             target_krw=target_krw,
@@ -945,6 +1043,11 @@ def run_execution(config: dict, state: dict, messenger: Messenger, args) -> None
         tracker.clear_deferred()
         for d in new_deferred:
             tracker.add_deferred(d["ticker"], d["amount_krw"], d["currency"])
+        tracker.clear_failed_sells()
+        for d in new_failed_sells:
+            tracker.add_failed_sell(
+                d["ticker"], d["qty"], d["amount_krw"], d["currency"], d["status"]
+            )
 
         # trigger는 항상 클리어 — 다음 monitor가 drift·deferred·regime을 다시 평가하게 한다.
         state[f"trigger_{side}"] = False
@@ -953,7 +1056,7 @@ def run_execution(config: dict, state: dict, messenger: Messenger, args) -> None
         # cooldown anchor·월간 회전율은 실제 주문이 시장에 나갔을 때만 갱신.
         # 0건 실행(예: per_ticker_drift 필터로 전부 컷)에 cooldown이 시작되면
         # 다음 N일 동안 drift가 남아있어도 트리거가 차단된다.
-        if order_log:
+        if rebalancer._last_run_traded_krw > 0:
             state[f"last_rebalanced_{side}_at"] = datetime.now().isoformat()
 
             current_ym = datetime.now().strftime("%Y-%m")
@@ -971,6 +1074,8 @@ def run_execution(config: dict, state: dict, messenger: Messenger, args) -> None
 
     if new_deferred:
         print(f"    지연 매수 {len(new_deferred)}건 저장 → 다음 실행 시 합성 노출 반영")
+    if new_failed_sells:
+        print(f"    미완료 매도 {len(new_failed_sells)}건 저장 → 다음 모니터에서 우선 재시도")
 
     alpha_line = _report_benchmark_alpha(state, rebalancer, rebalancer._last_total_all_krw)
     save_state(state)  # 벤치마크 shares·last_alpha 영속화

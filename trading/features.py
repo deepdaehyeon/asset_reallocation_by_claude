@@ -218,6 +218,8 @@ def compute_feature_matrix(
     fred_history: pd.DataFrame | None = None,
     smooth_window: int = 0,
     smooth_features: list[str] | None = None,
+    optional_min_coverage: float = 0.80,
+    optional_min_observations: int = 100,
 ) -> pd.DataFrame:
     """
     HMM/RF 학습을 위한 일별 피처 행렬을 계산한다.
@@ -231,6 +233,12 @@ def compute_feature_matrix(
         DataFrame with columns ⊆ PRICE_FEATURE_COLS + MACRO_FEATURE_COLS, index = date
         (최소 65일 warm-up 이후 데이터만 포함)
     """
+    required_tickers = ["SPY", "^VIX", "HYG", "TLT"]
+    missing_required = [t for t in required_tickers if t not in prices.columns]
+    if missing_required:
+        print(f"    [데이터 품질 오류] HMM 필수 ticker 누락: {missing_required}")
+        return pd.DataFrame()
+
     spy = prices["SPY"]
     vix = prices["^VIX"]
     hyg = prices["HYG"]
@@ -241,7 +249,7 @@ def compute_feature_matrix(
     rvol    = _ewma_vol_series(spy.pct_change(fill_method=None))
     credit  = hyg.pct_change(22, fill_method=None) - tlt.pct_change(22, fill_method=None)
 
-    data: dict[str, pd.Series] = {
+    required_data: dict[str, pd.Series] = {
         "momentum_1m":  mom_1m,
         "momentum_3m":  mom_3m,
         "realized_vol": rvol,
@@ -249,30 +257,56 @@ def compute_feature_matrix(
         "credit_signal": credit,
     }
 
+    optional_data: dict[str, pd.Series] = {}
+
     # 달러 인덱스 1M 모멘텀
     if "DX-Y.NYB" in prices.columns:
         dxy = prices["DX-Y.NYB"]
-        data["dxy_mom_1m"] = dxy.pct_change(22, fill_method=None)
+        optional_data["dxy_mom_1m"] = dxy.pct_change(22, fill_method=None)
 
     # 원자재 1M 모멘텀
     if "DJP" in prices.columns:
         djp = prices["DJP"]
-        data["commodity_mom_1m"] = djp.pct_change(22, fill_method=None)
+        optional_data["commodity_mom_1m"] = djp.pct_change(22, fill_method=None)
 
     # VIX term structure (VIX9D - VIX, 2011-부터 가용)
-    # NaN 그대로 두면 dropna()에서 자동 처리 — 백테스트 시작이 2011-부터로 늦춰짐 (수용).
-    # fillna(0)으로 채우는 것은 학습 noise를 만드는 부작용이 있어 회피.
+    # 선택 피처는 충분한 이력이 있을 때만 합류한다. 일시적인 yfinance 부분 응답
+    # (2026-08-28 ^VIX9D 1일치)이 전체 학습표를 1일로 붕괴시키는 것을 막는다.
     if "^VIX9D" in prices.columns:
-        data["vix_term_structure"] = prices["^VIX9D"] - prices["^VIX"]
+        optional_data["vix_term_structure"] = prices["^VIX9D"] - prices["^VIX"]
 
     # 빠른 노이즈 피처 평활 (compute_features의 단일시점 평활과 동일 취지·동일 윈도우).
     if smooth_window and smooth_features and int(smooth_window) > 1:
         W = int(smooth_window)
         for col in smooth_features:
-            if col in data:
-                data[col] = data[col].rolling(W, min_periods=1).mean()
+            if col in required_data:
+                required_data[col] = required_data[col].rolling(W, min_periods=1).mean()
+            if col in optional_data:
+                optional_data[col] = optional_data[col].rolling(W, min_periods=1).mean()
 
-    matrix = pd.DataFrame(data).dropna()
+    matrix = pd.DataFrame(required_data).dropna()
+    if matrix.empty:
+        print("    [데이터 품질 오류] HMM 필수 피처 교집합이 비어 있음")
+        return matrix
+
+    min_coverage = min(max(float(optional_min_coverage), 0.0), 1.0)
+    min_observations = max(int(optional_min_observations), 1)
+    for name, series in optional_data.items():
+        aligned = series.reindex(matrix.index)
+        valid = int(aligned.notna().sum())
+        coverage = valid / len(matrix)
+        latest_ok = bool(pd.notna(aligned.iloc[-1]))
+        if valid < min_observations or coverage < min_coverage or not latest_ok:
+            print(
+                f"    [선택 피처 제외] {name}: {valid}/{len(matrix)}일 "
+                f"({coverage:.0%}, 최신값={'있음' if latest_ok else '없음'})"
+            )
+            continue
+        matrix[name] = aligned
+
+    # 채택된 선택 피처의 시작부 warm-up만 제거한다. 위 품질 게이트 덕분에 한 열이
+    # 전체 행을 거의 모두 지우는 상황은 발생하지 않는다.
+    matrix = matrix.dropna()
 
     # FRED 히스토리 있으면 매크로 피처 합류
     if fred_history is not None and not fred_history.empty:

@@ -87,7 +87,8 @@ def fetch_signal_prices(tickers: list[str], lookback_days: int = 130) -> pd.Data
     prices = prices.dropna(how="all")
 
     # 누락·데이터 부족 ticker 명시적 경고
-    min_required = max(int(lookback_days * 0.5), 30)
+    # 짧은 보조 조회(예: 벤치마크 10일)에 30일을 요구해 항상 경고하던 오류 수정.
+    min_required = max(int(lookback_days * 0.5), 5)
     issues: list[str] = []
     for t in tickers:
         if t not in prices.columns:
@@ -232,6 +233,12 @@ def _load_fred_cache_if_fresh() -> dict:
     return {}
 
 
+def _merge_partial_fred_result(result: dict, cached: dict) -> tuple[dict, list[str]]:
+    """현재 성공값을 우선하고, 누락 키만 직전 캐시로 보충한다."""
+    restored = [k for k in cached if k not in result]
+    return ({**cached, **result} if restored else dict(result)), restored
+
+
 def fetch_fred_data() -> dict:
     """
     FRED API로 현재 시점의 매크로 피처를 조회한다.
@@ -336,6 +343,13 @@ def fetch_fred_data() -> dict:
 
     if failures:
         print(f"    [FRED] 일부 series 실패: {', '.join(failures)}")
+        # 부분 성공 시에도 실패한 키는 직전 정상 캐시로 보충한다. 기존 구현은
+        # 성공한 일부 키만 캐시에 다시 써서, 한 번의 일시 장애가 정상 캐시까지
+        # 영구적으로 축소시키는 문제가 있었다.
+        cached = _load_fred_cache_if_fresh()
+        result, restored = _merge_partial_fred_result(result, cached)
+        if restored:
+            print(f"    [FRED] 부분 실패 캐시 보충: {', '.join(restored)}")
 
     if result:
         _save_fred_cache(result)

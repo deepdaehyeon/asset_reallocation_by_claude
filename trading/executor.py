@@ -187,6 +187,12 @@ def _fetch_balance_with_retry(
                         f"  [재시도] {acc_name} 토큰 1분 제한 EGW00133 "
                         f"({attempt + 1}/{max_retries}), {wait}s 후 재시도"
                     )
+                elif "EGW00215" in msg or "초당 거래건수" in msg:
+                    wait = 2 ** (attempt + 1)  # 2s → 4s: 원장 endpoint는 일반 호출보다 보수적
+                    print(
+                        f"  [재시도] {acc_name} 원장 초당 제한 EGW00215 "
+                        f"({attempt + 1}/{max_retries}), {wait}s 후 재시도"
+                    )
                 else:
                     wait = 2 ** attempt  # 1s → 2s → 4s
                     print(
@@ -442,10 +448,20 @@ class KisRebalancer:
         # 이번 회차 매도 성공 금액 (acc_name → 누적 KRW). _fetch_krw_orderable fallback에서
         # _krw_acc_cash에 더해 매도대금 보정용. rebalance() 시작 시 reset.
         self._recent_sell_proceeds_krw: Dict[str, float] = {}
+        # 포트폴리오 조회에서 확보한 매도가능수량 캐시. 종목마다 잔고 API를 다시
+        # 호출해 EGW00215를 유발하던 패턴을 없애고, 체결 시 로컬에서 차감한다.
+        self._held_qty_cache: Dict[Tuple[str, str, str], int] = {}
+        self._last_order_unfilled: Optional[dict] = None
+        self._last_order_filled_amount_krw: float = 0.0
         # KIS rate limit 예방용 주문 간 throttle (초). 0이면 비활성.
         self.order_throttle_s: float = float(
             config.get("rebalancing", {}).get("order_throttle_s", 0.25)
         )
+        reb_cfg = config.get("rebalancing", {})
+        self.order_timeout_s: float = float(reb_cfg.get("order_timeout_s", 180.0))
+        self.order_retry_interval_s: float = float(reb_cfg.get("order_retry_interval_s", 30.0))
+        self.order_poll_interval_s: float = float(reb_cfg.get("order_poll_interval_s", 2.0))
+        self.order_max_retries: int = int(reb_cfg.get("order_max_retries", 4))
 
     @staticmethod
     def _fetch_usd_krw(fallback: float) -> float:
@@ -702,6 +718,13 @@ class KisRebalancer:
                     continue
                 if mkt_currency != currency:
                     continue
+                orderable_val = getattr(stock, "orderable", None)
+                qty_val = orderable_val if orderable_val is not None else getattr(stock, "qty", None)
+                if qty_val is not None:
+                    try:
+                        self._held_qty_cache[(acc_name, currency, ticker)] = int(float(qty_val))
+                    except (TypeError, ValueError):
+                        pass
                 try:
                     amt = float(stock.current_amount)
                 except Exception as e:
@@ -910,7 +933,7 @@ class KisRebalancer:
         tracker: Optional[SettlementTracker] = None,
         side: str = "all",
         force_full_rebalance: bool = False,
-    ) -> Tuple[List[str], List[dict]]:
+    ) -> Tuple[List[str], List[dict], List[dict]]:
         """
         리밸런싱을 실행한다.
 
@@ -926,7 +949,7 @@ class KisRebalancer:
         USD 계좌는 버퍼 로직 미적용 (USD 현금으로 직접 집행).
 
         Returns:
-            (order_log, deferred_buys)
+            (order_log, deferred_buys, failed_sells)
         """
         total_value_krw = total_usd_krw + total_krw_only
 
@@ -938,7 +961,7 @@ class KisRebalancer:
             print(f"총 drift: {drift*100:.1f}%  (임계값: {threshold*100:.0f}%)")
             if drift < threshold:
                 print("→ 리밸런싱 불필요")
-                return [], []
+                return [], [], []
 
         if force_full_rebalance:
             print("  [강제 평준화] per_ticker_drift_threshold 무시 — 모든 차이 주문 생성")
@@ -971,7 +994,7 @@ class KisRebalancer:
                     f"  [경고] 단일 실행 회전율 초과: {run_rate:.1%} > {max_run:.1%} "
                     f"(주문 {total_order_krw:,.0f}원 / 포트폴리오 {total_value_krw:,.0f}원) → 실행 차단"
                 )
-                return [], []
+                return [], [], []
 
         # side 필터: 해당 계좌 종목만
         if side == "krw":
@@ -996,7 +1019,7 @@ class KisRebalancer:
                     f" + 이번 {side_order_krw/total_value_krw:.1%}"
                     f" = {monthly_rate:.1%} > {max_monthly:.1%} → 실행 차단"
                 )
-                return [], []
+                return [], [], []
 
         # 실제 체결된 의도 금액만 누적 (cap 보호 측면에선 보수적인 의도금액보다
         # 약간 작아지지만, 실패한 주문이 회전율에 잡히는 왜곡 제거).
@@ -1004,12 +1027,16 @@ class KisRebalancer:
 
         sell_orders = [(t, c, a, acc) for t, c, a, acc in all_orders if a < 0]
         buy_orders  = [(t, c, a, acc) for t, c, a, acc in all_orders if a > 0]
+        if tracker is not None:
+            failed_sell_tickers = {d.get("ticker") for d in tracker.get_failed_sells()}
+            sell_orders.sort(key=lambda o: 0 if o[0] in failed_sell_tickers else 1)
         sell_cnt, buy_cnt = len(sell_orders), len(buy_orders)
         side_label = f" [{side.upper()}]" if side != "all" else ""
         print(f"→{side_label} 실행 {len(all_orders)}건 (매도 {sell_cnt}, 매수 {buy_cnt})")
 
         order_log: List[str] = []
         failed_buys: List[dict] = []
+        failed_sells: List[dict] = []
 
         # 이번 회차 매도 추적기 reset — _fetch_krw_orderable fallback 보정용
         self._recent_sell_proceeds_krw = {}
@@ -1021,15 +1048,29 @@ class KisRebalancer:
             result = self._execute_order(ticker, currency, amount_diff_krw, acc_name)
             if result:
                 order_log.append(result)
-                # 성공 결과는 "매수 .../매도 ..." 접두, 실패는 "[timeout]/[오류]" 접두
-                if not result.startswith("["):
-                    actual_traded_krw += abs(amount_diff_krw)
-                    # KRW 매도 성공분을 acc별로 누적 — orderable API 실패 시 fallback 보정
-                    if currency == "KRW":
-                        self._recent_sell_proceeds_krw[acc_name] = (
-                            self._recent_sell_proceeds_krw.get(acc_name, 0.0)
-                            + abs(amount_diff_krw)
-                        )
+                filled_amount = self._last_order_filled_amount_krw
+                actual_traded_krw += filled_amount
+                # KRW 매도 실제 체결분만 주문가능 fallback에 반영한다.
+                if currency == "KRW" and filled_amount > 0:
+                    self._recent_sell_proceeds_krw[acc_name] = (
+                        self._recent_sell_proceeds_krw.get(acc_name, 0.0) + filled_amount
+                    )
+            unfilled = self._last_order_unfilled
+            if unfilled and unfilled.get("action") == "sell":
+                failed_sells.append(dict(unfilled))
+                if tracker is not None:
+                    tracker.add_failed_sell(
+                        unfilled["ticker"], unfilled["qty"], unfilled["amount_krw"],
+                        unfilled["currency"], unfilled["status"],
+                    )
+                if self.messenger:
+                    self.messenger.send_order_error(
+                        ticker,
+                        RuntimeError(
+                            f"매도 미완료 {unfilled['qty']}주 ({unfilled['status']}) — "
+                            "다른 주문은 계속 진행, 다음 모니터에서 재시도"
+                        ),
+                    )
 
         # Phase 2: KRW 주문가능금액 조회 (매도 완료 후 → 당일 매도대금 반영)
         krw_buys_by_acc: Dict[str, List[Tuple[str, float]]] = {}
@@ -1078,20 +1119,24 @@ class KisRebalancer:
             )
             if result:
                 order_log.append(result)
-                if not result.startswith("["):
-                    actual_traded_krw += abs(eff_amount)
+                actual_traded_krw += self._last_order_filled_amount_krw
                 is_funds_error = result.startswith("[오류]") and _looks_like_insufficient_funds(result)
-                is_timeout = result.startswith("[timeout]")
+                unfilled = self._last_order_unfilled
+                is_timeout = bool(unfilled and unfilled.get("action") == "buy")
                 if is_funds_error or is_timeout:
                     # 재시도 중에는 알림을 억제했으므로 최종 실패만 1회 통지
                     if is_funds_error and self.messenger:
                         self.messenger.send_order_error(
                             ticker, RuntimeError("주문가능금액 부족 — 축소 재시도 후에도 실패")
                         )
-                    # 한 주도 체결 안 됨 → 이연 금액은 축소분이 아닌 원래 계획 금액
+                    # 부분체결이면 남은 금액만, 주문 거부면 원래 계획 금액을 이연한다.
+                    deferred_amount = (
+                        float(unfilled["amount_krw"]) if is_timeout and unfilled
+                        else abs(amount_diff_krw)
+                    )
                     failed_buys.append({
                         "ticker": ticker,
-                        "amount_krw": abs(amount_diff_krw),
+                        "amount_krw": deferred_amount,
                         "currency": currency,
                     })
 
@@ -1103,7 +1148,12 @@ class KisRebalancer:
             cnt_usd = sum(1 for d in failed_buys if d["currency"] == "USD")
             parts = [f"{c} {n}건" for c, n in [("KRW", cnt_krw), ("USD", cnt_usd)] if n > 0]
             print(f"    [매수 실패] {', '.join(parts)} → 다음 실행 시 합성 노출로 대체")
-        return order_log, failed_buys
+        if failed_sells:
+            print(
+                f"    [매도 미완료] {len(failed_sells)}건 → 다른 주문은 완료, "
+                "다음 모니터에서 우선 재시도"
+            )
+        return order_log, failed_buys, failed_sells
 
     def _build_orders(
         self,
@@ -1197,8 +1247,19 @@ class KisRebalancer:
             price = float(quote.high if action == "buy" else quote.low)
         return _adjust_tick(price, currency)
 
-    def _get_held_qty(self, client: pykis.PyKis, ticker: str, currency: str, price: float, acc_name: str = "?") -> int:
+    def _get_held_qty(
+        self,
+        client: pykis.PyKis,
+        ticker: str,
+        currency: str,
+        price: float,
+        acc_name: str = "?",
+        force_refresh: bool = False,
+    ) -> int:
         """매도 직전 실제 보유 수량을 조회한다. 조회 실패 시 RuntimeError를 발생시킨다."""
+        cache_key = (acc_name, currency, ticker)
+        if not force_refresh and cache_key in self._held_qty_cache:
+            return self._held_qty_cache[cache_key]
         try:
             for s in _fetch_balance_with_retry(client, currency, acc_name).stocks:
                 if s.symbol != ticker:
@@ -1209,13 +1270,20 @@ class KisRebalancer:
                 # orderable = 매도가능수량 (잠긴 주식·미결제 수량 제외) — 가장 안전한 기준
                 orderable_val = getattr(s, "orderable", None)
                 if orderable_val is not None:
-                    return int(float(orderable_val))
+                    qty = int(float(orderable_val))
+                    self._held_qty_cache[cache_key] = qty
+                    return qty
                 qty_val = getattr(s, "qty", None)
                 if qty_val is not None:
-                    return int(float(qty_val))
+                    qty = int(float(qty_val))
+                    self._held_qty_cache[cache_key] = qty
+                    return qty
                 # orderable/qty 없으면 평가금액(native currency) ÷ 현재가(native currency)로 추정
                 # current_amount는 USD 종목이면 USD, KRX 종목이면 KRW — price도 같은 단위
-                return math.floor(float(s.current_amount) / price) if price > 0 else 0
+                qty = math.floor(float(s.current_amount) / price) if price > 0 else 0
+                self._held_qty_cache[cache_key] = qty
+                return qty
+            self._held_qty_cache[cache_key] = 0
             return 0  # 잔고에 없음
         except Exception as e:
             raise RuntimeError(f"{ticker} 보유 수량 조회 실패: {e}") from e
@@ -1328,46 +1396,121 @@ class KisRebalancer:
     def _wait_for_fill(
         self,
         order,
-        reorder: Callable[[float], object],
+        reorder: Callable[[float, int], object],
         ticker: str,
         action: str,
         qty: int,
         price: float,
         currency: str,
-        max_retries: int = 10,
-        retry_interval: int = 100,
+        max_retries: Optional[int] = None,
+        retry_interval: Optional[float] = None,
         chase: float = 0.001,
-    ) -> Tuple[bool, float]:
-        """미체결 주문 대기 루프. retry_interval초마다 가격 조정 후 재주문, max_retries회 초과 시 취소 후 타임아웃.
+        max_wait_s: Optional[float] = None,
+        poll_interval_s: Optional[float] = None,
+        refresh_price: Optional[Callable[[], float]] = None,
+    ) -> Tuple[int, float, bool]:
+        """미체결 주문을 제한시간 안에서 추적하고 실제 체결수량을 반환한다.
 
-        재주문 전 이전 주문을 반드시 취소한다.
-        취소하지 않으면 여러 주문이 동시에 시장에 열려 있다가 다음 날 일괄 체결될 수 있다.
-        chase: 재시도당 가격 추격폭 (buy는 +, sell는 -). 유동성 얇은 종목은 크게 잡아 체결 유도.
+        취소가 성공한 경우에만 *미체결 잔량*을 재주문한다. 취소 실패 시 새 주문을
+        내지 않아 중복 주문을 막고, 최종 취소도 확인되지 않으면 closed=False로 반환한다.
         """
+        max_retries = self.order_max_retries if max_retries is None else max(int(max_retries), 0)
+        retry_interval = (
+            self.order_retry_interval_s if retry_interval is None else max(float(retry_interval), 0.01)
+        )
+        max_wait_s = self.order_timeout_s if max_wait_s is None else max(float(max_wait_s), 0.01)
+        poll_interval_s = (
+            self.order_poll_interval_s if poll_interval_s is None else max(float(poll_interval_s), 0.01)
+        )
         rate = (1.0 + chase) if action == "buy" else (1.0 - chase)
-        cnt = 0
         retries = 0
+        total_filled = 0
+        current_qty = qty
+        started = time.monotonic()
+        next_retry_at = started + retry_interval
 
-        def _try_cancel(o) -> None:
+        def _try_cancel(o) -> bool:
             try:
                 o.cancel()
+                return True
             except Exception as ce:
                 print(f"  [경고] {ticker} 주문 취소 실패: {ce}")
+                return False
 
-        while order.pending:
-            time.sleep(1)
-            cnt += 1
-            if cnt % retry_interval == 0:
-                _try_cancel(order)
-                price = _adjust_tick(price * rate, currency)
-                order = reorder(price)
+        while True:
+            now = time.monotonic()
+            elapsed = now - started
+            try:
+                pending = order.pending_order
+            except Exception as pe:
+                print(f"  [경고] {ticker} 체결상태 조회 실패: {pe}")
+                if elapsed >= max_wait_s:
+                    closed = _try_cancel(order)
+                    if not closed:
+                        print(f"  [CRITICAL] {ticker}: 제한시간 후 주문 취소 미확인 — 신규 주문 금지")
+                    return total_filled, price, closed
+                time.sleep(poll_interval_s)
+                continue
+
+            if pending is None:
+                # 미체결 목록에서 사라졌고 취소를 요청한 상태가 아니므로 현재 주문 전량 체결.
+                total_filled += current_qty
+                return total_filled, price, True
+
+            executed = max(0, min(int(getattr(pending, "executed_qty", 0)), current_qty))
+            pending_qty = max(0, current_qty - executed)
+            rejected = bool(getattr(pending, "rejected", False))
+            should_reprice = now >= next_retry_at
+            should_stop = (
+                elapsed >= max_wait_s
+                or rejected
+                or (retries >= max_retries and should_reprice)
+            )
+
+            if should_stop or should_reprice:
+                if not _try_cancel(order):
+                    # 체결과 취소가 경합하면 "이미 체결" 때문에 취소가 실패할 수 있다.
+                    # 한 번 더 조회해 미체결 목록에서 사라졌다면 전량 체결로 확정한다.
+                    try:
+                        if order.pending_order is None:
+                            total_filled += current_qty
+                            return total_filled, price, True
+                    except Exception:
+                        pass
+                    if should_stop:
+                        print(f"  [CRITICAL] {ticker}: 주문 취소 미확인 — 열린 주문 가능성")
+                        return total_filled + executed, price, False
+                    next_retry_at = time.monotonic() + retry_interval
+                    time.sleep(poll_interval_s)
+                    continue
+
+                total_filled += executed
+                if pending_qty <= 0:
+                    return total_filled, price, True
+                if should_stop:
+                    reason = "거부" if rejected else "시간 초과"
+                    print(
+                        f"  [timeout] {ticker}: 주문 {reason} "
+                        f"(체결 {total_filled}/{qty}, 재시도 {retries}회, {elapsed:.0f}초)"
+                    )
+                    return total_filled, price, True
+
+                base_price = price
+                if refresh_price is not None:
+                    try:
+                        fresh = float(refresh_price())
+                        if fresh > 0:
+                            base_price = fresh
+                    except Exception as qe:
+                        print(f"  [경고] {ticker} 재가격 호가 조회 실패: {qe} — 직전 가격 사용")
+                price = _adjust_tick(base_price * rate, currency)
+                current_qty = pending_qty
+                order = reorder(price, current_qty)
                 retries += 1
-                if retries >= max_retries:
-                    _try_cancel(order)
-                    print(f"  [timeout] {ticker}: 주문 시간 초과 ({max_retries}회 재시도)")
-                    _append_order_log(ticker, action, qty, price, currency, self.usd_krw, "timeout")
-                    return False, price
-        return True, price
+                next_retry_at = time.monotonic() + retry_interval
+                continue
+
+            time.sleep(poll_interval_s)
 
     def sell_orphans(self, side: str, tracker: Optional[SettlementTracker] = None) -> List[str]:
         """
@@ -1447,14 +1590,23 @@ class KisRebalancer:
 
             print(f"  sell {_label_ticker(ticker, self.universe)} {qty}주 @ {price:,.2f} {currency}  [유니버스 외 정리]")
             order = stock.sell(qty=qty, price=price)
-            filled, price = self._wait_for_fill(
-                order, lambda p: stock.sell(qty=qty, price=p),
+            filled_qty, price, closed = self._wait_for_fill(
+                order, lambda p, q: stock.sell(qty=q, price=p),
                 ticker, "sell", qty, price, currency,
+                refresh_price=lambda: self._get_price(stock, "sell", currency),
             )
-            if not filled:
-                return f"[timeout] 매도 {ticker} {qty}주"
+            if filled_qty < qty or not closed:
+                if filled_qty > 0:
+                    _append_order_log(
+                        ticker, "sell", filled_qty, price, currency, self.usd_krw, "partial"
+                    )
+                status = "unknown_open" if not closed else "timeout"
+                _append_order_log(
+                    ticker, "sell", qty - filled_qty, price, currency, self.usd_krw, status
+                )
+                return f"[timeout] 매도 {ticker} 체결 {filled_qty}/{qty}주"
 
-            _append_order_log(ticker, "sell", qty, price, currency, self.usd_krw, "ok")
+            _append_order_log(ticker, "sell", filled_qty, price, currency, self.usd_krw, "ok")
             return f"매도 {_label_ticker(ticker, self.universe)} {qty}주 @ {price:,.2f} {currency} [정리]"
 
         except Exception as e:
@@ -1522,6 +1674,8 @@ class KisRebalancer:
         notify_error: bool = True,
     ) -> Optional[str]:
         """지정 종목을 KRW 환산 금액 기준으로 매수/매도한다. 결과 문자열을 반환한다."""
+        self._last_order_unfilled = None
+        self._last_order_filled_amount_krw = 0.0
         action = "buy" if amount_diff_krw > 0 else "sell"
         amount_local = (
             abs(amount_diff_krw) / self.usd_krw
@@ -1529,6 +1683,7 @@ class KisRebalancer:
             else abs(amount_diff_krw)
         )
         qty, price = 0, 0.0
+        initial_held_qty: Optional[int] = None
 
         try:
             client = self._get_client(ticker, acc_name)
@@ -1537,6 +1692,15 @@ class KisRebalancer:
 
             if price <= 0:
                 print(f"  [skip] {ticker}: 가격 조회 실패")
+                if action == "sell":
+                    self._last_order_unfilled = {
+                        "ticker": ticker,
+                        "qty": 0,
+                        "amount_krw": abs(amount_diff_krw),
+                        "currency": currency,
+                        "action": action,
+                        "status": "price_unavailable",
+                    }
                 return None
 
             qty = math.floor(amount_local / price)
@@ -1548,6 +1712,7 @@ class KisRebalancer:
             # 동시 실행이나 이전 주문의 부분 체결로 실제보다 많은 수량을 매도하는 것을 방지한다.
             if action == "sell":
                 held_qty = self._get_held_qty(client, ticker, currency, price, acc_name=acc_name or ticker)
+                initial_held_qty = held_qty
                 if held_qty == 0:
                     print(f"  [skip] {ticker}: 실보유 수량 없음")
                     return None
@@ -1560,7 +1725,12 @@ class KisRebalancer:
 
             # 유동성 얇은 종목: 주문 분할 + 재시도 확대 (호가 깊이 초과 timeout 방지)
             iq = self.illiquid_cfg.get(ticker, {})
-            wait_kwargs = {}
+            wait_kwargs = {
+                "max_retries": self.order_max_retries,
+                "retry_interval": self.order_retry_interval_s,
+                "max_wait_s": self.order_timeout_s,
+                "poll_interval_s": self.order_poll_interval_s,
+            }
             if iq:
                 if iq.get("max_retries") is not None:
                     wait_kwargs["max_retries"] = int(iq["max_retries"])
@@ -1568,6 +1738,8 @@ class KisRebalancer:
                     wait_kwargs["retry_interval"] = int(iq["retry_interval_s"])
                 if iq.get("price_chase") is not None:
                     wait_kwargs["chase"] = float(iq["price_chase"])
+                if iq.get("max_wait_s") is not None:
+                    wait_kwargs["max_wait_s"] = float(iq["max_wait_s"])
             chunk_qty = qty
             if iq.get("max_order_krw"):
                 cap_local = float(iq["max_order_krw"]) / (
@@ -1585,34 +1757,112 @@ class KisRebalancer:
                 print(f"  {action} {_label_ticker(ticker, self.universe)} {qty}주 @ {price:,.2f} {currency}")
 
             filled_qty = 0
+            logged_filled_qty = 0
             remaining = qty
             last_price = price
+            safely_closed = True
+            order_started = time.monotonic()
+            order_max_wait = float(wait_kwargs["max_wait_s"])
             while remaining > 0:
+                elapsed_order = time.monotonic() - order_started
+                if elapsed_order >= order_max_wait:
+                    print(
+                        f"  [timeout] {ticker}: 종목 전체 제한시간 {order_max_wait:.0f}초 초과 "
+                        f"(체결 {filled_qty}/{qty})"
+                    )
+                    break
                 q = min(chunk_qty, remaining)
                 order = order_fn(qty=q, price=last_price)
-                ok, last_price = self._wait_for_fill(
-                    order, lambda p, _q=q: order_fn(qty=_q, price=p),
-                    ticker, action, q, last_price, currency, **wait_kwargs,
+                chunk_wait_kwargs = dict(wait_kwargs)
+                chunk_wait_kwargs["max_wait_s"] = max(0.01, order_max_wait - elapsed_order)
+                chunk_filled, last_price, chunk_closed = self._wait_for_fill(
+                    order, lambda p, rq: order_fn(qty=rq, price=p),
+                    ticker, action, q, last_price, currency, **chunk_wait_kwargs,
+                    refresh_price=lambda: self._get_price(stock, action, currency),
                 )
-                if not ok:
+                chunk_filled = max(0, min(chunk_filled, q))
+                if split and chunk_filled == q:
+                    _append_order_log(
+                        ticker, action, chunk_filled, last_price, currency, self.usd_krw, "ok",
+                    )
+                    logged_filled_qty += chunk_filled
+                filled_qty += chunk_filled
+                remaining -= chunk_filled
+                safely_closed = safely_closed and chunk_closed
+                if chunk_filled < q or not chunk_closed:
                     break
-                if split:
-                    _append_order_log(ticker, action, q, last_price, currency, self.usd_krw, "ok")
-                filled_qty += q
-                remaining -= q
                 price = last_price  # 다음 청크 기준가 갱신
 
-            if filled_qty == 0:
-                return f"[timeout] {action} {ticker} {qty}주"
+            # 매도 timeout은 최종 잔고를 한 번 재조회해 취소 직전 체결 race까지 확정한다.
+            if action == "sell" and remaining > 0 and initial_held_qty is not None:
+                try:
+                    held_after = self._get_held_qty(
+                        client, ticker, currency, last_price, acc_name=acc_name or ticker,
+                        force_refresh=True,
+                    )
+                    reconciled = max(0, min(qty, initial_held_qty - held_after))
+                    if reconciled != filled_qty:
+                        print(
+                            f"  [체결 재확인] {ticker}: 주문추적 {filled_qty}주 → 잔고기준 {reconciled}주"
+                        )
+                        filled_qty = reconciled
+                        remaining = qty - filled_qty
+                except Exception as re:
+                    print(f"  [CRITICAL] {ticker} timeout 후 잔고 재확인 실패: {re}")
+                    safely_closed = False
+
+            fx = self.usd_krw if currency == "USD" else 1.0
+            self._last_order_filled_amount_krw = filled_qty * last_price * fx
+            if action == "sell" and initial_held_qty is not None:
+                self._held_qty_cache[(acc_name or ticker, currency, ticker)] = max(
+                    0, initial_held_qty - filled_qty
+                )
 
             if not split:
-                _append_order_log(ticker, action, filled_qty, last_price, currency, self.usd_krw, "ok")
+                if filled_qty > 0:
+                    _append_order_log(
+                        ticker, action, filled_qty, last_price, currency, self.usd_krw,
+                        "ok" if remaining == 0 else "partial",
+                    )
+            elif filled_qty > logged_filled_qty:
+                _append_order_log(
+                    ticker, action, filled_qty - logged_filled_qty, last_price,
+                    currency, self.usd_krw, "partial",
+                )
+            if remaining > 0:
+                failure_status = "unknown_open" if not safely_closed else "timeout"
+                _append_order_log(
+                    ticker, action, remaining, last_price, currency, self.usd_krw, failure_status
+                )
+                self._last_order_unfilled = {
+                    "ticker": ticker,
+                    "qty": remaining,
+                    "amount_krw": remaining * last_price * fx,
+                    "currency": currency,
+                    "action": action,
+                    "status": failure_status,
+                }
+
+            if filled_qty == 0:
+                prefix = "[CRITICAL]" if not safely_closed else "[timeout]"
+                return f"{prefix} {action} {ticker} {qty}주"
+
             note = "" if remaining == 0 else f" (부분체결 {filled_qty}/{qty}, 잔량 다음 실행)"
             return f"{label} {_label_ticker(ticker, self.universe)} {filled_qty}주 @ {last_price:,.2f} {currency}{note}"
 
         except Exception as e:
             print(f"  [error] {ticker}: {e}")
             _append_order_log(ticker, action, qty, price, currency, self.usd_krw, f"error:{e}")
+            if action == "sell":
+                fx = self.usd_krw if currency == "USD" else 1.0
+                self._last_order_unfilled = {
+                    "ticker": ticker,
+                    "qty": qty,
+                    "amount_krw": qty * price * fx if qty > 0 and price > 0 else abs(amount_diff_krw),
+                    "currency": currency,
+                    "action": action,
+                    "status": f"error:{type(e).__name__}",
+                }
             if self.messenger and notify_error:
                 self.messenger.send_order_error(ticker, e)
             return f"[오류] {ticker}: {e}"

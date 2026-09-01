@@ -2,7 +2,7 @@
 
 > **요약**: ① 기본 로직(레짐 감지·블렌딩·vol targeting·레짐 기반 리밸런싱)을 제외하고, 실제 매매에 영향을 주는 모든 부수 기능을 코드(`engine.py`·`portfolio.py`·`regime.py`·`run.py`·`executor.py`·`settlement.py`)·`config.yaml`에서 추출해 (A) 비중 형성, (B) 리밸런싱 트리거, (C) 실행·계좌·결제 3계층으로 리스트업했다. ② 각 기능의 현재 on/off·값·핵심 상호작용·근거 문서를 표로 정리하고, 한 기능 실험이 다른 기능에 의해 교란/희석되는 조합(예: core30이 vol·gate를 위성 70%로 희석, vol_targeting↔drawdown_scaling 이중축소, floor 실험↔리밸 모드)을 상호작용 맵에 명시했다. ③ 이 문서는 새 기능 실험 전 반드시 확인해 "함께 켜져 있어 결과를 흐릴 수 있는 기능"을 사용자에게 미리 알리고 실험 범위(고정/토글 대상)를 합의하기 위한 레퍼런스다(CLAUDE.md 규칙5).
 
-- 최종 갱신: 2026-06-17
+- 최종 갱신: 2026-09-01
 - 범위: **기본 엔진 로직(레짐 블렌딩·vol targeting 포함) + 모든 부수 기능**. 매매에 영향을 주는 기능 전부.
 - 상태 표기: ✅켜짐 / ⛔꺼짐(코드·knob 보존) / 🔒고정값
 
@@ -53,6 +53,7 @@
 | A18 | **min_covar / use_forward_hmm** | `hmm` | ✅ 1e-3 / ⛔ | HMM 방출 뾰족함(포화) / 1-step 예측 | min_covar↑면 포화 완화 → blend 분산 |
 | A19 | **feature_smoothing (노이즈 피처 5일 평활)** | `features.py` `compute_features`/`compute_feature_matrix`, `config.feature_smoothing` | ✅ window 5, 6피처 | HMM 입력 빠른 시장 피처(vix_term_structure·vix·credit_signal·momentum_1m·commodity_mom_1m·dxy_mom_1m)를 5일 rolling 평균으로 평활 → 일별 표류↓ | **HMM 입력 자체를 늦춤** → blend·acting regime·vol 티어 전부 간접 영향. 백테스트는 리밸일만 재계산이라 회전 감소 미반영(본 효과는 라이브). [[experiment_2026-06-17_noise_smoothing_seed_fix]] |
 | A20 | **hmm.fit_seeds (fit 시드 고정)** | `regime.py` `HmmRegimeClassifier`, `config.hmm.fit_seeds` | ✅ [42] | 매일 비지도 재학습 시 사용할 시드 목록. 단일 [42]면 학습이 결정적 → 센트로이드 점프·앵커 매핑 흔들림 제거. None이면 [42,7,13] 다중→최고점수 | **A15 stabilize_mapping(앵커)과 직결**: 다중 시드면 일별 승자 교체로 센트로이드 점프 → 앵커 매핑 실패. 단일 시드가 그 churn 근원 제거 |
+| A21 | **signal data-quality guard** | `features.py:compute_feature_matrix`, `run.py:_run_market_analysis` | ✅ 선택피처 coverage≥80%·100일, 필수행 coverage≥70% | `^VIX9D` 같은 선택 피처의 부분 응답이 전체 학습표를 무너뜨리지 않게 열을 제외. 필수 학습표가 기준 미달이면 직전 정상 blend·자산군 목표·vol·VIX를 동결하고, 독립 가격신호 Crisis의 위험축소만 예외 허용 | **A12/A13 평활보다 앞단에서 입력을 차단**. A15 anchor·`prev_blend_probs`는 불량 회차에 갱신하지 않음. B1 drift는 직전 정상 목표와의 차이만 처리하므로 데이터 장애가 신규 risk-on 목표를 만들지 않음. 라이브 fail-safe이며 백테스트 성과변형 목적이 아님. [[fix_2026-09-01_trading_safety]] |
 
 ## B. 리밸런싱 트리거 (언제 매매할지)
 
@@ -81,14 +82,15 @@
 | C4b | **USD 미결제 순매매 NAV 보정** | `executor.py:_compute_usd_nav_cash` | ✅ | 해외 체결기준 잔고의 현금을 `출금가능 예수금 + 미결제 매도 - 미결제 매수`로 계산. 당일 매수 종목은 이미 stocks에 들어오므로 gross 매도만 더해 매수액을 이중계산하지 않음 | **총자산·USD/KRW 비중·drift·peak·입출금 자동감지·알파·주문 수량에 직접 영향.** 주문가능 API 실패 폴백은 미결제 순매매를 제외한 출금가능 예수금만 사용해 재사용 가능 자금을 과대평가하지 않음. [[fix_2026-08-28_usd_pending_net_settlement]] |
 | C5 | **buffer_floor** | `portfolio.py:473` | ⛔ 빈 리스트 | 버퍼자산 최소비중 강제 | 모든 레짐 cash≥0.08이라 redundant |
 | C6 | **orderable cap (KRW/USD) + 잔고부족 축소 재시도** | `executor.py:952,1000`, `_execute_buy_capped` | ✅ | 매도 직후 1회 cap으로 비례 축소 + 매수 거부(APBK0952) 시 한도 재조회·금액 ~3%씩 축소 후 같은 종목 재시도(최대 2회) | 사전 cap만으로는 max_buy_qty가 T+2 매도대금 과대반영→순서상 마지막 매수가 거부됨(fix_2026-06-18). 축소 재시도로 종목 유지([[feedback-illiquid-fix-over-swap]]), 최종 실패만 C4 deferred |
-| C7 | **illiquid_order_handling** | `executor.py:283` | ✅ 468370 | 얇은 종목 주문 분할·재시도·가격추격 | 신규 KRW-native 종목 추가 시 확장 필요([[feedback-illiquid-fix-over-swap]]) |
+| C7 | **illiquid_order_handling + bounded fill FSM** | `executor.py:_wait_for_fill` | ✅ 468370, 종목당 180초 상한 | 얇은 종목 주문 분할·재가격. 취소 성공 후 미체결 잔량만 재주문하고, 취소 미확인 시 신규 주문 금지. timeout 매도는 잔고로 부분체결 재확인 | C10 매도우선과 결합하되 한 종목이 전체 주문을 19분 막지 않음. C15 실패매도 큐와 짝. [[fix_2026-09-01_trading_safety]] |
 | C8 | **min_order_krw** | `rebalancing` | 🔒 1만원 | 잔주문 필터 | B6 대체 |
-| C9 | **order_throttle_s** | `rebalancing` | 🔒 0.25s | 주문 간 대기(KIS rate limit) | — |
+| C9 | **order_throttle_s + 잔고수량 캐시** | `rebalancing`, `executor.py` | 🔒 1.0s | 주문 간 대기 + 포트폴리오 조회에서 확보한 매도가능수량 재사용. EGW00215는 2→4초 별도 backoff | 종목별 잔고 재조회 제거로 C10 다종목 매도 시 API burst 축소 |
 | C10 | **sell-first-then-buy + orphan 매도** | `executor.py:656,1085` | ✅ | 매도로 현금 확보 후 매수, 유니버스 외 보유 청산 | orphan은 drift/target에서 제외 |
 | C11 | **_correct_peak_for_io** | `executor.py:422` | ✅ | 입출금을 drawdown peak·벤치마크 알파에서 보정 | 입금이 DD를 가짜 리셋하는 것 방지 → B3·A6 트리거 정확도. **C13과 짝** — 감지 net_flow가 `benchmark.py`로도 흘러 SPY 주수를 조정 |
 | C13 | **입출금 감지 백엔드 우선순위** | `deposit_log.py:342` | ✅ | ①deposits.csv 기록 → ②KIS profits 역산(Δ원금−실현손익) → ③휴리스틱(Δ>10%, <30h) | **빈 CSV가 ②③을 막던 버그 수정(2026-08-01)** — 헤더만 있는 CSV를 '0건 확정'으로 처리해 2,200만원 입금을 놓쳤다. 이제 *구간 내 기록이 있을 때만* CSV 채택 |
 | C14 | **excluded_krw_accounts (성과 제외)** | `executor.py:332,681`, `rebalancing` | ✅ `["KRW_1"]` | 지정 KRW 계좌를 **없는 계좌로 취급** — 주문·비중·drift는 물론 총자산·peak·드로우다운·알파·원금에서도 전부 제외 | **C13과 강하게 상호작용**: KRW_1↔USD는 계좌번호가 같아 환전이 외부 입출금으로 안 잡히는데, 제외 기준 원금으로 보면 환전이 순유입으로 나타나 ②가 자동 감지한다. 반대로 **제외 계좌에서 수동 매매하면 실현손익이 섞여 ② 오염** |
 | C12 | **_adjust_tick** | `executor.py:238` | ✅ | 호가단위 가격 반올림 | — |
+| C15 | **failed_sells 영속 큐** | `settlement.py`, `executor.py`, `run.py` | ✅ TTL 5영업일 | timeout·오류 매도를 state에 저장하고 다음 monitor에서 쿨다운을 무시해 재시도. 실제 체결금액만 회전율·매도대금에 반영 | B4 deferred_buys의 매도 대칭. C7 timeout·C10 sell-first와 결합. 열린 주문 미확정(`unknown_open`)은 Slack 오류로 즉시 강조 |
 
 ---
 
@@ -107,6 +109,7 @@
 | 유니버스 종목 추가/교체 | C1 waterfall, C7 illiquid, A3/A4 caps, asset_routing | KRW/USD 라우팅·유동성·상한·합성쌍(synthetic_pairs) 동시 갱신 필요 |
 | drawdown_scaling 재가동 (A6) | vol_targeting, B3 DD트리거 | vol과 이중축소(끈 이유). B3 트리거는 별개로 유지 중 |
 | 노이즈 평활/시드 (A19·A20) | A12/A13 평활, A15 앵커, B1 리밸 모드 | A19는 HMM *입력*을 늦추고 A12/A13은 *출력*(blend)을 늦춤 — 회전 감소 효과가 겹쳐 귀속 모호. A20은 A15 앵커 안정성과 직결. 백테스트는 회전 효과 미반영(라이브 모니터링 필요) |
+| 데이터 품질 guard (A21) | A12/A13 평활, A15 anchor, B1 drift, A0-2 vol, A4 VIX cap | 불량 회차에는 출력평활에 새 값을 넣지 않고 직전 blend·목표·vol·VIX를 함께 동결해야 일부 입력만 새로 반영되는 위험증가를 막음. 가격 기반 Crisis만 예외 |
 | 성과 지표(알파·DD·Ulcer) 해석 | **C14 제외계좌**, C13 입출금 감지, C11 peak 보정 | 세 개가 한 파이프라인이다. 제외계좌가 바뀌면 총자산·원금 *기준*이 바뀌어 state 재앵커(peak_krw·bench_spy_shares·last_principal_krw) 없이는 다음 실행이 기준차를 입출금으로 오인한다. 알파 이력도 기준 전후로 불연속([[project-krw1-perf-exclusion]]) |
 
 ## 백테스트 충실도 체크리스트 (실험 코드 작성 시)

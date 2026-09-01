@@ -13,6 +13,7 @@ except ImportError:
     _HOLIDAYS_AVAILABLE = False
 
 DEFERRED_TTL_DAYS = 5  # 지연 매수 만료 기간 (영업일)
+FAILED_SELL_TTL_DAYS = 5
 
 
 def _next_business_day(from_date: date, n: int) -> date:
@@ -36,6 +37,7 @@ class SettlementTracker:
 
     def __init__(self, state: dict) -> None:
         self._deferred: List[dict] = state.get("deferred_buys", [])
+        self._failed_sells: List[dict] = state.get("failed_sells", [])
 
     # ── 지연 매수 대기열 ─────────────────────────────────────────────────
 
@@ -63,7 +65,38 @@ class SettlementTracker:
     def clear_deferred(self) -> None:
         self._deferred = []
 
+    # ── 실패 매도 대기열 ───────────────────────────────────────────────
+
+    def add_failed_sell(
+        self, ticker: str, qty: int, amount_krw: float, currency: str, status: str
+    ) -> None:
+        expire = _next_business_day(date.today(), FAILED_SELL_TTL_DAYS).isoformat()
+        self._failed_sells.append({
+            "ticker": ticker,
+            "qty": int(qty),
+            "amount_krw": float(amount_krw),
+            "currency": currency,
+            "status": status,
+            "created": date.today().isoformat(),
+            "expires": expire,
+        })
+
+    def get_failed_sells(self) -> List[dict]:
+        today = date.today().isoformat()
+        active = [d for d in self._failed_sells if d.get("expires", "9999-12-31") > today]
+        expired = len(self._failed_sells) - len(active)
+        if expired:
+            print(f"    [실패매도] 만료 항목 {expired}건 자동 정리")
+            self._failed_sells = active
+        return list(active)
+
+    def clear_failed_sells(self) -> None:
+        self._failed_sells = []
+
     # ── 직렬화 ────────────────────────────────────────────────────────────
 
     def to_dict(self) -> dict:
-        return {"deferred_buys": self._deferred}
+        return {
+            "deferred_buys": self._deferred,
+            "failed_sells": self._failed_sells,
+        }

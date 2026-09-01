@@ -363,6 +363,7 @@ class HmmRegimeClassifier:
         self._mapping_deadband = float(mapping_deadband)
         self._anchor: list[dict] = []
         self._last_state_centroids: dict[int, dict[str, float]] = {}
+        self._alignment_stats: dict[str, float | int] = {}
 
         weights = dict(self.DEFAULT_MAPPING_WEIGHTS)
         if mapping_weights:
@@ -394,6 +395,7 @@ class HmmRegimeClassifier:
 
         from features import get_active_feature_cols
 
+        self._alignment_stats = {}
         active_cols = get_active_feature_cols(feature_matrix)
         self._feature_cols = active_cols
 
@@ -702,15 +704,35 @@ class HmmRegimeClassifier:
                         break
 
         aligned = dict(mapping)
+        distances: list[float] = []
+        accepted = 0
+        semantic_changes = 0
         for i, j in pairs:
             s = new_states[i]
             prior_regime = anchor[j].get("regime", DEFAULT_REGIME)
+            distance = float(cost[i, j])
+            distances.append(distance)
             # Crisis는 정렬로 바꾸지 않음(양방향 보호) + deadband 이내일 때만 물려받음
-            if mapping[s] == "Crisis" or prior_regime == "Crisis":
-                continue
-            if cost[i, j] <= self._mapping_deadband:
+            crisis_pair = mapping[s] == "Crisis" or prior_regime == "Crisis"
+            if not crisis_pair and distance <= self._mapping_deadband:
                 aligned[s] = prior_regime
+                accepted += 1
+            if aligned[s] != prior_regime:
+                semantic_changes += 1
+
+        self._alignment_stats = {
+            "compared": len(pairs),
+            "accepted": accepted,
+            "semantic_changes": semantic_changes,
+            "mean_distance": float(np.mean(distances)) if distances else 0.0,
+            "max_distance": float(np.max(distances)) if distances else 0.0,
+        }
         return aligned
+
+    @property
+    def alignment_stats(self) -> dict[str, float | int]:
+        """직전 anchor와 현재 군집을 의미 기준으로 비교한 정렬 통계."""
+        return dict(self._alignment_stats)
 
     @property
     def mapping_method(self) -> str:
