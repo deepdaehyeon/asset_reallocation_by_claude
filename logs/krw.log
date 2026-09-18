@@ -3397,3 +3397,6 @@
 [main 8666a9a] logs: auto-update 2026-09-17 10:00
  4 files changed, 49 insertions(+), 8 deletions(-)
 [push_logs] 완료: 2026-09-17 10:00
+[09/18 10:00:10] [KRW] 트리거 없음 (no_trigger(drift=1.4%)) → 실행 생략
+[slack_review] 전송 완료
+[snapshot] /Users/kimdhyeon/asset_reallocation_by_claude/STATUS.md 생성 완료
