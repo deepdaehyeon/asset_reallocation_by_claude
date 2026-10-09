@@ -3851,3 +3851,112 @@
 [main 7f9b9f2] logs: auto-update 2026-10-08 10:05
  4 files changed, 58 insertions(+), 9 deletions(-)
 [push_logs] 완료: 2026-10-08 10:05
+[10/09 10:00:07] [KRW] 트리거 확인: deferred_buys
+[10/09 10:00:07] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[10/09 10:00:07] [4] 계좌 잔고 조회 중...
+[10/09 10:00:07]     USD/KRW: 1,345.7 (실시간)
+[10/09 10:00:08]   [USD USD 미결제 순매매] 매도 $3,724 - 매수 $4,044 = $-320 반영 (T+2 결제 대기)
+[10/09 10:00:08]     총 자산: 229,805,687 원  │  USD 47.9% / KRW 52.1%
+[10/09 10:00:08]     드로우다운: -3.43%
+[10/09 10:00:08] [4b] 유니버스 외 종목 자동 정리 중...
+[10/09 10:00:08]     정리 대상 없음
+[10/09 10:00:08] [5] 목표 비중 산출 중...
+[10/09 10:00:08]     [core+satellite] core 30% (Goldilocks 고정) + satellite 70% (엔진)
+[10/09 10:00:08] [6] 결제 상태 점검 중...
+[10/09 10:00:08]     이전 지연 매수 1건 → 합성 노출 반영
+[10/09 10:00:08]       305080 391,000원 (KRW)
+[10/09 10:00:08] [7] 리스크 제어 적용 중...
+[10/09 10:00:08]     목표 비중 [KRW 계좌]:
+[10/09 10:00:08]         379800(KODEX S&P500)     계좌:46.5%  전체:24.2%  현재:24.2%
+[10/09 10:00:08]         379810(KODEX 나스닥100)     계좌:26.1%  전체:13.6%  현재:13.6%
+[10/09 10:00:08]         469830(SOL 초단기채권)        계좌:8.4%  전체:4.4%  현재:4.4%
+[10/09 10:00:08]         411060(ACE KRX금현물)       계좌:8.2%  전체:4.3%  현재:4.3%
+[10/09 10:00:08]       ▼ 218420(KODEX 미국S&P500에너지(합성)) 계좌:5.1%  전체:2.6%  현재:3.5%
+[10/09 10:00:08]         468370(KODEX iShares 미국인플레이션국채액티브) 계좌:3.0%  전체:1.6%  현재:1.5%
+[10/09 10:00:08]         305080(TIGER 미국채10년)     계좌:1.7%  전체:0.9%  현재:0.5%
+[10/09 10:00:08] [8] 리밸런싱 실행...
+[10/09 10:00:08]   [계좌 제외] KRW_1 — 리밸런싱 주문 생성 제외 중 (수동 작업)
+[10/09 10:00:08] → [KRW] 실행 3건 (매도 1, 매수 2)
+[10/09 10:00:08]   sell 218420(KODEX 미국S&P500에너지(합성)) 97주 @ 19,900.00 KRW
+[10/09 10:00:08]   [error] 218420: KIS API 요청에 실패했습니다.
+[10/09 10:00:08] (RT_CD: 7, MSG_CD: APBK0919) TTC0011U
+[10/09 10:00:08] 장운영일자가 주문일과 상이합니다
+
+[10/09 10:00:08] [  Request  ]: POST https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/trading/order-cash
+[10/09 10:00:08] Headers: {'User-Agent': 'PyKis/2.1.6', 'Accept-Encoding': 'gzip, deflate, br', 'Accept': '*/*', 'Connection': 'keep-alive', 'tr_id': 'TTTC0801U', 'appkey': '***', 'appsecret': '***', 'Authorization': 'Bearer ***', 'Content-Length': '116', 'Content-Type': 'application/json'}
+[10/09 10:00:08] Params: {}
+[10/09 10:00:08] Body: {"PDNO": "218420", "ORD_DVSN": "00", "ORD_QTY": "97", "ORD_UNPR": "19900", "CANO": "64521213", "ACNT_PRDT_CD": "01"}
+[10/09 10:00:09]     [주문가능금액] KRW_2: 256,074원 (max_qty=26×10050=261,300, ask·98% 적용, 참고 ord_psbl_cash=278,991)
+[10/09 10:00:09]   [주문가능 cap] KRW_2: 1,025,568원 → 256,074원 (25.0%)
+[10/09 10:00:09]   buy 468370(KODEX iShares 미국인플레이션국채액티브) 2주 @ 10,050.00 KRW
+[10/09 10:00:09]   [error] 468370: KIS API 요청에 실패했습니다.
+[10/09 10:00:09] (RT_CD: 7, MSG_CD: APBK0919) TTC0012U
+[10/09 10:00:09] 장운영일자가 주문일과 상이합니다
+
+[10/09 10:00:09] [  Request  ]: POST https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/trading/order-cash
+[10/09 10:00:09] Headers: {'User-Agent': 'PyKis/2.1.6', 'Accept-Encoding': 'gzip, deflate, br', 'Accept': '*/*', 'Connection': 'keep-alive', 'tr_id': 'TTTC0802U', 'appkey': '***', 'appsecret': '***', 'Authorization': 'Bearer ***', 'Content-Length': '115', 'Content-Type': 'application/json'}
+[10/09 10:00:09] Params: {}
+[10/09 10:00:09] Body: {"PDNO": "468370", "ORD_DVSN": "00", "ORD_QTY": "2", "ORD_UNPR": "10050", "CANO": "64521213", "ACNT_PRDT_CD": "01"}
+[10/09 10:00:10]     [주문가능금액] KRW_2: 256,074원 (max_qty=26×10050=261,300, ask·98% 적용, 참고 ord_psbl_cash=278,991)
+[10/09 10:00:10]   [매수 재시도] 468370(KODEX iShares 미국인플레이션국채액티브) 29,117→28,243원 (주문가능 256,074, 1/2)
+[10/09 10:00:11]   buy 468370(KODEX iShares 미국인플레이션국채액티브) 2주 @ 10,050.00 KRW
+[10/09 10:00:11]   [error] 468370: KIS API 요청에 실패했습니다.
+[10/09 10:00:11] (RT_CD: 7, MSG_CD: APBK0919) TTC0012U
+[10/09 10:00:11] 장운영일자가 주문일과 상이합니다
+
+[10/09 10:00:11] [  Request  ]: POST https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/trading/order-cash
+[10/09 10:00:11] Headers: {'User-Agent': 'PyKis/2.1.6', 'Accept-Encoding': 'gzip, deflate, br', 'Accept': '*/*', 'Connection': 'keep-alive', 'tr_id': 'TTTC0802U', 'appkey': '***', 'appsecret': '***', 'Authorization': 'Bearer ***', 'Content-Length': '115', 'Content-Type': 'application/json'}
+[10/09 10:00:11] Params: {}
+[10/09 10:00:11] Body: {"PDNO": "468370", "ORD_DVSN": "00", "ORD_QTY": "2", "ORD_UNPR": "10050", "CANO": "64521213", "ACNT_PRDT_CD": "01"}
+[10/09 10:00:11]     [주문가능금액] KRW_2: 256,074원 (max_qty=26×10050=261,300, ask·98% 적용, 참고 ord_psbl_cash=278,991)
+[10/09 10:00:11]   [매수 재시도] 468370(KODEX iShares 미국인플레이션국채액티브) 28,243→27,396원 (주문가능 256,074, 2/2)
+[10/09 10:00:12]   buy 468370(KODEX iShares 미국인플레이션국채액티브) 2주 @ 10,050.00 KRW
+[10/09 10:00:12]   [error] 468370: KIS API 요청에 실패했습니다.
+[10/09 10:00:12] (RT_CD: 7, MSG_CD: APBK0919) TTC0012U
+[10/09 10:00:12] 장운영일자가 주문일과 상이합니다
+
+[10/09 10:00:12] [  Request  ]: POST https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/trading/order-cash
+[10/09 10:00:12] Headers: {'User-Agent': 'PyKis/2.1.6', 'Accept-Encoding': 'gzip, deflate, br', 'Accept': '*/*', 'Connection': 'keep-alive', 'tr_id': 'TTTC0802U', 'appkey': '***', 'appsecret': '***', 'Authorization': 'Bearer ***', 'Content-Length': '115', 'Content-Type': 'application/json'}
+[10/09 10:00:12] Params: {}
+[10/09 10:00:12] Body: {"PDNO": "468370", "ORD_DVSN": "00", "ORD_QTY": "2", "ORD_UNPR": "10050", "CANO": "64521213", "ACNT_PRDT_CD": "01"}
+[10/09 10:00:14]   buy 305080(TIGER 미국채10년) 19주 @ 11,500.00 KRW
+[10/09 10:00:14]   [error] 305080: KIS API 요청에 실패했습니다.
+[10/09 10:00:14] (RT_CD: 7, MSG_CD: APBK0919) TTC0012U
+[10/09 10:00:14] 장운영일자가 주문일과 상이합니다
+
+[10/09 10:00:14] [  Request  ]: POST https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/trading/order-cash
+[10/09 10:00:14] Headers: {'User-Agent': 'PyKis/2.1.6', 'Accept-Encoding': 'gzip, deflate, br', 'Accept': '*/*', 'Connection': 'keep-alive', 'tr_id': 'TTTC0802U', 'appkey': '***', 'appsecret': '***', 'Authorization': 'Bearer ***', 'Content-Length': '116', 'Content-Type': 'application/json'}
+[10/09 10:00:14] Params: {}
+[10/09 10:00:14] Body: {"PDNO": "305080", "ORD_DVSN": "00", "ORD_QTY": "19", "ORD_UNPR": "11500", "CANO": "64521213", "ACNT_PRDT_CD": "01"}
+[10/09 10:00:14]     [주문가능금액] KRW_2: 259,210원 (max_qty=23×11500=264,500, ask·98% 적용, 참고 ord_psbl_cash=278,991)
+[10/09 10:00:14]   [매수 재시도] 305080(TIGER 미국채10년) 226,957→220,149원 (주문가능 259,210, 1/2)
+[10/09 10:00:15]   buy 305080(TIGER 미국채10년) 19주 @ 11,500.00 KRW
+[10/09 10:00:15]   [error] 305080: KIS API 요청에 실패했습니다.
+[10/09 10:00:15] (RT_CD: 7, MSG_CD: APBK0919) TTC0012U
+[10/09 10:00:15] 장운영일자가 주문일과 상이합니다
+
+[10/09 10:00:15] [  Request  ]: POST https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/trading/order-cash
+[10/09 10:00:15] Headers: {'User-Agent': 'PyKis/2.1.6', 'Accept-Encoding': 'gzip, deflate, br', 'Accept': '*/*', 'Connection': 'keep-alive', 'tr_id': 'TTTC0802U', 'appkey': '***', 'appsecret': '***', 'Authorization': 'Bearer ***', 'Content-Length': '116', 'Content-Type': 'application/json'}
+[10/09 10:00:15] Params: {}
+[10/09 10:00:15] Body: {"PDNO": "305080", "ORD_DVSN": "00", "ORD_QTY": "19", "ORD_UNPR": "11500", "CANO": "64521213", "ACNT_PRDT_CD": "01"}
+[10/09 10:00:15]     [주문가능금액] KRW_2: 259,210원 (max_qty=23×11500=264,500, ask·98% 적용, 참고 ord_psbl_cash=278,991)
+[10/09 10:00:15]   [매수 재시도] 305080(TIGER 미국채10년) 220,149→213,544원 (주문가능 259,210, 2/2)
+[10/09 10:00:16]   buy 305080(TIGER 미국채10년) 18주 @ 11,500.00 KRW
+[10/09 10:00:16]   [error] 305080: KIS API 요청에 실패했습니다.
+[10/09 10:00:16] (RT_CD: 7, MSG_CD: APBK0919) TTC0012U
+[10/09 10:00:16] 장운영일자가 주문일과 상이합니다
+
+[10/09 10:00:16] [  Request  ]: POST https://openapi.koreainvestment.com:9443/uapi/domestic-stock/v1/trading/order-cash
+[10/09 10:00:16] Headers: {'User-Agent': 'PyKis/2.1.6', 'Accept-Encoding': 'gzip, deflate, br', 'Accept': '*/*', 'Connection': 'keep-alive', 'tr_id': 'TTTC0802U', 'appkey': '***', 'appsecret': '***', 'Authorization': 'Bearer ***', 'Content-Length': '116', 'Content-Type': 'application/json'}
+[10/09 10:00:16] Params: {}
+[10/09 10:00:16] Body: {"PDNO": "305080", "ORD_DVSN": "00", "ORD_QTY": "18", "ORD_UNPR": "11500", "CANO": "64521213", "ACNT_PRDT_CD": "01"}
+[10/09 10:00:17]     [매수 실패] KRW 2건 → 다음 실행 시 합성 노출로 대체
+[10/09 10:00:17]     [매도 미완료] 1건 → 다른 주문은 완료, 다음 모니터에서 우선 재시도
+[10/09 10:00:17]   [cooldown skip] 실행된 주문 없음 — last_rebalanced·monthly_traded 미갱신
+[10/09 10:00:17]     지연 매수 2건 저장 → 다음 실행 시 합성 노출 반영
+[10/09 10:00:17]     미완료 매도 1건 저장 → 다음 모니터에서 우선 재시도
+[10/09 10:00:17]     📊 S&P500였다면 234,204,500원 · 실제 229,805,687원 · 알파 -4,398,814원 (-1.9%)
+[10/09 10:00:18] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[10/09 10:00:18] KRW 리밸런싱 완료
+[slack_review] 전송 완료
+[snapshot] /Users/kimdhyeon/asset_reallocation_by_claude/STATUS.md 생성 완료
