@@ -220,3 +220,8 @@ To github.com:deepdaehyeon/asset_reallocation_by_claude.git
    ec77d12..9387685  main -> main
 To github.com:deepdaehyeon/asset_reallocation_by_claude.git
    2d6d4f5..be1e3f9  main -> main
+ssh: connect to host github.com port 22: Can't assign requested address
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.
