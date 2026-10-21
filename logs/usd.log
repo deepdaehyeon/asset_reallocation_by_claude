@@ -7177,3 +7177,6 @@ USD 리밸런싱 완료
 [main 2d6d4f5] logs: auto-update 2026-10-20 03:01
  4 files changed, 75 insertions(+), 28 deletions(-)
 [push_logs] 완료: 2026-10-20 03:01
+[10/21 03:00:08] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[10/21 03:00:08] [1] 시장 데이터 수집 중...
+[10/21 03:00:10] [Slack 오류] <urlopen error [Errno 49] Can't assign requested address>
